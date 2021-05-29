@@ -1,4 +1,4 @@
-package org.wastastic;
+package org.wastastic.compiler;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

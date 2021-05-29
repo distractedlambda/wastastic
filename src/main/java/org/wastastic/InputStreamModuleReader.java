@@ -1,5 +1,7 @@
 package org.wastastic;
 
+import org.wastastic.compiler.ModuleReader;
+
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;

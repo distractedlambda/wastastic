@@ -1,4 +1,4 @@
-package org.wastastic;
+package org.wastastic.compiler;
 
 import java.io.IOException;
 import java.lang.reflect.Array;
@@ -10,7 +10,7 @@ import static java.lang.Integer.toUnsignedString;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 
-public final class Vectors {
+final class Vectors {
     private Vectors() {}
 
     private static IllegalArgumentException makeNotAVectorException(Object vector, Class<?> elementType) {

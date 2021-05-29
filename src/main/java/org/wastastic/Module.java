@@ -9,7 +9,7 @@ public abstract class Module {
         this.memory = Objects.requireNonNull(memory);
     }
 
-    public Memory getMemory() {
+    public final Memory getMemory() {
         return memory;
     }
 }

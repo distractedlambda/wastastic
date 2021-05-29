@@ -1,4 +1,4 @@
-package org.wastastic;
+package org.wastastic.compiler;
 
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
@@ -10,7 +10,7 @@ import java.util.ArrayList;
 
 import static java.util.Objects.requireNonNull;
 
-public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
+final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
     private final String name;
     private final R reader;
     private final V classVisitor;
@@ -18,27 +18,18 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
     private String className;
 
     private final ArrayList<FunctionType> types = new ArrayList<>();
-    private final ArrayList<Import> imports = new ArrayList<>();
-    private final ArrayList<Object> functions = new ArrayList<>();
-    private final ArrayList<Object> tables = new ArrayList<>();
-    private final ArrayList<Object> memories = new ArrayList<>();
-    private final ArrayList<Object> globals = new ArrayList<>();
+    private final ArrayList<Function> functions = new ArrayList<>();
+    private final ArrayList<Table> tables = new ArrayList<>();
+    private final ArrayList<Memory> memories = new ArrayList<>();
+    private final ArrayList<Global> globals = new ArrayList<>();
 
-    public ModuleCompiler(String name, R reader, V classVisitor) {
+    ModuleCompiler(String name, R reader, V classVisitor) {
         this.name = requireNonNull(name);
         this.reader = requireNonNull(reader);
         this.classVisitor = requireNonNull(classVisitor);
     }
 
-    public R getReader() {
-        return reader;
-    }
-
-    public V getClassVisitor() {
-        return classVisitor;
-    }
-
-    public void compile() throws CompilationException, IOException {
+    void compile() throws CompilationException, IOException {
         if (reader.nextByte() != 0x00 ||
             reader.nextByte() != 0x61 ||
             reader.nextByte() != 0x73 ||
@@ -77,7 +68,7 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
         }
     }
 
-    private void compileCode(FunctionType type, MethodVisitor mv) throws IOException {
+    private void compileCode(FunctionType type, MethodVisitor mv) throws IOException, CompilationException {
         mv.visitCode();
         for (var opcode = reader.nextByte();; opcode = reader.nextByte()) {
             switch (opcode) {
@@ -166,42 +157,16 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
     }
 
     private void compileImportSection() throws CompilationException, IOException {
-        var remaining = reader.nextUnsigned32();
-
-        imports.ensureCapacity(imports.size() + remaining);
-
-        for (; remaining != 0; remaining--) {
+        for (var remaining = reader.nextUnsigned32(); remaining != 0; remaining--) {
             var moduleName = nextName();
             var name = nextName();
-            var typeCode = reader.nextByte();
-
-            Import imp;
-
-            switch (typeCode) {
-                case 0x00 -> {
-                    imp = new Import(moduleName, name, nextIndexedType());
-                    functions.add(imp);
-                }
-
-                case 0x01 -> {
-                    imp = new Import(moduleName, name, nextTableType());
-                    tables.add(imp);
-                }
-
-                case 0x02 -> {
-                    imp = new Import(moduleName, name, nextMemoryType());
-                    memories.add(imp);
-                }
-
-                case 0x03 -> {
-                    imp = new Import(moduleName, name, nextGlobalType());
-                    globals.add(imp);
-                }
-
-                default -> throw new CompilationException("Illegal import description");
+            switch (reader.nextByte()) {
+                case 0x00 -> functions.add(new ImportedFunction(moduleName, name, nextIndexedType()));
+                case 0x01 -> tables.add(new ImportedTable(moduleName, name, nextTableType()));
+                case 0x02 -> memories.add(new ImportedMemory(moduleName, name, nextMemoryType()));
+                case 0x03 -> globals.add(new ImportedGlobal(moduleName, name, nextGlobalType()));
+                default -> throw new CompilationException("Invalid import description");
             }
-
-            imports.add(imp);
         }
     }
 
@@ -237,7 +202,7 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
         return switch (reader.nextByte()) {
             case 0x00 -> new Limits(reader.nextUnsigned32());
             case 0x01 -> new Limits(reader.nextUnsigned32(), reader.nextUnsigned32());
-            default -> throw new CompilationException("Illegal limits encoding");
+            default -> throw new CompilationException("Invalid limits encoding");
         };
     }
 
@@ -330,7 +295,7 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
 
             emitGetMemory();
             methodVisitor.visitInsn(Opcodes.SWAP);
-            methodVisitor.visitMethodInsn();
+            // methodVisitor.visitMethodInsn();
         }
     }
 

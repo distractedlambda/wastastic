@@ -1,4 +1,4 @@
-package org.wastastic;
+package org.wastastic.compiler;
 
 public final class CompilationException extends Exception {
     public CompilationException() {
