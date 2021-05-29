@@ -2,7 +2,7 @@ package org.wastastic;
 
 import static org.wastastic.Vectors.requireVectorOf;
 
-public final class FunctionType {
+public final class FunctionType implements ImportType {
     private final Object parameterTypes;
     private final Object returnTypes;
 

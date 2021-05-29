@@ -4,13 +4,20 @@ import org.objectweb.asm.ClassVisitor;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.ArrayList;
 
-import static java.lang.Integer.toUnsignedString;
 import static java.util.Objects.requireNonNull;
 
 public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
     private final R reader;
     private final V classVisitor;
+
+    private final ArrayList<FunctionType> types = new ArrayList<>();
+    private final ArrayList<Import> imports = new ArrayList<>();
+    private final ArrayList<Object> functions = new ArrayList<>();
+    private final ArrayList<Object> tables = new ArrayList<>();
+    private final ArrayList<Object> memories = new ArrayList<>();
+    private final ArrayList<Object> globals = new ArrayList<>();
 
     public ModuleCompiler(R reader, V classVisitor) {
         this.reader = requireNonNull(reader);
@@ -53,51 +60,148 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
             var unsignedSectionSize = reader.nextUnsigned32();
 
             switch (sectionId) {
-                case SECTION_CUSTOM:
-                    reader.skip(unsignedSectionSize);
-                    break;
-
-                case SECTION_TYPE:
-                    compileTypeSection();
-                    break;
-
-                default:
-                    throw new CompilationException("Unrecognized section ID: " + sectionId);
+                case SECTION_CUSTOM -> reader.skip(unsignedSectionSize);
+                case SECTION_TYPE -> compileTypeSection();
+                case SECTION_IMPORT -> compileImportSection();
+                case SECTION_FUNCTION -> compileFunctionSection();
+                case SECTION_TABLE -> compileTableSection();
+                case SECTION_MEMORY -> compileMemorySection();
+                default -> throw new CompilationException("Unrecognized section ID: " + sectionId);
             }
         }
     }
 
-    private void compileTypeSection() {
-
+    private void compileMemorySection() throws IOException, CompilationException {
+        var remaining = reader.nextUnsigned32();
+        memories.ensureCapacity(memories.size() + remaining);
+        for (; remaining != 0; remaining--) {
+            memories.add(nextMemoryType());
+        }
     }
 
-    private ValueType nextValueType() throws IOException, CompilationException {
-        var code = reader.nextByte();
-        return switch (code) {
-            case TYPE_EXTERNREF -> ValueType.EXTERNREF;
-            case TYPE_FUNCREF -> ValueType.FUNCREF;
-            case TYPE_F64 -> ValueType.F64;
-            case TYPE_F32 -> ValueType.F32;
-            case TYPE_I64 -> ValueType.I64;
-            case TYPE_I32 -> ValueType.I32;
-            default -> throw new CompilationException("Illegal value type byte: " + code);
+    private void compileTableSection() throws CompilationException, IOException {
+        var remaining = reader.nextUnsigned32();
+        tables.ensureCapacity(tables.size() + remaining);
+        for (; remaining != 0; remaining--) {
+            tables.add(nextTableType());
+        }
+    }
+
+    private void compileFunctionSection() throws IOException {
+        var remaining = reader.nextUnsigned32();
+        functions.ensureCapacity(functions.size() + remaining);
+        for (; remaining != 0; remaining--) {
+            functions.add(nextIndexedType());
+        }
+    }
+
+    private FunctionType nextIndexedType() throws IOException {
+        return types.get(reader.nextUnsigned32());
+    }
+
+    private void compileImportSection() throws CompilationException, IOException {
+        var remaining = reader.nextUnsigned32();
+
+        imports.ensureCapacity(imports.size() + remaining);
+
+        for (; remaining != 0; remaining--) {
+            var moduleName = nextName();
+            var name = nextName();
+            var typeCode = reader.nextByte();
+
+            Import imp;
+
+            switch (typeCode) {
+                case 0x00 -> {
+                    imp = new Import(moduleName, name, nextIndexedType());
+                    functions.add(imp);
+                }
+
+                case 0x01 -> {
+                    imp = new Import(moduleName, name, nextTableType());
+                    tables.add(imp);
+                }
+
+                case 0x02 -> {
+                    imp = new Import(moduleName, name, nextMemoryType());
+                    memories.add(imp);
+                }
+
+                case 0x03 -> {
+                    imp = new Import(moduleName, name, nextGlobalType());
+                    globals.add(imp);
+                }
+
+                default -> throw new CompilationException("Illegal import description");
+            }
+
+            imports.add(imp);
+        }
+    }
+
+    private GlobalType nextGlobalType() throws CompilationException, IOException {
+        return new GlobalType(nextValueType(), nextMutability());
+    }
+
+    private Mutability nextMutability() throws CompilationException, IOException {
+        return switch (reader.nextByte()) {
+            case 0x00 -> Mutability.CONST;
+            case 0x01 -> Mutability.VAR;
+            default -> throw new CompilationException("Illegal mutability");
         };
     }
 
-    private Object nextValueTypeVector() throws IOException, CompilationException {
-        var unsignedSize = reader.nextUnsigned32();
+    private MemoryType nextMemoryType() throws CompilationException, IOException {
+        return new MemoryType(nextLimits());
+    }
 
-        if (unsignedSize < 0) {
-            throw new CompilationException("Type vector has too many elements: " + toUnsignedString(unsignedSize));
+    private TableType nextTableType() throws CompilationException, IOException {
+        return new TableType(nextReferenceType(), nextLimits());
+    }
+
+    private ReferenceType nextReferenceType() throws IOException, CompilationException {
+        return switch (reader.nextByte()) {
+            case 0x6F -> ReferenceType.FUNCREF;
+            case 0x70 -> ReferenceType.EXTERNREF;
+            default -> throw new CompilationException("Illegal reference type");
+        };
+    }
+
+    private Limits nextLimits() throws IOException, CompilationException {
+        return switch (reader.nextByte()) {
+            case 0x00 -> new Limits(reader.nextUnsigned32());
+            case 0x01 -> new Limits(reader.nextUnsigned32(), reader.nextUnsigned32());
+            default -> throw new CompilationException("Illegal limits encoding");
+        };
+    }
+
+    private String nextName() throws IOException {
+        return reader.nextUtf8(reader.nextUnsigned32());
+    }
+
+    private void compileTypeSection() throws CompilationException, IOException {
+        var remaining = reader.nextUnsigned32();
+        types.ensureCapacity(types.size() + remaining);
+        for (; remaining != 0; remaining--) {
+            types.add(nextFunctionType());
+        }
+    }
+
+    private FunctionType nextFunctionType() throws CompilationException, IOException {
+        if (reader.nextByte() != TYPE_FUNCTION) {
+            throw new CompilationException("Invalid function type");
         }
 
+        return new FunctionType(nextValueTypeVector(), nextValueTypeVector());
+    }
+
+    private Object nextValueTypeVector() throws CompilationException, IOException {
+        var unsignedSize = reader.nextUnsigned32();
         switch (unsignedSize) {
             case 0:
                 return null;
-
             case 1:
                 return nextValueType();
-
             default: {
                 var array = new ValueType[unsignedSize];
 
@@ -108,6 +212,18 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
                 return array;
             }
         }
+    }
+
+    private ValueType nextValueType() throws CompilationException, IOException {
+        return switch (reader.nextByte()) {
+            case TYPE_EXTERNREF -> ValueType.EXTERNREF;
+            case TYPE_FUNCREF -> ValueType.FUNCREF;
+            case TYPE_F64 -> ValueType.F64;
+            case TYPE_F32 -> ValueType.F32;
+            case TYPE_I64 -> ValueType.I64;
+            case TYPE_I32 -> ValueType.I32;
+            default -> throw new CompilationException("Illegal value type");
+        };
     }
 
     private static final byte SECTION_CUSTOM = 0;
