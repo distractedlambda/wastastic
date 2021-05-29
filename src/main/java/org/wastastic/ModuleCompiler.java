@@ -1,6 +1,8 @@
 package org.wastastic;
 
 import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Opcodes;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -9,8 +11,11 @@ import java.util.ArrayList;
 import static java.util.Objects.requireNonNull;
 
 public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
+    private final String name;
     private final R reader;
     private final V classVisitor;
+
+    private String className;
 
     private final ArrayList<FunctionType> types = new ArrayList<>();
     private final ArrayList<Import> imports = new ArrayList<>();
@@ -19,7 +24,8 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
     private final ArrayList<Object> memories = new ArrayList<>();
     private final ArrayList<Object> globals = new ArrayList<>();
 
-    public ModuleCompiler(R reader, V classVisitor) {
+    public ModuleCompiler(String name, R reader, V classVisitor) {
+        this.name = requireNonNull(name);
         this.reader = requireNonNull(reader);
         this.classVisitor = requireNonNull(classVisitor);
     }
@@ -68,6 +74,66 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
                 case SECTION_MEMORY -> compileMemorySection();
                 default -> throw new CompilationException("Unrecognized section ID: " + sectionId);
             }
+        }
+    }
+
+    private void compileCode(FunctionType type, MethodVisitor mv) throws IOException {
+        mv.visitCode();
+        for (var opcode = reader.nextByte();; opcode = reader.nextByte()) {
+            switch (opcode) {
+                case OP_UNREACHABLE -> {
+                    mv.visitMethodInsn(
+                        Opcodes.INVOKESTATIC,
+                        "org/wastastic/InstructionImpls",
+                        "unreachable",
+                        "()",
+                        false
+                    );
+
+                    mv.visitInsn(Opcodes.ATHROW);
+                }
+
+                case OP_NOP -> {
+                }
+
+                case OP_RETURN -> {
+                    visitReturn(type.getReturnTypes(), mv);
+                }
+
+                case OP_CALL -> {
+                    var calleeIndex = reader.nextUnsigned32();
+                    var callee = functions.get(calleeIndex);
+
+                    if (callee instanceof Import) {
+                        throw new UnsupportedOperationException("TODO implement import calls");
+                    }
+
+                    mv.visitMethodInsn(
+                        Opcodes.INVOKESPECIAL,
+                        className,
+                        "fn-" + calleeIndex,
+                        ((FunctionType) callee).getSignatureString(),
+                        false
+                    );
+                }
+            }
+        }
+    }
+
+    private void visitReturn(Object returnTypes, MethodVisitor mv) {
+        if (returnTypes == null) {
+            mv.visitInsn(Opcodes.RETURN);
+        } else if (returnTypes instanceof ValueType valueType) {
+            var opcode = switch (valueType) {
+                case I32 -> Opcodes.IRETURN;
+                case I64 -> Opcodes.LRETURN;
+                case F32 -> Opcodes.FRETURN;
+                case F64 -> Opcodes.DRETURN;
+                default -> Opcodes.ARETURN;
+            };
+            mv.visitInsn(opcode);
+        } else {
+            throw new UnsupportedOperationException("TODO implement multiple return values");
         }
     }
 
@@ -224,6 +290,48 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
             case TYPE_I32 -> ValueType.I32;
             default -> throw new CompilationException("Illegal value type");
         };
+    }
+
+    private final class MethodCompiler {
+        private final MethodVisitor methodVisitor;
+
+        private MethodCompiler(MethodVisitor methodVisitor) {
+            this.methodVisitor = requireNonNull(methodVisitor);
+        }
+
+        private void emitIntConstant(int value) {
+            switch (value) {
+                case 0 -> methodVisitor.visitInsn(Opcodes.ICONST_0);
+                case 1 -> methodVisitor.visitInsn(Opcodes.ICONST_1);
+                case 2 -> methodVisitor.visitInsn(Opcodes.ICONST_2);
+                case 3 -> methodVisitor.visitInsn(Opcodes.ICONST_3);
+                case 4 -> methodVisitor.visitInsn(Opcodes.ICONST_4);
+                case 5 -> methodVisitor.visitInsn(Opcodes.ICONST_5);
+                case -1 -> methodVisitor.visitInsn(Opcodes.ICONST_M1);
+                default -> methodVisitor.visitLdcInsn(value);
+            }
+        }
+
+        private void emitLongConstant(long value) {
+            if (value == 0) {
+                methodVisitor.visitInsn(Opcodes.LCONST_0);
+            } else if (value == 1) {
+                methodVisitor.visitInsn(Opcodes.LCONST_1);
+            } else {
+                methodVisitor.visitLdcInsn(value);
+            }
+        }
+
+        private void emitGetMemory() {
+            methodVisitor.visitFieldInsn(Opcodes.GETFIELD, "org/wastastic/Module", "memory", "Lorg/wastastic/Memory;");
+        }
+
+        private void emitI32Load(int unsignedOffset) {
+
+            emitGetMemory();
+            methodVisitor.visitInsn(Opcodes.SWAP);
+            methodVisitor.visitMethodInsn();
+        }
     }
 
     private static final byte SECTION_CUSTOM = 0;

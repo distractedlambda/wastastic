@@ -19,6 +19,43 @@ public final class FunctionType implements ImportType {
         return returnTypes;
     }
 
+    public String getSignatureString() {
+        if (returnTypes instanceof ValueType[]) {
+            throw new UnsupportedOperationException("TODO implement multiple return values");
+        }
+
+        if (parameterTypes == null) {
+            if (returnTypes == null) {
+                return "()V";
+            } else {
+                return "()" + ((ValueType) returnTypes).getDescriptor();
+            }
+        } else if (parameterTypes instanceof ValueType) {
+            var parameterDescriptor = ((ValueType)parameterTypes).getDescriptor();
+            if (returnTypes == null) {
+                return '(' + parameterDescriptor + ")V";
+            } else {
+                return '(' + parameterDescriptor + ')' + ((ValueType) returnTypes).getDescriptor();
+            }
+        } else {
+            var builder = new StringBuilder("(");
+
+            for (var parameterType : (ValueType[]) parameterTypes) {
+                builder.append(parameterType.getDescriptor());
+            }
+
+            builder.append(')');
+
+            if (returnTypes == null) {
+                builder.append('V');
+            } else {
+                builder.append(((ValueType) returnTypes).getDescriptor());
+            }
+
+            return builder.toString();
+        }
+    }
+
     @Override
     public boolean equals(Object object) {
         if (object instanceof FunctionType other) {
