@@ -11,7 +11,7 @@ import static java.lang.Float.intBitsToFloat;
 public interface ModuleReader {
     byte nextByte() throws IOException;
 
-    default int nextSignedInt() throws IOException {
+    default int nextSigned32() throws IOException {
         byte b;
         var total = 0;
 
@@ -51,7 +51,7 @@ public interface ModuleReader {
         return total;
     }
 
-    default int nextUnsignedInt() throws IOException {
+    default int nextUnsigned32() throws IOException {
         byte b;
         var total = 0;
 
@@ -79,7 +79,50 @@ public interface ModuleReader {
         return total;
     }
 
-    default long nextSignedLong() throws IOException {
+    default long nextSigned33() throws IOException {
+        byte b;
+        var total = 0;
+
+        total |= (b = nextByte()) & 0x7f;
+        if (b > 0) {
+            if (b > 63) {
+                total |= 0xffffffffffffff80L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 7;
+        if (b > 0) {
+            if (b > 63) {
+                total |= 0xffffffffffffc000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 14;
+        if (b > 0) {
+            if (b > 63) {
+                total |= 0xffffffffffe00000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 21;
+        if (b > 0) {
+            if (b > 63) {
+                total |= 0xfffffffff0000000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7fL) << 28;
+        if (b > 63) {
+            total |= 0xfffffff800000000L;
+        }
+        return total;
+    }
+
+    default long nextSigned64() throws IOException {
         byte b;
         var total = 0L;
 
@@ -159,7 +202,7 @@ public interface ModuleReader {
         return total;
     }
 
-    default long nextUnsignedLong() throws IOException {
+    default long nextUnsigned64() throws IOException {
         byte b;
         var total = 0L;
 
@@ -212,7 +255,7 @@ public interface ModuleReader {
         return total;
     }
 
-    default float nextFloat() throws IOException {
+    default float nextFloat32() throws IOException {
         var b0 = toUnsignedInt(nextByte());
         var b1 = toUnsignedInt(nextByte());
         var b2 = toUnsignedInt(nextByte());
@@ -221,7 +264,7 @@ public interface ModuleReader {
         return intBitsToFloat(bits);
     }
 
-    default double nextDouble() throws IOException {
+    default double nextFloat64() throws IOException {
         var b0 = toUnsignedLong(nextByte());
         var b1 = toUnsignedLong(nextByte());
         var b2 = toUnsignedLong(nextByte());
