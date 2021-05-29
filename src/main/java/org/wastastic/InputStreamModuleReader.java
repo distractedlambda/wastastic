@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
+import static java.lang.Integer.toUnsignedLong;
 import static java.util.Objects.requireNonNull;
 
 public final class InputStreamModuleReader implements ModuleReader {
@@ -27,6 +28,11 @@ public final class InputStreamModuleReader implements ModuleReader {
         }
 
         return (byte) value;
+    }
+
+    @Override
+    public void skip(int unsignedCount) throws IOException {
+        stream.skipNBytes(toUnsignedLong(unsignedCount));
     }
 
     @Override

@@ -11,6 +11,13 @@ import static java.lang.Float.intBitsToFloat;
 public interface ModuleReader {
     byte nextByte() throws IOException;
 
+    default void skip(int unsignedCount) throws IOException {
+        while (unsignedCount != 0) {
+            nextByte();
+            unsignedCount--;
+        }
+    }
+
     default int nextSigned32() throws IOException {
         byte b;
         var total = 0;

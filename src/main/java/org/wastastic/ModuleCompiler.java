@@ -2,6 +2,10 @@ package org.wastastic;
 
 import org.objectweb.asm.ClassVisitor;
 
+import java.io.EOFException;
+import java.io.IOException;
+
+import static java.lang.Integer.toUnsignedString;
 import static java.util.Objects.requireNonNull;
 
 public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
@@ -20,6 +24,105 @@ public final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor
     public V getClassVisitor() {
         return classVisitor;
     }
+
+    public void compile() throws CompilationException, IOException {
+        if (reader.nextByte() != 0x00 ||
+            reader.nextByte() != 0x61 ||
+            reader.nextByte() != 0x73 ||
+            reader.nextByte() != 0x6d
+        ) {
+            throw new CompilationException("Invalid magic number");
+        }
+
+        if (reader.nextByte() != 0x01 ||
+            reader.nextByte() != 0x00 ||
+            reader.nextByte() != 0x00 ||
+            reader.nextByte() != 0x00
+        ) {
+            throw new CompilationException("Unsupported version");
+        }
+
+        while (true) {
+            byte sectionId;
+            try {
+                sectionId = reader.nextByte();
+            } catch (EOFException ignored) {
+                break;
+            }
+
+            var unsignedSectionSize = reader.nextUnsigned32();
+
+            switch (sectionId) {
+                case SECTION_CUSTOM:
+                    reader.skip(unsignedSectionSize);
+                    break;
+
+                case SECTION_TYPE:
+                    compileTypeSection();
+                    break;
+
+                default:
+                    throw new CompilationException("Unrecognized section ID: " + sectionId);
+            }
+        }
+    }
+
+    private void compileTypeSection() {
+
+    }
+
+    private ValueType nextValueType() throws IOException, CompilationException {
+        var code = reader.nextByte();
+        return switch (code) {
+            case TYPE_EXTERNREF -> ValueType.EXTERNREF;
+            case TYPE_FUNCREF -> ValueType.FUNCREF;
+            case TYPE_F64 -> ValueType.F64;
+            case TYPE_F32 -> ValueType.F32;
+            case TYPE_I64 -> ValueType.I64;
+            case TYPE_I32 -> ValueType.I32;
+            default -> throw new CompilationException("Illegal value type byte: " + code);
+        };
+    }
+
+    private Object nextValueTypeVector() throws IOException, CompilationException {
+        var unsignedSize = reader.nextUnsigned32();
+
+        if (unsignedSize < 0) {
+            throw new CompilationException("Type vector has too many elements: " + toUnsignedString(unsignedSize));
+        }
+
+        switch (unsignedSize) {
+            case 0:
+                return null;
+
+            case 1:
+                return nextValueType();
+
+            default: {
+                var array = new ValueType[unsignedSize];
+
+                for (var i = 0; i != array.length; i++) {
+                    array[i] = nextValueType();
+                }
+
+                return array;
+            }
+        }
+    }
+
+    private static final byte SECTION_CUSTOM = 0;
+    private static final byte SECTION_TYPE = 1;
+    private static final byte SECTION_IMPORT = 2;
+    private static final byte SECTION_FUNCTION = 3;
+    private static final byte SECTION_TABLE = 4;
+    private static final byte SECTION_MEMORY = 5;
+    private static final byte SECTION_GLOBAL = 6;
+    private static final byte SECTION_EXPORT = 7;
+    private static final byte SECTION_START = 8;
+    private static final byte SECTION_ELEMENT = 9;
+    private static final byte SECTION_CODE = 10;
+    private static final byte SECTION_DATA = 11;
+    private static final byte SECTION_DATA_COUNT = 12;
 
     private static final byte TYPE_FUNCTION = 0x60;
     private static final byte TYPE_EXTERNREF = 0x6f;
