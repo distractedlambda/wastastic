@@ -1,6 +1,7 @@
 package org.wastastic.compiler;
 
 import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -8,6 +9,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
 
+import static java.lang.Integer.toUnsignedLong;
 import static java.util.Objects.requireNonNull;
 
 final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
@@ -72,23 +74,45 @@ final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
         mv.visitCode();
         for (var opcode = reader.nextByte();; opcode = reader.nextByte()) {
             switch (opcode) {
-                case OP_UNREACHABLE -> {
-                    mv.visitMethodInsn(
-                        Opcodes.INVOKESTATIC,
-                        "org/wastastic/InstructionImpls",
-                        "unreachable",
-                        "()",
-                        false
-                    );
+                case OP_UNREACHABLE -> emitTrap(mv);
 
-                    mv.visitInsn(Opcodes.ATHROW);
+                case OP_NOP -> {}
+
+                case OP_RETURN -> visitReturn(type.getReturnTypes(), mv);
+
+                case OP_I32_LOAD -> {
+                    emitEffectiveAddress(mv, nextMemArg().unsignedOffset());
+                    emitGetMemory(mv);
+                    mv.visitInsn(Opcodes.SWAP);
+                    mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "loadInt", "(I)I", true);
                 }
 
-                case OP_NOP -> {
+                case OP_I32_STORE -> {
+                    mv.visitInsn(Opcodes.SWAP);
+                    emitEffectiveAddress(mv, nextMemArg().unsignedOffset());
+                    mv.visitInsn(Opcodes.SWAP);
+                    emitGetMemory(mv);
+                    mv.visitInsn(Opcodes.DUP_X2);
+                    mv.visitInsn(Opcodes.POP);
+                    mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "storeInt", "(II)V", true);
                 }
 
-                case OP_RETURN -> {
-                    visitReturn(type.getReturnTypes(), mv);
+                case OP_I64_LOAD -> {
+                    emitEffectiveAddress(mv, nextMemArg().unsignedOffset());
+                    emitGetMemory(mv);
+                    mv.visitInsn(Opcodes.SWAP);
+                    mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "loadLong", "(I)J", true);
+                }
+
+                case OP_I64_STORE -> {
+                    mv.visitInsn(Opcodes.DUP2_X1);
+                    mv.visitInsn(Opcodes.POP2);
+                    emitEffectiveAddress(mv, nextMemArg().unsignedOffset());
+                    emitGetMemory(mv);
+                    mv.visitInsn(Opcodes.SWAP);
+                    mv.visitInsn(Opcodes.DUP2_X2);
+                    mv.visitInsn(Opcodes.POP2);
+                    mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "storeLong", "(IJ)V", true);
                 }
 
                 case OP_CALL -> {
@@ -108,6 +132,63 @@ final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
                     );
                 }
             }
+        }
+    }
+
+    private void emitGetMemory(MethodVisitor mv) {
+        mv.visitFieldInsn(Opcodes.GETFIELD, "org/wastastic/Module", "memory", "Lorg/wastastic/Memory;");
+    }
+
+    private void emitZextIntToLong(MethodVisitor mv) {
+        mv.visitInsn(Opcodes.I2L);
+        mv.visitLdcInsn(0xffffffffL);
+        mv.visitInsn(Opcodes.LAND);
+    }
+
+    private void emitEffectiveAddress(MethodVisitor mv, int unsignedOffset) {
+        if (unsignedOffset != 0) {
+            var pastTrapLabel = new Label();
+            emitZextIntToLong(mv);
+            emitLongConstant(mv, toUnsignedLong(unsignedOffset));
+            mv.visitInsn(Opcodes.LADD);
+            mv.visitLdcInsn(0xffffffffL);
+            mv.visitInsn(Opcodes.LCMP);
+            mv.visitJumpInsn(Opcodes.IFLE, pastTrapLabel);
+            emitTrap(mv);
+            mv.visitLabel(pastTrapLabel);
+        }
+    }
+
+    private void emitTrap(MethodVisitor mv) {
+        mv.visitTypeInsn(Opcodes.NEW, "org/wastastic/TrapException");
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "org/wastastic/TrapException", "<init>", "()V", false);
+        mv.visitInsn(Opcodes.ATHROW);
+    }
+
+    private MemArg nextMemArg() throws IOException {
+        return new MemArg(reader.nextUnsigned32(), reader.nextUnsigned32());
+    }
+
+    private void emitIntConstant(MethodVisitor mv, int value) {
+        switch (value) {
+            case 0 -> mv.visitInsn(Opcodes.ICONST_0);
+            case 1 -> mv.visitInsn(Opcodes.ICONST_1);
+            case 2 -> mv.visitInsn(Opcodes.ICONST_2);
+            case 3 -> mv.visitInsn(Opcodes.ICONST_3);
+            case 4 -> mv.visitInsn(Opcodes.ICONST_4);
+            case 5 -> mv.visitInsn(Opcodes.ICONST_5);
+            case -1 -> mv.visitInsn(Opcodes.ICONST_M1);
+            default -> mv.visitLdcInsn(value);
+        }
+    }
+
+    private void emitLongConstant(MethodVisitor mv, long value) {
+        if (value == 0) {
+            mv.visitInsn(Opcodes.LCONST_0);
+        } else if (value == 1) {
+            mv.visitInsn(Opcodes.LCONST_1);
+        } else {
+            mv.visitLdcInsn(value);
         }
     }
 
@@ -178,7 +259,7 @@ final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
         return switch (reader.nextByte()) {
             case 0x00 -> Mutability.CONST;
             case 0x01 -> Mutability.VAR;
-            default -> throw new CompilationException("Illegal mutability");
+            default -> throw new CompilationException("Invalid mutability");
         };
     }
 
@@ -194,7 +275,7 @@ final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
         return switch (reader.nextByte()) {
             case 0x6F -> ReferenceType.FUNCREF;
             case 0x70 -> ReferenceType.EXTERNREF;
-            default -> throw new CompilationException("Illegal reference type");
+            default -> throw new CompilationException("Invalid reference type");
         };
     }
 
@@ -257,47 +338,17 @@ final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
         };
     }
 
-    private final class MethodCompiler {
-        private final MethodVisitor methodVisitor;
+    //     private void emitGetMemory() {
+    //         methodVisitor.visitFieldInsn(Opcodes.GETFIELD, "org/wastastic/Module", "memory", "Lorg/wastastic/Memory;");
+    //     }
 
-        private MethodCompiler(MethodVisitor methodVisitor) {
-            this.methodVisitor = requireNonNull(methodVisitor);
-        }
+    //     private void emitI32Load(int unsignedOffset) {
 
-        private void emitIntConstant(int value) {
-            switch (value) {
-                case 0 -> methodVisitor.visitInsn(Opcodes.ICONST_0);
-                case 1 -> methodVisitor.visitInsn(Opcodes.ICONST_1);
-                case 2 -> methodVisitor.visitInsn(Opcodes.ICONST_2);
-                case 3 -> methodVisitor.visitInsn(Opcodes.ICONST_3);
-                case 4 -> methodVisitor.visitInsn(Opcodes.ICONST_4);
-                case 5 -> methodVisitor.visitInsn(Opcodes.ICONST_5);
-                case -1 -> methodVisitor.visitInsn(Opcodes.ICONST_M1);
-                default -> methodVisitor.visitLdcInsn(value);
-            }
-        }
-
-        private void emitLongConstant(long value) {
-            if (value == 0) {
-                methodVisitor.visitInsn(Opcodes.LCONST_0);
-            } else if (value == 1) {
-                methodVisitor.visitInsn(Opcodes.LCONST_1);
-            } else {
-                methodVisitor.visitLdcInsn(value);
-            }
-        }
-
-        private void emitGetMemory() {
-            methodVisitor.visitFieldInsn(Opcodes.GETFIELD, "org/wastastic/Module", "memory", "Lorg/wastastic/Memory;");
-        }
-
-        private void emitI32Load(int unsignedOffset) {
-
-            emitGetMemory();
-            methodVisitor.visitInsn(Opcodes.SWAP);
-            // methodVisitor.visitMethodInsn();
-        }
-    }
+    //         emitGetMemory();
+    //         methodVisitor.visitInsn(Opcodes.SWAP);
+    //         // methodVisitor.visitMethodInsn();
+    //     }
+    // }
 
     private static final byte SECTION_CUSTOM = 0;
     private static final byte SECTION_TYPE = 1;
