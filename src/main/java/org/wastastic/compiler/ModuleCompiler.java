@@ -14,6 +14,8 @@ import static java.lang.Integer.toUnsignedLong;
 import static java.util.Objects.requireNonNull;
 
 final class ModuleCompiler {
+    private static final int[] EMPTY_INT_ARRAY = new int[0];
+
     private final String internalName;
     private final ModuleReader reader;
     private final ClassVisitor clazz;
@@ -24,8 +26,10 @@ final class ModuleCompiler {
     private final ArrayList<Memory> memories = new ArrayList<>();
     private final ArrayList<Global> globals = new ArrayList<>();
 
+    private int scratchLocalsOffset;
+    private int[] localIndices = EMPTY_INT_ARRAY;
     private final ArrayDeque<ValueType> operandTypes = new ArrayDeque<>();
-    private final ArrayDeque<Label> labels = new ArrayDeque<>();
+    private final ArrayList<BranchTarget> branchTargets = new ArrayList<>();
 
     private MethodVisitor method;
 
@@ -87,16 +91,94 @@ final class ModuleCompiler {
             case OP_SELECT -> compileSelect();
             case OP_CALL -> compileCall();
             case OP_BLOCK -> compileBlock();
-            case OP_END -> return;
+            case OP_LOOP -> compileLoop();
+            case OP_END -> {
+                return;
+            }
         }
     }
 
-    private void compileBlock() throws CompilationException, IOException {
-        nextBlockType();
-        var endLabel = new Label();
-        labels.push(endLabel);
+    private BranchTarget nextBranchTarget() throws IOException {
+        return branchTargets.get(branchTargets.size() - 1 - reader.nextUnsigned32());
+    }
+
+    private void compileBranch() throws IOException {
+        var target = nextBranchTarget();
+        var localOffset = scratchLocalsOffset;
+
+        for (var i = 0; i < target.getParameterCount(); i++) switch (operandTypes.pop()) {
+            case I32 -> {
+                method.visitVarInsn(Opcodes.ISTORE, localOffset);
+                localOffset += 1;
+            }
+
+            case F32 -> {
+                method.visitVarInsn(Opcodes.FSTORE, localOffset);
+                localOffset += 1;
+            }
+
+            case FUNCREF, EXTERNREF -> {
+                method.visitVarInsn(Opcodes.ASTORE, localOffset);
+                localOffset += 1;
+            }
+
+            case I64 -> {
+                method.visitVarInsn(Opcodes.LSTORE, localOffset);
+                localOffset += 2;
+            }
+
+            case F64 -> {
+                method.visitVarInsn(Opcodes.DSTORE, localOffset);
+                localOffset += 2;
+            }
+        }
+
+        while (operandTypes.size() > target.operandStackDepth()) {
+            if (operandTypes.pop().isDoubleWidth()) {
+                method.visitInsn(Opcodes.POP2);
+            } else {
+                method.visitInsn(Opcodes.POP);
+            }
+        }
+
+        for (var parameterType : target.getParameterTypeList()) switch (parameterType) {
+            case I32 -> method.visitVarInsn(Opcodes.ILOAD, (localOffset -= 1));
+            case F32 -> method.visitVarInsn(Opcodes.FLOAD, (localOffset -= 1));
+            case FUNCREF, EXTERNREF -> method.visitVarInsn(Opcodes.ALOAD, (localOffset -= 1));
+            case I64 -> method.visitVarInsn(Opcodes.LLOAD, (localOffset -= 2));
+            case F64 -> method.visitVarInsn(Opcodes.DLOAD, (localOffset -= 2));
+        }
+
+        method.visitJumpInsn(Opcodes.GOTO, target.label());
+    }
+
+    private void compileLoop() throws CompilationException, IOException {
+        var type = nextBlockType();
+        var startLabel = new Label();
+        branchTargets.add(
+            new BranchTarget(
+                startLabel,
+                type.getParameterTypes(),
+                operandTypes.size() - type.getParameterCount()
+            )
+        );
+        method.visitLabel(startLabel);
         compileUntilEnd();
-        labels.pop();
+        branchTargets.remove(branchTargets.size() - 1);
+    }
+
+    private void compileBlock() throws CompilationException, IOException {
+        var type = nextBlockType();
+        var endLabel = new Label();
+        branchTargets.add(
+            new BranchTarget(
+                endLabel,
+                type.getReturnTypes(),
+                operandTypes.size() - type.getParameterCount()
+            )
+        );
+        compileUntilEnd();
+        branchTargets.remove(branchTargets.size() - 1);
         method.visitLabel(endLabel);
     }
 
@@ -125,7 +207,7 @@ final class ModuleCompiler {
     }
 
     private void compileReturn() {
-
+        throw new UnsupportedOperationException("TODO");
     }
 
     private void compileI32Load() throws IOException {
@@ -172,7 +254,7 @@ final class ModuleCompiler {
     }
 
     private void compileCall() {
-
+        throw new UnsupportedOperationException("TODO");
     }
 
     private void compileSelect() {

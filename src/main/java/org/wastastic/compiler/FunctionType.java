@@ -19,6 +19,14 @@ final class FunctionType implements Function {
         return returnTypes;
     }
 
+    int getParameterCount() {
+        return ResultTypes.length(parameterTypes);
+    }
+
+    int getReturnCount() {
+        return ResultTypes.length(returnTypes);
+    }
+
     String getSignatureString() throws CompilationException {
         if (signatureString != null) {
             return signatureString;
