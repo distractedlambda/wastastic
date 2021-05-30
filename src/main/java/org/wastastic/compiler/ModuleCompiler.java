@@ -12,10 +12,10 @@ import java.util.ArrayList;
 import static java.lang.Integer.toUnsignedLong;
 import static java.util.Objects.requireNonNull;
 
-final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
+final class ModuleCompiler {
     private final String name;
-    private final R reader;
-    private final V classVisitor;
+    private final ModuleReader reader;
+    private final ClassVisitor classVisitor;
 
     private String className;
 
@@ -25,7 +25,7 @@ final class ModuleCompiler<R extends ModuleReader, V extends ClassVisitor> {
     private final ArrayList<Memory> memories = new ArrayList<>();
     private final ArrayList<Global> globals = new ArrayList<>();
 
-    ModuleCompiler(String name, R reader, V classVisitor) {
+    ModuleCompiler(String name, ModuleReader reader, ClassVisitor classVisitor) {
         this.name = requireNonNull(name);
         this.reader = requireNonNull(reader);
         this.classVisitor = requireNonNull(classVisitor);
