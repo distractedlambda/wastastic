@@ -7,7 +7,6 @@ import org.objectweb.asm.Opcodes;
 
 import java.io.EOFException;
 import java.io.IOException;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 
 import static java.lang.Integer.toUnsignedLong;
@@ -28,7 +27,7 @@ final class ModuleCompiler {
 
     private int scratchLocalsOffset;
     private int[] localIndices = EMPTY_INT_ARRAY;
-    private final ArrayDeque<ValueType> operandTypes = new ArrayDeque<>();
+    private final ArrayList<ValueType> operandTypes = new ArrayList<>();
     private final ArrayList<BranchTarget> branchTargets = new ArrayList<>();
 
     private MethodVisitor method;
@@ -92,8 +91,11 @@ final class ModuleCompiler {
             case OP_CALL -> compileCall();
             case OP_BLOCK -> compileBlock();
             case OP_LOOP -> compileLoop();
+            case OP_BR -> compileBranch();
+            case OP_BR_IF -> compileConditionalBranch();
+
             case OP_END -> {
-                // FIXME: pop a label
+                popBranchTarget();
                 return;
             }
         }
@@ -111,12 +113,10 @@ final class ModuleCompiler {
     }
 
     private void compileBranch() throws IOException {
-        // FIXME: don't actually pop from stack
-
         var target = nextBranchTarget();
         var localOffset = scratchLocalsOffset;
 
-        for (var i = 0; i < target.getParameterCount(); i++) switch (operandTypes.pop()) {
+        for (var i = 0; i < target.getParameterCount(); i++) switch (operandTypes.get(operandTypes.size() - i - 1)) {
             case I32 -> {
                 method.visitVarInsn(Opcodes.ISTORE, localOffset);
                 localOffset += 1;
@@ -143,8 +143,8 @@ final class ModuleCompiler {
             }
         }
 
-        while (operandTypes.size() > target.operandStackDepth()) {
-            if (operandTypes.pop().isDoubleWidth()) {
+        for (var i = 0; i < target.getParameterCount(); i++) {
+            if (operandTypes.get(operandTypes.size() - i - 1).isDoubleWidth()) {
                 method.visitInsn(Opcodes.POP2);
             } else {
                 method.visitInsn(Opcodes.POP);
@@ -174,7 +174,6 @@ final class ModuleCompiler {
         );
         method.visitLabel(startLabel);
         compileUntilEnd();
-        branchTargets.remove(branchTargets.size() - 1);
     }
 
     private void compileBlock() throws CompilationException, IOException {
@@ -188,7 +187,6 @@ final class ModuleCompiler {
             )
         );
         compileUntilEnd();
-        branchTargets.remove(branchTargets.size() - 1);
         method.visitLabel(endLabel);
     }
 
@@ -217,6 +215,7 @@ final class ModuleCompiler {
     }
 
     private void compileReturn() {
+        // TODO
         throw new UnsupportedOperationException("TODO");
     }
 
@@ -225,12 +224,12 @@ final class ModuleCompiler {
         emitGetMemory();
         method.visitInsn(Opcodes.SWAP);
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "loadInt", "(I)I", true);
-        operandTypes.push(ValueType.I32);
+        operandTypes.add(ValueType.I32);
     }
 
     private void compileI32Store() throws IOException {
-        operandTypes.pop();
-        operandTypes.pop();
+        operandTypes.remove(operandTypes.size() - 1);
+        operandTypes.remove(operandTypes.size() - 1);
 
         method.visitInsn(Opcodes.SWAP);
         emitEffectiveAddress(nextMemArg().unsignedOffset());
@@ -246,12 +245,12 @@ final class ModuleCompiler {
         emitGetMemory();
         method.visitInsn(Opcodes.SWAP);
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "loadLong", "(I)J", true);
-        operandTypes.push(ValueType.I64);
+        operandTypes.add(ValueType.I64);
     }
 
     private void compileI64Store() throws IOException {
-        operandTypes.pop();
-        operandTypes.pop();
+        popOperandType();
+        popOperandType();
 
         method.visitInsn(Opcodes.DUP2_X1);
         method.visitInsn(Opcodes.POP2);
@@ -264,6 +263,7 @@ final class ModuleCompiler {
     }
 
     private void compileCall() {
+        // TODO
         throw new UnsupportedOperationException("TODO");
     }
 
@@ -271,9 +271,9 @@ final class ModuleCompiler {
         var noSwapLabel = new Label();
         method.visitJumpInsn(Opcodes.IFNE, noSwapLabel);
 
-        operandTypes.pop();
+        popOperandType();
 
-        if (operandTypes.pop().isDoubleWidth()) {
+        if (popOperandType().isDoubleWidth()) {
             method.visitInsn(Opcodes.DUP2_X2);
             method.visitInsn(Opcodes.POP2);
             method.visitLabel(noSwapLabel);
@@ -284,11 +284,11 @@ final class ModuleCompiler {
             method.visitInsn(Opcodes.POP);
         }
 
-        operandTypes.pop();
+        popOperandType();
     }
 
     private void compileDrop() {
-        method.visitInsn(operandTypes.pop().isDoubleWidth() ? Opcodes.POP2 : Opcodes.POP);
+        method.visitInsn(popOperandType().isDoubleWidth() ? Opcodes.POP2 : Opcodes.POP);
     }
 
     private void emitGetMemory() {
@@ -475,6 +475,14 @@ final class ModuleCompiler {
             case TYPE_I32 -> ValueType.I32;
             default -> throw new CompilationException("Invalid value type");
         };
+    }
+
+    private ValueType popOperandType() {
+        return operandTypes.remove(operandTypes.size() - 1);
+    }
+
+    private BranchTarget popBranchTarget() {
+        return branchTargets.remove(branchTargets.size() - 1);
     }
 
     private static final byte SECTION_CUSTOM = 0;
