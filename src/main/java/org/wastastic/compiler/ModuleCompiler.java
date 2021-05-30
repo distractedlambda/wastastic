@@ -93,6 +93,7 @@ final class ModuleCompiler {
             case OP_BLOCK -> compileBlock();
             case OP_LOOP -> compileLoop();
             case OP_END -> {
+                // FIXME: pop a label
                 return;
             }
         }
@@ -102,7 +103,16 @@ final class ModuleCompiler {
         return branchTargets.get(branchTargets.size() - 1 - reader.nextUnsigned32());
     }
 
+    private void compileConditionalBranch() throws IOException {
+        var pastBranchLabel = new Label();
+        method.visitJumpInsn(Opcodes.IFEQ, pastBranchLabel);
+        compileBranch();
+        method.visitLabel(pastBranchLabel);
+    }
+
     private void compileBranch() throws IOException {
+        // FIXME: don't actually pop from stack
+
         var target = nextBranchTarget();
         var localOffset = scratchLocalsOffset;
 
