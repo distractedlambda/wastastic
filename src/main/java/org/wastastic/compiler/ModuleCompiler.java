@@ -154,12 +154,284 @@ final class ModuleCompiler {
             case OP_I64_GE_U -> compileI64Geu();
             case OP_I32_GE_S -> compileI32Ges();
             case OP_I64_GE_S -> compileI64Ges();
+            case OP_F32_ADD -> compileF32Add();
+            case OP_F32_SUB -> compileF32Sub();
+            case OP_F32_MUL -> compileF32Mul();
+            case OP_F32_DIV -> compileF32Div();
+            case OP_F32_MIN -> compileF32Min();
+            case OP_F32_MAX -> compileF32Max();
+            case OP_F32_COPYSIGN -> compileF32Copysign();
+            case OP_F32_ABS -> compileF32Abs();
+            case OP_F32_NEG -> compileF32Neg();
+            case OP_F32_SQRT -> compileF32Sqrt();
+            case OP_F32_CEIL -> compileF32Ceil();
+            case OP_F32_FLOOR -> compileF32Floor();
+            case OP_F32_TRUNC -> compileF32Trunc();
+            case OP_F32_NEAREST -> compileF32Nearest();
+            case OP_F32_EQ -> compileF32Eq();
+            case OP_F32_NE -> compileF32Ne();
+            case OP_F32_LT -> compileF32Lt();
+            case OP_F32_GT -> compileF32Gt();
+            case OP_F32_LE -> compileF32Le();
+            case OP_F32_GE -> compileF32Ge();
+            case OP_F64_ADD -> compileF64Add();
+            case OP_F64_SUB -> compileF64Sub();
+            case OP_F64_MUL -> compileF64Mul();
+            case OP_F64_DIV -> compileF64Div();
+            case OP_F64_MIN -> compileF64Min();
+            case OP_F64_MAX -> compileF64Max();
+            case OP_F64_COPYSIGN -> compileF64Copysign();
+            case OP_F64_ABS -> compileF64Abs();
+            case OP_F64_NEG -> compileF64Neg();
+            case OP_F64_SQRT -> compileF64Sqrt();
+            case OP_F64_CEIL -> compileF64Ceil();
+            case OP_F64_FLOOR -> compileF64Floor();
+            case OP_F64_TRUNC -> compileF64Trunc();
+            case OP_F64_NEAREST -> compileF64Nearest();
+            case OP_F64_EQ -> compileF64Eq();
+            case OP_F64_NE -> compileF64Ne();
+            case OP_F64_LT -> compileF64Lt();
+            case OP_F64_GT -> compileF64Gt();
+            case OP_F64_LE -> compileF64Le();
+            case OP_F64_GE -> compileF64Ge();
+            case OP_I64_MUL -> compileI64Mul();
+            case OP_I64_SUB -> compileI64Sub();
+            case OP_SELECT_VEC -> compileSelectVec();
 
             case OP_END -> {
                 popBranchTarget();
                 return;
             }
         }
+    }
+
+    private void compileSelectVec() throws IOException, CompilationException {
+        for (var i = reader.nextUnsigned32(); i != 0; i--) {
+            nextValueType();
+        }
+
+        compileSelect();
+    }
+
+    private void compileI64Mul() {
+        popOperandType();
+        method.visitInsn(Opcodes.LMUL);
+    }
+
+    private void compileI64Sub() {
+        popOperandType();
+        method.visitInsn(Opcodes.LSUB);
+    }
+
+    private void compileF32Add() {
+        popOperandType();
+        method.visitInsn(Opcodes.FADD);
+    }
+
+    private void compileF64Add() {
+        popOperandType();
+        method.visitInsn(Opcodes.DADD);
+    }
+
+    private void compileF32Sub() {
+        popOperandType();
+        method.visitInsn(Opcodes.FSUB);
+    }
+
+    private void compileF64Sub() {
+        popOperandType();
+        method.visitInsn(Opcodes.DSUB);
+    }
+
+    private void compileF32Mul() {
+        popOperandType();
+        method.visitInsn(Opcodes.FMUL);
+    }
+
+    private void compileF64Mul() {
+        popOperandType();
+        method.visitInsn(Opcodes.DMUL);
+    }
+
+    private void compileF32Div() {
+        popOperandType();
+        method.visitInsn(Opcodes.FDIV);
+    }
+
+    private void compileF64Div() {
+        popOperandType();
+        method.visitInsn(Opcodes.DDIV);
+    }
+
+    private void compileF32Min() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(FF)F", false);
+    }
+
+    private void compileF64Min() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
+    }
+
+    private void compileF32Max() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(FF)F", false);
+    }
+
+    private void compileF64Max() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
+    }
+
+    private void compileF32Copysign() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(FF)F", false);
+    }
+
+    private void compileF64Copysign() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(DD)D", false);
+    }
+
+    private void compileF32Abs() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(F)F", false);
+    }
+
+    private void compileF64Abs() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
+    }
+
+    private void compileF32Neg() {
+        method.visitInsn(Opcodes.FNEG);
+    }
+
+    private void compileF64Neg() {
+        method.visitInsn(Opcodes.DNEG);
+    }
+
+    private void compileF32Sqrt() {
+        emitHelperCall("fsqrt", "(F)F");
+    }
+
+    private void compileF64Sqrt() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "sqrt", "(D)D", false);
+    }
+
+    private void compileF32Ceil() {
+        emitHelperCall("fceil", "(F)F");
+    }
+
+    private void compileF64Ceil() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "ceil", "(D)D", false);
+    }
+
+    private void compileF32Floor() {
+        emitHelperCall("ffloor", "(F)F");
+    }
+
+    private void compileF64Floor() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "floor", "(D)D", false);
+    }
+
+    private void compileF32Trunc() {
+        emitHelperCall("ftrunc", "(F)F");
+    }
+
+    private void compileF64Trunc() {
+        emitHelperCall("ftrunc", "(D)D");
+    }
+
+    private void compileF32Nearest() {
+        emitHelperCall("fnearest", "(F)F");
+    }
+
+    private void compileF64Nearest() {
+        // TODO: check equivalence
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "rint", "(D)D", false);
+    }
+
+    private void compileF32Eq() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("feq", "(FF)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF64Eq() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("feq", "(DD)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF32Ne() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fne", "(FF)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF64Ne() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fne", "(DD)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF32Lt() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("flt", "(FF)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF64Lt() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("flt", "(DD)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF32Gt() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fgt", "(FF)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF64Gt() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fgt", "(DD)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF32Le() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fle", "(FF)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF64Le() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fle", "(DD)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF32Ge() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fge", "(FF)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileF64Ge() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("fge", "(DD)Z");
+        operandTypes.add(ValueType.I32);
     }
 
     private void compileI32And() {
@@ -229,8 +501,7 @@ final class ModuleCompiler {
 
     private void compileI64RotL() {
         popOperandType();
-        method.visitInsn(Opcodes.L2I);
-        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "rotateLeft", "(JI)J", false);
+        emitHelperCall("rotl", "(JJ)J");
     }
 
     private void compileI32RotR() {
@@ -240,8 +511,7 @@ final class ModuleCompiler {
 
     private void compileI64RotR() {
         popOperandType();
-        method.visitInsn(Opcodes.L2I);
-        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "rotateRight", "(JI)J", false);
+        emitHelperCall("rotr", "(JJ)J");
     }
 
     private void compileI32Clz() {
@@ -249,8 +519,7 @@ final class ModuleCompiler {
     }
 
     private void compileI64Clz() {
-        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "numberOfLeadingZeros", "(J)I", false);
-        method.visitInsn(Opcodes.I2L);
+        emitHelperCall("clz", "(J)J");
     }
 
     private void compileI32Ctz() {
@@ -258,8 +527,7 @@ final class ModuleCompiler {
     }
 
     private void compileI64Ctz() {
-        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "numberOfTrailingZeros", "(J)I", false);
-        method.visitInsn(Opcodes.I2L);
+        emitHelperCall("ctz", "(J)J");
     }
 
     private void compileI32Popcnt() {
@@ -267,8 +535,7 @@ final class ModuleCompiler {
     }
 
     private void compileI64Popcnt() {
-        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "bitCount", "(J)I", false);
-        method.visitInsn(Opcodes.I2L);
+        emitHelperCall("popcnt", "(J)J");
     }
 
     private void compileI32Eqz() {

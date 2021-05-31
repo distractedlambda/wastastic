@@ -223,4 +223,102 @@ public final class InstructionHelpers {
     public static boolean ges(long lhs, long rhs) {
         return lhs >= rhs;
     }
+
+    public static long rotl(long lhs, long rhs) {
+        return Long.rotateLeft(lhs, (int) rhs);
+    }
+
+    public static long rotr(long lhs, long rhs) {
+        return Long.rotateRight(lhs, (int) rhs);
+    }
+
+    public static long clz(long operand) {
+        return Long.numberOfLeadingZeros(operand);
+    }
+
+    public static long ctz(long operand) {
+        return Long.numberOfTrailingZeros(operand);
+    }
+
+    public static long popcnt(long operand) {
+        return Long.bitCount(operand);
+    }
+
+    public static float fsqrt(float operand) {
+        // TODO: verify correctness / make more efficient
+        return (float) Math.sqrt(operand);
+    }
+
+    public static float fceil(float operand) {
+        // TODO: verify correctness / make more efficient
+        return (float) Math.ceil(operand);
+    }
+
+    public static float ffloor(float operand) {
+        // TODO: verify correctness / make more efficient
+        return (float) Math.floor(operand);
+    }
+
+    public static float ftrunc(float operand) {
+        // TODO: verify correctness / make more efficient
+        return (float) Math.rint(operand - Math.copySign(operand, 0.5f));
+    }
+
+    public static double ftrunc(double operand) {
+        // TODO: verify correctness / make more efficient
+        return Math.rint(operand - Math.copySign(operand, 0.5));
+    }
+
+    public static float fnearest(float operand) {
+        // TODO: verify correctness / make more efficient
+        return (float) Math.rint(operand);
+    }
+
+    public static boolean feq(float lhs, float rhs) {
+        return lhs == rhs;
+    }
+
+    public static boolean feq(double lhs, double rhs) {
+        return lhs == rhs;
+    }
+
+    public static boolean fne(float lhs, float rhs) {
+        return lhs != rhs;
+    }
+
+    public static boolean fne(double lhs, double rhs) {
+        return lhs != rhs;
+    }
+
+    public static boolean flt(float lhs, float rhs) {
+        return lhs < rhs;
+    }
+
+    public static boolean flt(double lhs, double rhs) {
+        return lhs < rhs;
+    }
+
+    public static boolean fgt(float lhs, float rhs) {
+        return lhs > rhs;
+    }
+
+    public static boolean fgt(double lhs, double rhs) {
+        return lhs > rhs;
+    }
+
+    public static boolean fle(float lhs, float rhs) {
+        return lhs <= rhs;
+    }
+
+    public static boolean fle(double lhs, double rhs) {
+        return lhs <= rhs;
+    }
+
+    public static boolean fge(float lhs, float rhs) {
+        return lhs >= rhs;
+    }
+
+    public static boolean fge(double lhs, double rhs) {
+        return lhs >= rhs;
+    }
 }
