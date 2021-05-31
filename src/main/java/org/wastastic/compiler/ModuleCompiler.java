@@ -4,13 +4,11 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
 
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
 
-import static java.lang.Integer.toUnsignedLong;
 import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Type.getConstructorDescriptor;
 import static org.objectweb.asm.Type.getInternalName;
@@ -98,12 +96,379 @@ final class ModuleCompiler {
             case OP_BR -> compileBranch();
             case OP_BR_IF -> compileConditionalBranch();
             case OP_BR_TABLE -> compileBranchTable();
+            case OP_REF_NULL -> compileRefNull();
+            case OP_REF_IS_NULL -> compileRefIsNull();
+            case OP_I32_ADD -> compileI32Add();
+            case OP_I64_ADD -> compileI64Add();
+            case OP_I32_SUB -> compileI32Sub();
+            case OP_I32_MUL -> compileI32Mul();
+            case OP_I32_DIV_U -> compileI32DivU();
+            case OP_I64_DIV_U -> compileI64DivU();
+            case OP_I32_DIV_S -> compileI32DivS();
+            case OP_I64_DIV_S -> compileI64DivS();
+            case OP_I64_REM_U -> compileI64RemU();
+            case OP_I64_REM_S -> compileI64RemS();
+            case OP_I32_REM_U -> compileI32RemU();
+            case OP_I32_REM_S -> compileI32RemS();
+            case OP_I32_AND -> compileI32And();
+            case OP_I64_AND -> compileI64And();
+            case OP_I32_OR -> compileI32Or();
+            case OP_I64_OR -> compileI64Or();
+            case OP_I32_XOR -> compileI32Xor();
+            case OP_I64_XOR -> compileI64Xor();
+            case OP_I32_SHL -> compileI32Shl();
+            case OP_I64_SHL -> compileI64Shl();
+            case OP_I32_SHR_U -> compileI32ShrU();
+            case OP_I64_SHR_U -> compileI64ShrU();
+            case OP_I32_SHR_S -> compileI32ShrS();
+            case OP_I64_SHR_S -> compileI64ShrS();
+            case OP_I32_ROTL -> compileI32RotL();
+            case OP_I64_ROTL -> compileI64RotL();
+            case OP_I32_ROTR -> compileI32RotR();
+            case OP_I64_ROTR -> compileI64RotR();
+            case OP_I32_CLZ -> compileI32Clz();
+            case OP_I64_CLZ -> compileI64Clz();
+            case OP_I32_CTZ -> compileI32Ctz();
+            case OP_I64_CTZ -> compileI64Ctz();
+            case OP_I32_POPCNT -> compileI32Popcnt();
+            case OP_I64_POPCNT -> compileI64Popcnt();
+            case OP_I32_EQZ -> compileI32Eqz();
+            case OP_I64_EQZ -> compileI64Eqz();
+            case OP_I32_EQ -> compileI32Eq();
+            case OP_I64_EQ -> compileI64Eq();
+            case OP_I32_NE -> compileI32Ne();
+            case OP_I64_NE -> compileI64Ne();
+            case OP_I32_LT_U -> compileI32Ltu();
+            case OP_I64_LT_U -> compileI64Ltu();
+            case OP_I32_LT_S -> compileI32Lts();
+            case OP_I64_LT_S -> compileI64Lts();
+            case OP_I32_GT_U -> compileI32Gtu();
+            case OP_I64_GT_U -> compileI64Gtu();
+            case OP_I32_GT_S -> compileI32Gts();
+            case OP_I64_GT_S -> compileI64Gts();
+            case OP_I32_LE_U -> compileI32Leu();
+            case OP_I64_LE_U -> compileI64Leu();
+            case OP_I32_LE_S -> compileI32Les();
+            case OP_I64_LE_S -> compileI64Les();
+            case OP_I32_GE_U -> compileI32Geu();
+            case OP_I64_GE_U -> compileI64Geu();
+            case OP_I32_GE_S -> compileI32Ges();
+            case OP_I64_GE_S -> compileI64Ges();
 
             case OP_END -> {
                 popBranchTarget();
                 return;
             }
         }
+    }
+
+    private void compileI32And() {
+        popOperandType();
+        method.visitInsn(Opcodes.IAND);
+    }
+
+    private void compileI64And() {
+        popOperandType();
+        method.visitInsn(Opcodes.LAND);
+    }
+
+    private void compileI32Or() {
+        popOperandType();
+        method.visitInsn(Opcodes.IOR);
+    }
+
+    private void compileI64Or() {
+        popOperandType();
+        method.visitInsn(Opcodes.LOR);
+    }
+
+    private void compileI32Xor() {
+        popOperandType();
+        method.visitInsn(Opcodes.IXOR);
+    }
+
+    private void compileI64Xor() {
+        popOperandType();
+        method.visitInsn(Opcodes.LXOR);
+    }
+
+    private void compileI32Shl() {
+        popOperandType();
+        method.visitInsn(Opcodes.ISHL);
+    }
+
+    private void compileI64Shl() {
+        popOperandType();
+        method.visitInsn(Opcodes.LSHL);
+    }
+
+    private void compileI32ShrU() {
+        popOperandType();
+        method.visitInsn(Opcodes.IUSHR);
+    }
+
+    private void compileI64ShrU() {
+        popOperandType();
+        method.visitInsn(Opcodes.LUSHR);
+    }
+
+    private void compileI32ShrS() {
+        popOperandType();
+        method.visitInsn(Opcodes.ISHR);
+    }
+
+    private void compileI64ShrS() {
+        popOperandType();
+        method.visitInsn(Opcodes.LSHR);
+    }
+
+    private void compileI32RotL() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateLeft", "(II)I", false);
+    }
+
+    private void compileI64RotL() {
+        popOperandType();
+        method.visitInsn(Opcodes.L2I);
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "rotateLeft", "(JI)J", false);
+    }
+
+    private void compileI32RotR() {
+        popOperandType();
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateRight", "(II)I", false);
+    }
+
+    private void compileI64RotR() {
+        popOperandType();
+        method.visitInsn(Opcodes.L2I);
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "rotateRight", "(JI)J", false);
+    }
+
+    private void compileI32Clz() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfLeadingZeros", "(I)I", false);
+    }
+
+    private void compileI64Clz() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "numberOfLeadingZeros", "(J)I", false);
+        method.visitInsn(Opcodes.I2L);
+    }
+
+    private void compileI32Ctz() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfTrailingZeros", "(I)I", false);
+    }
+
+    private void compileI64Ctz() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "numberOfTrailingZeros", "(J)I", false);
+        method.visitInsn(Opcodes.I2L);
+    }
+
+    private void compileI32Popcnt() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "bitCount", "(I)I", false);
+    }
+
+    private void compileI64Popcnt() {
+        method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "bitCount", "(J)I", false);
+        method.visitInsn(Opcodes.I2L);
+    }
+
+    private void compileI32Eqz() {
+        emitHelperCall("eqz", "(I)Z");
+    }
+
+    private void compileI32Eq() {
+        popOperandType();
+        emitHelperCall("eq", "(II)Z");
+    }
+
+    private void compileI32Ne() {
+        popOperandType();
+        emitHelperCall("ne", "(II)Z");
+    }
+
+    private void compileI32Ltu() {
+        popOperandType();
+        emitHelperCall("ltu", "(II)Z");
+    }
+
+    private void compileI32Lts() {
+        popOperandType();
+        emitHelperCall("lts", "(II)Z");
+    }
+
+    private void compileI32Gtu() {
+        popOperandType();
+        emitHelperCall("gtu", "(II)Z");
+    }
+
+    private void compileI32Gts() {
+        popOperandType();
+        emitHelperCall("gts", "(II)Z");
+    }
+
+    private void compileI32Leu() {
+        popOperandType();
+        emitHelperCall("leu", "(II)Z");
+    }
+
+    private void compileI32Les() {
+        popOperandType();
+        emitHelperCall("les", "(II)Z");
+    }
+
+    private void compileI32Geu() {
+        popOperandType();
+        emitHelperCall("geu", "(II)Z");
+    }
+
+    private void compileI32Ges() {
+        popOperandType();
+        emitHelperCall("ges", "(II)Z");
+    }
+
+    private void compileI64Eqz() {
+        popOperandType();
+        emitHelperCall("eqz", "(J)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Eq() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("eq", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Ne() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("ne", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Ltu() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("ltu", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Lts() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("lts", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Gtu() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("gtu", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Gts() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("gts", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Leu() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("leu", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Les() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("les", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Geu() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("geu", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI64Ges() {
+        popOperandType();
+        popOperandType();
+        emitHelperCall("ges", "(JJ)Z");
+        operandTypes.add(ValueType.I32);
+    }
+
+    private void compileI32RemU() {
+        popOperandType();
+        emitHelperCall("remU", "(II)I");
+    }
+
+    private void compileI32RemS() {
+        popOperandType();
+        emitHelperCall("remS", "(II)I");
+    }
+
+    private void compileI64RemU() {
+        popOperandType();
+        emitHelperCall("remU", "(JJ)J");
+    }
+
+    private void compileI64RemS() {
+        popOperandType();
+        emitHelperCall("remS", "(JJ)J");
+    }
+
+    private void compileI32DivS() {
+        popOperandType();
+        emitHelperCall("divS", "(II)I");
+    }
+
+    private void compileI64DivS() {
+        popOperandType();
+        emitHelperCall("divS", "(JJ)J");
+    }
+
+    private void compileI64DivU() {
+        popOperandType();
+        emitHelperCall("divU", "(JJ)J");
+    }
+
+    private void compileI32DivU() {
+        popOperandType();
+        emitHelperCall("divU", "(II)I");
+    }
+
+    private void compileI32Mul() {
+        popOperandType();
+        method.visitInsn(Opcodes.IMUL);
+    }
+
+    private void compileI32Add() {
+        popOperandType();
+        method.visitInsn(Opcodes.IADD);
+    }
+
+    private void compileI32Sub() {
+        popOperandType();
+        method.visitInsn(Opcodes.ISUB);
+    }
+
+    private void compileI64Add() {
+        popOperandType();
+        method.visitInsn(Opcodes.LADD);
+    }
+
+    private void compileRefIsNull() {
+        popOperandType();
+        emitHelperCall("refIsNull", "(Ljava/lang/Object;)Z");
+    }
+
+    private void compileRefNull() throws CompilationException, IOException {
+        method.visitInsn(Opcodes.ACONST_NULL);
+        operandTypes.add(nextReferenceType().toValueType());
     }
 
     private void compileBranchTable() throws IOException {
@@ -142,6 +507,7 @@ final class ModuleCompiler {
     private void compileConditionalBranch() throws IOException {
         var pastBranchLabel = new Label();
         method.visitJumpInsn(Opcodes.IFEQ, pastBranchLabel);
+        popOperandType();
         compileBranch();
         method.visitLabel(pastBranchLabel);
     }
@@ -187,9 +553,9 @@ final class ModuleCompiler {
         for (var parameterType : target.getParameterTypeList()) switch (parameterType) {
             case I32 -> method.visitVarInsn(Opcodes.ILOAD, (localOffset -= 1));
             case F32 -> method.visitVarInsn(Opcodes.FLOAD, (localOffset -= 1));
-            case FUNCREF, EXTERNREF -> method.visitVarInsn(Opcodes.ALOAD, (localOffset -= 1));
             case I64 -> method.visitVarInsn(Opcodes.LLOAD, (localOffset -= 2));
             case F64 -> method.visitVarInsn(Opcodes.DLOAD, (localOffset -= 2));
+            case FUNCREF, EXTERNREF -> method.visitVarInsn(Opcodes.ALOAD, (localOffset -= 1));
         }
 
         method.visitJumpInsn(Opcodes.GOTO, target.label());
@@ -305,8 +671,8 @@ final class ModuleCompiler {
     }
 
     private void compileI32Store() throws IOException {
-        operandTypes.remove(operandTypes.size() - 1);
-        operandTypes.remove(operandTypes.size() - 1);
+        popOperandType();
+        popOperandType();
 
         method.visitInsn(Opcodes.SWAP);
         emitEffectiveAddress(nextMemArg().unsignedOffset());
@@ -345,23 +711,14 @@ final class ModuleCompiler {
     }
 
     private void compileSelect() {
-        var noSwapLabel = new Label();
-        method.visitJumpInsn(Opcodes.IFNE, noSwapLabel);
-
         popOperandType();
-
-        if (popOperandType().isDoubleWidth()) {
-            method.visitInsn(Opcodes.DUP2_X2);
-            method.visitInsn(Opcodes.POP2);
-            method.visitLabel(noSwapLabel);
-            method.visitInsn(Opcodes.POP2);
-        } else {
-            method.visitInsn(Opcodes.SWAP);
-            method.visitLabel(noSwapLabel);
-            method.visitInsn(Opcodes.POP);
-        }
-
-        popOperandType();
+        emitHelperCall("select", switch (popOperandType()) {
+            case I32 -> "(III)I";
+            case I64 -> "(IJJ)J";
+            case F32 -> "(IFF)F";
+            case F64 -> "(IDD)D";
+            case FUNCREF, EXTERNREF -> "(ILjava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+        });
     }
 
     private void compileDrop() {
@@ -372,29 +729,14 @@ final class ModuleCompiler {
         method.visitFieldInsn(Opcodes.GETFIELD, "org/wastastic/Module", "memory", "Lorg/wastastic/Memory;");
     }
 
-    private void emitZextIntToLong() {
-        method.visitInsn(Opcodes.I2L);
-        method.visitLdcInsn(0xffffffffL);
-        method.visitInsn(Opcodes.LAND);
-    }
-
     private void emitEffectiveAddress(int unsignedOffset) {
         if (unsignedOffset != 0) {
-            var pastTrapLabel = new Label();
-            emitZextIntToLong();
-            emitLongConstant(toUnsignedLong(unsignedOffset));
-            method.visitInsn(Opcodes.LADD);
-            method.visitLdcInsn(0xffffffffL);
-            method.visitInsn(Opcodes.LCMP);
-            method.visitJumpInsn(Opcodes.IFLE, pastTrapLabel);
-            emitTrap();
-            method.visitLabel(pastTrapLabel);
+            emitHelperCall("effectiveAddress", "(II)I");
         }
     }
 
     private void emitTrap() {
-        method.visitTypeInsn(Opcodes.NEW, "org/wastastic/TrapException");
-        method.visitMethodInsn(Opcodes.INVOKESPECIAL, "org/wastastic/TrapException", "<init>", "()V", false);
+        emitHelperCall("trap", "()Ljava/lang/RuntimeException;");
         method.visitInsn(Opcodes.ATHROW);
     }
 
@@ -423,6 +765,16 @@ final class ModuleCompiler {
         } else {
             method.visitLdcInsn(value);
         }
+    }
+
+    private void emitHelperCall(String name, String descriptor) {
+        method.visitMethodInsn(
+            Opcodes.INVOKESTATIC,
+            "org/wastastic/runtime/InstructionHelpers",
+            name,
+            descriptor,
+            false
+        );
     }
 
     private void compileMemorySection() throws IOException, CompilationException {
