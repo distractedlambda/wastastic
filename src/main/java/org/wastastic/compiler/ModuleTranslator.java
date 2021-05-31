@@ -31,10 +31,9 @@ final class ModuleTranslator {
     private final ArrayList<ImportedGlobal> importedGlobals = new ArrayList<>();
     private final ArrayList<GlobalType> definedGlobals = new ArrayList<>();
 
-    private int scratchLocalsOffset;
     private final ArrayList<Local> locals = new ArrayList<>();
-    private final ArrayList<ValueType> operandTypes = new ArrayList<>();
-    private final ArrayList<BranchTarget> branchTargets = new ArrayList<>();
+    private final ArrayList<ValueType> operandStack = new ArrayList<>();
+    private final ArrayList<LabelScope> labelStack = new ArrayList<>();
 
     private MethodVisitor method;
 
@@ -83,7 +82,7 @@ final class ModuleTranslator {
         }
     }
 
-    private void translateUntilEnd() throws IOException, CompilationException {
+    private void translateFunction() throws IOException, CompilationException {
         for (var opcode = reader.nextByte();; opcode = reader.nextByte()) switch (opcode) {
             case OP_UNREACHABLE -> translateUnreachable();
             case OP_NOP -> translateNop();
@@ -206,12 +205,47 @@ final class ModuleTranslator {
             case OP_LOCAL_TEE -> translateLocalTee();
             case OP_GLOBAL_SET -> translateGlobalSet();
             case OP_GLOBAL_GET -> translateGlobalGet();
-
-            case OP_END -> {
-                popBranchTarget();
-                return;
-            }
+            case OP_END -> translateEnd();
+            case OP_ELSE -> translateElse();
         }
+    }
+
+    private void translateElse() {
+        var scope = popLabelScope();
+        method.visitJumpInsn(Opcodes.GOTO, scope.label());
+        method.visitLabel(scope.elseLabel());
+
+        while (operandStack.size() > scope.operandStackSize()) {
+            popOperandType();
+        }
+
+        operandStack.addAll(ResultTypes.asList(scope.elseParameterTypes()));
+        labelStack.add(new LabelScope(scope.label(), scope.parameterTypes(), scope.operandStackSize()));
+    }
+
+    private void translateEnd() {
+        var scope = popLabelScope();
+        method.visitLabel(scope.label());
+        if (scope.elseLabel() != null) {
+            method.visitLabel(scope.elseLabel());
+        }
+    }
+
+    private void translateIf() throws IOException, CompilationException {
+        var type = nextBlockType();
+        var endLabel = new Label();
+        var elseLabel = new Label();
+
+        labelStack.add(new LabelScope(
+            endLabel,
+            type.getReturnTypes(),
+            operandStack.size() - type.getParameterCount() - 1,
+            elseLabel,
+            type.getParameterTypes()
+        ));
+
+        method.visitJumpInsn(Opcodes.IFEQ, elseLabel);
+        popOperandType();
     }
 
     private void translateGlobalSet() throws IOException {
@@ -281,7 +315,7 @@ final class ModuleTranslator {
             );
         }
 
-        operandTypes.add(type);
+        operandStack.add(type);
     }
 
     private Local nextIndexedLocal() throws IOException {
@@ -300,7 +334,7 @@ final class ModuleTranslator {
         };
 
         method.visitVarInsn(opcode, local.index());
-        operandTypes.add(local.type());
+        operandStack.add(local.type());
     }
 
     private void translateLocalSet() throws IOException {
@@ -482,84 +516,84 @@ final class ModuleTranslator {
         popOperandType();
         popOperandType();
         emitHelperCall("feq", "(FF)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF64Eq() {
         popOperandType();
         popOperandType();
         emitHelperCall("feq", "(DD)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF32Ne() {
         popOperandType();
         popOperandType();
         emitHelperCall("fne", "(FF)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF64Ne() {
         popOperandType();
         popOperandType();
         emitHelperCall("fne", "(DD)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF32Lt() {
         popOperandType();
         popOperandType();
         emitHelperCall("flt", "(FF)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF64Lt() {
         popOperandType();
         popOperandType();
         emitHelperCall("flt", "(DD)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF32Gt() {
         popOperandType();
         popOperandType();
         emitHelperCall("fgt", "(FF)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF64Gt() {
         popOperandType();
         popOperandType();
         emitHelperCall("fgt", "(DD)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF32Le() {
         popOperandType();
         popOperandType();
         emitHelperCall("fle", "(FF)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF64Le() {
         popOperandType();
         popOperandType();
         emitHelperCall("fle", "(DD)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF32Ge() {
         popOperandType();
         popOperandType();
         emitHelperCall("fge", "(FF)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateF64Ge() {
         popOperandType();
         popOperandType();
         emitHelperCall("fge", "(DD)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI32And() {
@@ -723,77 +757,77 @@ final class ModuleTranslator {
     private void translateI64Eqz() {
         popOperandType();
         emitHelperCall("eqz", "(J)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Eq() {
         popOperandType();
         popOperandType();
         emitHelperCall("eq", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Ne() {
         popOperandType();
         popOperandType();
         emitHelperCall("ne", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Ltu() {
         popOperandType();
         popOperandType();
         emitHelperCall("ltu", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Lts() {
         popOperandType();
         popOperandType();
         emitHelperCall("lts", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Gtu() {
         popOperandType();
         popOperandType();
         emitHelperCall("gtu", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Gts() {
         popOperandType();
         popOperandType();
         emitHelperCall("gts", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Leu() {
         popOperandType();
         popOperandType();
         emitHelperCall("leu", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Les() {
         popOperandType();
         popOperandType();
         emitHelperCall("les", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Geu() {
         popOperandType();
         popOperandType();
         emitHelperCall("geu", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Ges() {
         popOperandType();
         popOperandType();
         emitHelperCall("ges", "(JJ)Z");
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI32RemU() {
@@ -863,12 +897,12 @@ final class ModuleTranslator {
 
     private void translateRefNull() throws CompilationException, IOException {
         method.visitInsn(Opcodes.ACONST_NULL);
-        operandTypes.add(nextReferenceType().toValueType());
+        operandStack.add(nextReferenceType().toValueType());
     }
 
     private void translateBranchTable() throws IOException {
         var indexedTargetCount = reader.nextUnsigned32();
-        var indexedTargets = new BranchTarget[indexedTargetCount];
+        var indexedTargets = new LabelScope[indexedTargetCount];
 
         for (var i = 0; i < indexedTargetCount; i++) {
             indexedTargets[i] = nextBranchTarget();
@@ -895,8 +929,8 @@ final class ModuleTranslator {
         emitBranch(defaultTarget);
     }
 
-    private BranchTarget nextBranchTarget() throws IOException {
-        return branchTargets.get(branchTargets.size() - 1 - reader.nextUnsigned32());
+    private LabelScope nextBranchTarget() throws IOException {
+        return labelStack.get(labelStack.size() - 1 - reader.nextUnsigned32());
     }
 
     private void translateConditionalBranch() throws IOException {
@@ -907,57 +941,70 @@ final class ModuleTranslator {
         method.visitLabel(pastBranchLabel);
     }
 
-    private void emitBranch(BranchTarget target) {
-        var localOffset = scratchLocalsOffset;
+    private int scratchLocalsOffset() {
+        if (locals.isEmpty()) {
+            return 0;
+        } else {
+            var last = locals.get(locals.size() - 1);
+            return last.index() + (last.type().isDoubleWidth() ? 2 : 1);
+        }
+    }
 
-        for (var i = 0; i < target.getParameterCount(); i++) switch (operandTypes.get(operandTypes.size() - i - 1)) {
-            case I32 -> {
-                method.visitVarInsn(Opcodes.ISTORE, localOffset);
-                localOffset += 1;
-            }
+    private void emitBranch(LabelScope target) {
+        var localOffset = scratchLocalsOffset();
 
-            case F32 -> {
-                method.visitVarInsn(Opcodes.FSTORE, localOffset);
-                localOffset += 1;
-            }
+        for (var i = 0; i < ResultTypes.length(target.parameterTypes()); i++) {
+            switch (operandStack.get(operandStack.size() - i - 1)) {
+                case I32 -> {
+                    method.visitVarInsn(Opcodes.ISTORE, localOffset);
+                    localOffset += 1;
+                }
 
-            case FUNCREF, EXTERNREF -> {
-                method.visitVarInsn(Opcodes.ASTORE, localOffset);
-                localOffset += 1;
-            }
+                case F32 -> {
+                    method.visitVarInsn(Opcodes.FSTORE, localOffset);
+                    localOffset += 1;
+                }
 
-            case I64 -> {
-                method.visitVarInsn(Opcodes.LSTORE, localOffset);
-                localOffset += 2;
-            }
+                case FUNCREF, EXTERNREF -> {
+                    method.visitVarInsn(Opcodes.ASTORE, localOffset);
+                    localOffset += 1;
+                }
 
-            case F64 -> {
-                method.visitVarInsn(Opcodes.DSTORE, localOffset);
-                localOffset += 2;
+                case I64 -> {
+                    method.visitVarInsn(Opcodes.LSTORE, localOffset);
+                    localOffset += 2;
+                }
+
+                case F64 -> {
+                    method.visitVarInsn(Opcodes.DSTORE, localOffset);
+                    localOffset += 2;
+                }
             }
         }
 
-        for (var i = 0; i < target.getParameterCount(); i++) {
-            if (operandTypes.get(operandTypes.size() - i - 1).isDoubleWidth()) {
+        for (var i = 0; i < ResultTypes.length(target.parameterTypes()); i++) {
+            if (operandStack.get(operandStack.size() - i - 1).isDoubleWidth()) {
                 method.visitInsn(Opcodes.POP2);
             } else {
                 method.visitInsn(Opcodes.POP);
             }
         }
 
-        for (var parameterType : target.getParameterTypeList()) switch (parameterType) {
-            case I32 -> method.visitVarInsn(Opcodes.ILOAD, (localOffset -= 1));
-            case F32 -> method.visitVarInsn(Opcodes.FLOAD, (localOffset -= 1));
-            case I64 -> method.visitVarInsn(Opcodes.LLOAD, (localOffset -= 2));
-            case F64 -> method.visitVarInsn(Opcodes.DLOAD, (localOffset -= 2));
-            case FUNCREF, EXTERNREF -> method.visitVarInsn(Opcodes.ALOAD, (localOffset -= 1));
+        for (var parameterType : ResultTypes.asList(target.parameterTypes())) {
+            switch (parameterType) {
+                case I32 -> method.visitVarInsn(Opcodes.ILOAD, (localOffset -= 1));
+                case F32 -> method.visitVarInsn(Opcodes.FLOAD, (localOffset -= 1));
+                case I64 -> method.visitVarInsn(Opcodes.LLOAD, (localOffset -= 2));
+                case F64 -> method.visitVarInsn(Opcodes.DLOAD, (localOffset -= 2));
+                case FUNCREF, EXTERNREF -> method.visitVarInsn(Opcodes.ALOAD, (localOffset -= 1));
+            }
         }
 
         method.visitJumpInsn(Opcodes.GOTO, target.label());
     }
 
     private void translateBranch() throws IOException {
-        var targetIndex = branchTargets.size() - 1 - reader.nextUnsigned32();
+        var targetIndex = labelStack.size() - 1 - reader.nextUnsigned32();
         if (targetIndex == 0) {
             translateReturn();
         } else {
@@ -968,28 +1015,28 @@ final class ModuleTranslator {
     private void translateLoop() throws CompilationException, IOException {
         var type = nextBlockType();
         var startLabel = new Label();
-        branchTargets.add(
-            new BranchTarget(
-                startLabel,
-                type.getParameterTypes(),
-                operandTypes.size() - type.getParameterCount()
-            )
-        );
+
+        labelStack.add(new LabelScope(
+            startLabel,
+            type.getParameterTypes(),
+            operandStack.size() - type.getParameterCount()
+        ));
+
         method.visitLabel(startLabel);
-        translateUntilEnd();
+        translateFunction();
     }
 
     private void translateBlock() throws CompilationException, IOException {
         var type = nextBlockType();
         var endLabel = new Label();
-        branchTargets.add(
-            new BranchTarget(
-                endLabel,
-                type.getReturnTypes(),
-                operandTypes.size() - type.getParameterCount()
-            )
-        );
-        translateUntilEnd();
+
+        labelStack.add(new LabelScope(
+            endLabel,
+            type.getReturnTypes(),
+            operandStack.size() - type.getParameterCount()
+        ));
+
+        translateFunction();
         method.visitLabel(endLabel);
     }
 
@@ -1018,7 +1065,7 @@ final class ModuleTranslator {
     }
 
     private void translateReturn() {
-        var returnTypes = branchTargets.get(0).parameterTypes();
+        var returnTypes = labelStack.get(0).parameterTypes();
 
         if (returnTypes == null) {
             method.visitInsn(Opcodes.RETURN);
@@ -1062,7 +1109,7 @@ final class ModuleTranslator {
         emitGetMemory();
         method.visitInsn(Opcodes.SWAP);
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "loadInt", "(I)I", true);
-        operandTypes.add(ValueType.I32);
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI32Store() throws IOException {
@@ -1083,7 +1130,7 @@ final class ModuleTranslator {
         emitGetMemory();
         method.visitInsn(Opcodes.SWAP);
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "loadLong", "(I)J", true);
-        operandTypes.add(ValueType.I64);
+        operandStack.add(ValueType.I64);
     }
 
     private void translateI64Store() throws IOException {
@@ -1302,11 +1349,11 @@ final class ModuleTranslator {
     }
 
     private ValueType popOperandType() {
-        return operandTypes.remove(operandTypes.size() - 1);
+        return operandStack.remove(operandStack.size() - 1);
     }
 
-    private BranchTarget popBranchTarget() {
-        return branchTargets.remove(branchTargets.size() - 1);
+    private LabelScope popLabelScope() {
+        return labelStack.remove(labelStack.size() - 1);
     }
 
     private static final byte SECTION_CUSTOM = 0;
