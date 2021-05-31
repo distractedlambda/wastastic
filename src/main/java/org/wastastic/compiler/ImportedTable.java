@@ -2,7 +2,7 @@ package org.wastastic.compiler;
 
 import static java.util.Objects.requireNonNull;
 
-final class ImportedTable extends Import implements Table {
+final class ImportedTable extends Import {
     private final TableType type;
 
     ImportedTable(String moduleName, String name, TableType type) {
@@ -10,8 +10,7 @@ final class ImportedTable extends Import implements Table {
         this.type = requireNonNull(type);
     }
 
-    @Override
-    public TableType getType() {
+    TableType getType() {
         return type;
     }
 }

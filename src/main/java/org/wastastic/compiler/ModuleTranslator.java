@@ -205,6 +205,7 @@ final class ModuleTranslator {
             case OP_LOCAL_TEE -> translateLocalTee();
             case OP_GLOBAL_SET -> translateGlobalSet();
             case OP_GLOBAL_GET -> translateGlobalGet();
+            case OP_IF -> translateIf();
             case OP_ELSE -> translateElse();
 
             case OP_END -> {
@@ -216,6 +217,11 @@ final class ModuleTranslator {
 
                 if (scope.endLabel() != null) {
                     method.visitLabel(scope.endLabel());
+                }
+
+                if (labelStack.isEmpty()) {
+                    // FIXME: generate return instruction instead? Or break from loop maybe?
+                    return;
                 }
             }
         }

@@ -2,7 +2,7 @@ package org.wastastic.compiler;
 
 import static java.util.Objects.requireNonNull;
 
-final class ImportedGlobal extends Import implements Global {
+final class ImportedGlobal extends Import {
     private final GlobalType type;
 
     ImportedGlobal(String moduleName, String name, GlobalType type) {
@@ -10,8 +10,7 @@ final class ImportedGlobal extends Import implements Global {
         this.type = requireNonNull(type);
     }
 
-    @Override
-    public GlobalType getType() {
+    GlobalType getType() {
         return type;
     }
 }

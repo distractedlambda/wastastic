@@ -4,7 +4,7 @@ import java.util.Objects;
 
 import static java.util.Objects.requireNonNull;
 
-final class ImportedMemory extends Import implements Memory {
+final class ImportedMemory extends Import {
     private final MemoryType type;
 
     ImportedMemory(String moduleName, String name, MemoryType type) {
@@ -12,8 +12,7 @@ final class ImportedMemory extends Import implements Memory {
         this.type = requireNonNull(type);
     }
 
-    @Override
-    public MemoryType getType() {
+    MemoryType getType() {
         return type;
     }
 }

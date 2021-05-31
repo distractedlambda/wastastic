@@ -1,6 +1,6 @@
 package org.wastastic.compiler;
 
-final class FunctionType implements Function {
+final class FunctionType {
     private final Object parameterTypes;
     private final Object returnTypes;
 
@@ -33,11 +33,6 @@ final class FunctionType implements Function {
         } else {
             return (signatureString = makeSignatureString());
         }
-    }
-
-    @Override
-    public FunctionType getType() {
-        return this;
     }
 
     private String makeSignatureString() throws CompilationException {

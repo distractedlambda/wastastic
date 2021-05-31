@@ -2,7 +2,7 @@ package org.wastastic.compiler;
 
 import static java.util.Objects.requireNonNull;
 
-final class ImportedFunction extends Import implements Function {
+final class ImportedFunction extends Import {
     private final FunctionType type;
 
     ImportedFunction(String moduleName, String name, FunctionType type) {
@@ -10,8 +10,7 @@ final class ImportedFunction extends Import implements Function {
         this.type = requireNonNull(type);
     }
 
-    @Override
-    public FunctionType getType() {
+    FunctionType getType() {
         return type;
     }
 }
