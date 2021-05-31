@@ -7,8 +7,8 @@ enum ValueType {
     I64("J", true),
     F32("F", false),
     F64("D", true),
-    FUNCREF("TODO", false),
-    EXTERNREF("TODO", false);
+    FUNCREF("java/lang/invoke/MethodHandle", false),
+    EXTERNREF("java/lang/Object", false);
 
     private final String descriptor;
     private final boolean doubleWidth;

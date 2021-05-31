@@ -14,7 +14,7 @@ import static org.objectweb.asm.Type.getConstructorDescriptor;
 import static org.objectweb.asm.Type.getInternalName;
 import static org.wastastic.compiler.Tuples.getTupleClass;
 
-final class ModuleCompiler {
+final class ModuleTranslator {
     private static final int[] EMPTY_INT_ARRAY = new int[0];
 
     private final String internalName;
@@ -22,25 +22,29 @@ final class ModuleCompiler {
     private final ClassVisitor clazz;
 
     private final ArrayList<FunctionType> types = new ArrayList<>();
-    private final ArrayList<Function> functions = new ArrayList<>();
-    private final ArrayList<Table> tables = new ArrayList<>();
-    private final ArrayList<Memory> memories = new ArrayList<>();
-    private final ArrayList<Global> globals = new ArrayList<>();
+    private final ArrayList<ImportedFunction> importedFunctions = new ArrayList<>();
+    private final ArrayList<FunctionType> definedFunctions = new ArrayList<>();
+    private final ArrayList<ImportedTable> importedTables = new ArrayList<>();
+    private final ArrayList<TableType> definedTables = new ArrayList<>();
+    private final ArrayList<ImportedMemory> importedMemories = new ArrayList<>();
+    private final ArrayList<MemoryType> definedMemories = new ArrayList<>();
+    private final ArrayList<ImportedGlobal> importedGlobals = new ArrayList<>();
+    private final ArrayList<GlobalType> definedGlobals = new ArrayList<>();
 
     private int scratchLocalsOffset;
-    private int[] localIndices = EMPTY_INT_ARRAY;
+    private final ArrayList<Local> locals = new ArrayList<>();
     private final ArrayList<ValueType> operandTypes = new ArrayList<>();
     private final ArrayList<BranchTarget> branchTargets = new ArrayList<>();
 
     private MethodVisitor method;
 
-    ModuleCompiler(String internalName, ModuleReader reader, ClassVisitor clazz) {
+    ModuleTranslator(String internalName, ModuleReader reader, ClassVisitor clazz) {
         this.internalName = requireNonNull(internalName);
         this.reader = requireNonNull(reader);
         this.clazz = requireNonNull(clazz);
     }
 
-    void compile() throws CompilationException, IOException {
+    void translate() throws CompilationException, IOException {
         if (reader.nextByte() != 0x00 ||
             reader.nextByte() != 0x61 ||
             reader.nextByte() != 0x73 ||
@@ -69,134 +73,139 @@ final class ModuleCompiler {
 
             switch (sectionId) {
                 case SECTION_CUSTOM -> reader.skip(unsignedSectionSize);
-                case SECTION_TYPE -> compileTypeSection();
-                case SECTION_IMPORT -> compileImportSection();
-                case SECTION_FUNCTION -> compileFunctionSection();
-                case SECTION_TABLE -> compileTableSection();
-                case SECTION_MEMORY -> compileMemorySection();
+                case SECTION_TYPE -> translateTypeSection();
+                case SECTION_IMPORT -> translateImportSection();
+                case SECTION_FUNCTION -> translateFunctionSection();
+                case SECTION_TABLE -> translateTableSection();
+                case SECTION_MEMORY -> translateMemorySection();
                 default -> throw new CompilationException("Unrecognized section ID: " + sectionId);
             }
         }
     }
 
-    private void compileUntilEnd() throws IOException, CompilationException {
+    private void translateUntilEnd() throws IOException, CompilationException {
         for (var opcode = reader.nextByte();; opcode = reader.nextByte()) switch (opcode) {
-            case OP_UNREACHABLE -> compileUnreachable();
-            case OP_NOP -> compileNop();
-            case OP_RETURN -> compileReturn();
-            case OP_I32_LOAD -> compileI32Load();
-            case OP_I32_STORE -> compileI32Store();
-            case OP_I64_LOAD -> compileI64Load();
-            case OP_I64_STORE -> compileI64Store();
-            case OP_DROP -> compileDrop();
-            case OP_SELECT -> compileSelect();
-            case OP_CALL -> compileCall();
-            case OP_BLOCK -> compileBlock();
-            case OP_LOOP -> compileLoop();
-            case OP_BR -> compileBranch();
-            case OP_BR_IF -> compileConditionalBranch();
-            case OP_BR_TABLE -> compileBranchTable();
-            case OP_REF_NULL -> compileRefNull();
-            case OP_REF_IS_NULL -> compileRefIsNull();
-            case OP_I32_ADD -> compileI32Add();
-            case OP_I64_ADD -> compileI64Add();
-            case OP_I32_SUB -> compileI32Sub();
-            case OP_I32_MUL -> compileI32Mul();
-            case OP_I32_DIV_U -> compileI32DivU();
-            case OP_I64_DIV_U -> compileI64DivU();
-            case OP_I32_DIV_S -> compileI32DivS();
-            case OP_I64_DIV_S -> compileI64DivS();
-            case OP_I64_REM_U -> compileI64RemU();
-            case OP_I64_REM_S -> compileI64RemS();
-            case OP_I32_REM_U -> compileI32RemU();
-            case OP_I32_REM_S -> compileI32RemS();
-            case OP_I32_AND -> compileI32And();
-            case OP_I64_AND -> compileI64And();
-            case OP_I32_OR -> compileI32Or();
-            case OP_I64_OR -> compileI64Or();
-            case OP_I32_XOR -> compileI32Xor();
-            case OP_I64_XOR -> compileI64Xor();
-            case OP_I32_SHL -> compileI32Shl();
-            case OP_I64_SHL -> compileI64Shl();
-            case OP_I32_SHR_U -> compileI32ShrU();
-            case OP_I64_SHR_U -> compileI64ShrU();
-            case OP_I32_SHR_S -> compileI32ShrS();
-            case OP_I64_SHR_S -> compileI64ShrS();
-            case OP_I32_ROTL -> compileI32RotL();
-            case OP_I64_ROTL -> compileI64RotL();
-            case OP_I32_ROTR -> compileI32RotR();
-            case OP_I64_ROTR -> compileI64RotR();
-            case OP_I32_CLZ -> compileI32Clz();
-            case OP_I64_CLZ -> compileI64Clz();
-            case OP_I32_CTZ -> compileI32Ctz();
-            case OP_I64_CTZ -> compileI64Ctz();
-            case OP_I32_POPCNT -> compileI32Popcnt();
-            case OP_I64_POPCNT -> compileI64Popcnt();
-            case OP_I32_EQZ -> compileI32Eqz();
-            case OP_I64_EQZ -> compileI64Eqz();
-            case OP_I32_EQ -> compileI32Eq();
-            case OP_I64_EQ -> compileI64Eq();
-            case OP_I32_NE -> compileI32Ne();
-            case OP_I64_NE -> compileI64Ne();
-            case OP_I32_LT_U -> compileI32Ltu();
-            case OP_I64_LT_U -> compileI64Ltu();
-            case OP_I32_LT_S -> compileI32Lts();
-            case OP_I64_LT_S -> compileI64Lts();
-            case OP_I32_GT_U -> compileI32Gtu();
-            case OP_I64_GT_U -> compileI64Gtu();
-            case OP_I32_GT_S -> compileI32Gts();
-            case OP_I64_GT_S -> compileI64Gts();
-            case OP_I32_LE_U -> compileI32Leu();
-            case OP_I64_LE_U -> compileI64Leu();
-            case OP_I32_LE_S -> compileI32Les();
-            case OP_I64_LE_S -> compileI64Les();
-            case OP_I32_GE_U -> compileI32Geu();
-            case OP_I64_GE_U -> compileI64Geu();
-            case OP_I32_GE_S -> compileI32Ges();
-            case OP_I64_GE_S -> compileI64Ges();
-            case OP_F32_ADD -> compileF32Add();
-            case OP_F32_SUB -> compileF32Sub();
-            case OP_F32_MUL -> compileF32Mul();
-            case OP_F32_DIV -> compileF32Div();
-            case OP_F32_MIN -> compileF32Min();
-            case OP_F32_MAX -> compileF32Max();
-            case OP_F32_COPYSIGN -> compileF32Copysign();
-            case OP_F32_ABS -> compileF32Abs();
-            case OP_F32_NEG -> compileF32Neg();
-            case OP_F32_SQRT -> compileF32Sqrt();
-            case OP_F32_CEIL -> compileF32Ceil();
-            case OP_F32_FLOOR -> compileF32Floor();
-            case OP_F32_TRUNC -> compileF32Trunc();
-            case OP_F32_NEAREST -> compileF32Nearest();
-            case OP_F32_EQ -> compileF32Eq();
-            case OP_F32_NE -> compileF32Ne();
-            case OP_F32_LT -> compileF32Lt();
-            case OP_F32_GT -> compileF32Gt();
-            case OP_F32_LE -> compileF32Le();
-            case OP_F32_GE -> compileF32Ge();
-            case OP_F64_ADD -> compileF64Add();
-            case OP_F64_SUB -> compileF64Sub();
-            case OP_F64_MUL -> compileF64Mul();
-            case OP_F64_DIV -> compileF64Div();
-            case OP_F64_MIN -> compileF64Min();
-            case OP_F64_MAX -> compileF64Max();
-            case OP_F64_COPYSIGN -> compileF64Copysign();
-            case OP_F64_ABS -> compileF64Abs();
-            case OP_F64_NEG -> compileF64Neg();
-            case OP_F64_SQRT -> compileF64Sqrt();
-            case OP_F64_CEIL -> compileF64Ceil();
-            case OP_F64_FLOOR -> compileF64Floor();
-            case OP_F64_TRUNC -> compileF64Trunc();
-            case OP_F64_NEAREST -> compileF64Nearest();
-            case OP_F64_EQ -> compileF64Eq();
-            case OP_F64_NE -> compileF64Ne();
-            case OP_F64_LT -> compileF64Lt();
-            case OP_F64_GT -> compileF64Gt();
-            case OP_F64_LE -> compileF64Le();
-            case OP_F64_GE -> compileF64Ge();
-            case OP_I64_MUL -> compileI64Mul();
-            case OP_I64_SUB -> compileI64Sub();
-            case OP_SELECT_VEC -> compileSelectVec();
+            case OP_UNREACHABLE -> translateUnreachable();
+            case OP_NOP -> translateNop();
+            case OP_RETURN -> translateReturn();
+            case OP_I32_LOAD -> translateI32Load();
+            case OP_I32_STORE -> translateI32Store();
+            case OP_I64_LOAD -> translateI64Load();
+            case OP_I64_STORE -> translateI64Store();
+            case OP_DROP -> translateDrop();
+            case OP_SELECT -> translateSelect();
+            case OP_CALL -> translateCall();
+            case OP_BLOCK -> translateBlock();
+            case OP_LOOP -> translateLoop();
+            case OP_BR -> translateBranch();
+            case OP_BR_IF -> translateConditionalBranch();
+            case OP_BR_TABLE -> translateBranchTable();
+            case OP_REF_NULL -> translateRefNull();
+            case OP_REF_IS_NULL -> translateRefIsNull();
+            case OP_I32_ADD -> translateI32Add();
+            case OP_I64_ADD -> translateI64Add();
+            case OP_I32_SUB -> translateI32Sub();
+            case OP_I32_MUL -> translateI32Mul();
+            case OP_I32_DIV_U -> translateI32DivU();
+            case OP_I64_DIV_U -> translateI64DivU();
+            case OP_I32_DIV_S -> translateI32DivS();
+            case OP_I64_DIV_S -> translateI64DivS();
+            case OP_I64_REM_U -> translateI64RemU();
+            case OP_I64_REM_S -> translateI64RemS();
+            case OP_I32_REM_U -> translateI32RemU();
+            case OP_I32_REM_S -> translateI32RemS();
+            case OP_I32_AND -> translateI32And();
+            case OP_I64_AND -> translateI64And();
+            case OP_I32_OR -> translateI32Or();
+            case OP_I64_OR -> translateI64Or();
+            case OP_I32_XOR -> translateI32Xor();
+            case OP_I64_XOR -> translateI64Xor();
+            case OP_I32_SHL -> translateI32Shl();
+            case OP_I64_SHL -> translateI64Shl();
+            case OP_I32_SHR_U -> translateI32ShrU();
+            case OP_I64_SHR_U -> translateI64ShrU();
+            case OP_I32_SHR_S -> translateI32ShrS();
+            case OP_I64_SHR_S -> translateI64ShrS();
+            case OP_I32_ROTL -> translateI32RotL();
+            case OP_I64_ROTL -> translateI64RotL();
+            case OP_I32_ROTR -> translateI32RotR();
+            case OP_I64_ROTR -> translateI64RotR();
+            case OP_I32_CLZ -> translateI32Clz();
+            case OP_I64_CLZ -> translateI64Clz();
+            case OP_I32_CTZ -> translateI32Ctz();
+            case OP_I64_CTZ -> translateI64Ctz();
+            case OP_I32_POPCNT -> translateI32Popcnt();
+            case OP_I64_POPCNT -> translateI64Popcnt();
+            case OP_I32_EQZ -> translateI32Eqz();
+            case OP_I64_EQZ -> translateI64Eqz();
+            case OP_I32_EQ -> translateI32Eq();
+            case OP_I64_EQ -> translateI64Eq();
+            case OP_I32_NE -> translateI32Ne();
+            case OP_I64_NE -> translateI64Ne();
+            case OP_I32_LT_U -> translateI32Ltu();
+            case OP_I64_LT_U -> translateI64Ltu();
+            case OP_I32_LT_S -> translateI32Lts();
+            case OP_I64_LT_S -> translateI64Lts();
+            case OP_I32_GT_U -> translateI32Gtu();
+            case OP_I64_GT_U -> translateI64Gtu();
+            case OP_I32_GT_S -> translateI32Gts();
+            case OP_I64_GT_S -> translateI64Gts();
+            case OP_I32_LE_U -> translateI32Leu();
+            case OP_I64_LE_U -> translateI64Leu();
+            case OP_I32_LE_S -> translateI32Les();
+            case OP_I64_LE_S -> translateI64Les();
+            case OP_I32_GE_U -> translateI32Geu();
+            case OP_I64_GE_U -> translateI64Geu();
+            case OP_I32_GE_S -> translateI32Ges();
+            case OP_I64_GE_S -> translateI64Ges();
+            case OP_F32_ADD -> translateF32Add();
+            case OP_F32_SUB -> translateF32Sub();
+            case OP_F32_MUL -> translateF32Mul();
+            case OP_F32_DIV -> translateF32Div();
+            case OP_F32_MIN -> translateF32Min();
+            case OP_F32_MAX -> translateF32Max();
+            case OP_F32_COPYSIGN -> translateF32Copysign();
+            case OP_F32_ABS -> translateF32Abs();
+            case OP_F32_NEG -> translateF32Neg();
+            case OP_F32_SQRT -> translateF32Sqrt();
+            case OP_F32_CEIL -> translateF32Ceil();
+            case OP_F32_FLOOR -> translateF32Floor();
+            case OP_F32_TRUNC -> translateF32Trunc();
+            case OP_F32_NEAREST -> translateF32Nearest();
+            case OP_F32_EQ -> translateF32Eq();
+            case OP_F32_NE -> translateF32Ne();
+            case OP_F32_LT -> translateF32Lt();
+            case OP_F32_GT -> translateF32Gt();
+            case OP_F32_LE -> translateF32Le();
+            case OP_F32_GE -> translateF32Ge();
+            case OP_F64_ADD -> translateF64Add();
+            case OP_F64_SUB -> translateF64Sub();
+            case OP_F64_MUL -> translateF64Mul();
+            case OP_F64_DIV -> translateF64Div();
+            case OP_F64_MIN -> translateF64Min();
+            case OP_F64_MAX -> translateF64Max();
+            case OP_F64_COPYSIGN -> translateF64Copysign();
+            case OP_F64_ABS -> translateF64Abs();
+            case OP_F64_NEG -> translateF64Neg();
+            case OP_F64_SQRT -> translateF64Sqrt();
+            case OP_F64_CEIL -> translateF64Ceil();
+            case OP_F64_FLOOR -> translateF64Floor();
+            case OP_F64_TRUNC -> translateF64Trunc();
+            case OP_F64_NEAREST -> translateF64Nearest();
+            case OP_F64_EQ -> translateF64Eq();
+            case OP_F64_NE -> translateF64Ne();
+            case OP_F64_LT -> translateF64Lt();
+            case OP_F64_GT -> translateF64Gt();
+            case OP_F64_LE -> translateF64Le();
+            case OP_F64_GE -> translateF64Ge();
+            case OP_I64_MUL -> translateI64Mul();
+            case OP_I64_SUB -> translateI64Sub();
+            case OP_SELECT_VEC -> translateSelectVec();
+            case OP_LOCAL_GET -> translateLocalGet();
+            case OP_LOCAL_SET -> translateLocalSet();
+            case OP_LOCAL_TEE -> translateLocalTee();
+            case OP_GLOBAL_SET -> translateGlobalSet();
+            case OP_GLOBAL_GET -> translateGlobalGet();
 
             case OP_END -> {
                 popBranchTarget();
@@ -205,540 +214,659 @@ final class ModuleCompiler {
         }
     }
 
-    private void compileSelectVec() throws IOException, CompilationException {
+    private void translateGlobalSet() throws IOException {
+        var globalIndex = reader.nextUnsigned32();
+        ValueType type;
+
+        if (globalIndex < importedGlobals.size()) {
+            type = importedGlobals.get(globalIndex).getType().valueType();
+
+            method.visitFieldInsn(
+                Opcodes.GETFIELD,
+                internalName,
+                "g-" + globalIndex + "-set",
+                "Ljava/lang/invoke/MethodHandle;"
+            );
+
+            method.visitMethodInsn(
+                Opcodes.INVOKEVIRTUAL,
+                "java/lang/invoke/MethodHandle",
+                "invoke",
+                "(" + type.getDescriptor() + ")V",
+                false
+            );
+        } else {
+            type = definedGlobals.get(globalIndex - importedGlobals.size()).valueType();
+
+            method.visitFieldInsn(
+                Opcodes.PUTFIELD,
+                internalName,
+                "g-" + globalIndex,
+                type.getDescriptor()
+            );
+        }
+
+        popOperandType();
+    }
+
+    private void translateGlobalGet() throws IOException {
+        var globalIndex = reader.nextUnsigned32();
+        ValueType type;
+
+        if (globalIndex < importedGlobals.size()) {
+            type = importedGlobals.get(globalIndex).getType().valueType();
+
+            method.visitFieldInsn(
+                Opcodes.GETFIELD,
+                internalName,
+                "g-" + globalIndex + "-get",
+                "Ljava/lang/invoke/MethodHandle;"
+            );
+
+            method.visitMethodInsn(
+                Opcodes.INVOKEVIRTUAL,
+                "java/lang/invoke/MethodHandle",
+                "invoke",
+                "()" + type.getDescriptor(),
+                false
+            );
+        } else {
+            type = definedGlobals.get(globalIndex - importedGlobals.size()).valueType();
+
+            method.visitFieldInsn(
+                Opcodes.GETFIELD,
+                internalName,
+                "g-" + globalIndex,
+                type.getDescriptor()
+            );
+        }
+
+        operandTypes.add(type);
+    }
+
+    private Local nextIndexedLocal() throws IOException {
+        return locals.get(reader.nextUnsigned32());
+    }
+
+    private void translateLocalGet() throws IOException {
+        var local = nextIndexedLocal();
+
+        var opcode = switch (local.type()) {
+            case I32 -> Opcodes.ILOAD;
+            case I64 -> Opcodes.LLOAD;
+            case F32 -> Opcodes.FLOAD;
+            case F64 -> Opcodes.DLOAD;
+            case FUNCREF, EXTERNREF -> Opcodes.ALOAD;
+        };
+
+        method.visitVarInsn(opcode, local.index());
+        operandTypes.add(local.type());
+    }
+
+    private void translateLocalSet() throws IOException {
+        var local = nextIndexedLocal();
+
+        var opcode = switch (local.type()) {
+            case I32 -> Opcodes.ISTORE;
+            case I64 -> Opcodes.LSTORE;
+            case F32 -> Opcodes.FSTORE;
+            case F64 -> Opcodes.DSTORE;
+            case FUNCREF, EXTERNREF -> Opcodes.ASTORE;
+        };
+
+        popOperandType();
+        method.visitVarInsn(opcode, local.index());
+    }
+
+    private void translateLocalTee() throws IOException {
+        var local = nextIndexedLocal();
+
+        var opcode = switch (local.type()) {
+            case I32 -> Opcodes.ISTORE;
+            case I64 -> Opcodes.LSTORE;
+            case F32 -> Opcodes.FSTORE;
+            case F64 -> Opcodes.DSTORE;
+            case FUNCREF, EXTERNREF -> Opcodes.ASTORE;
+        };
+
+        method.visitInsn(local.type().isDoubleWidth() ? Opcodes.DUP2 : Opcodes.DUP);
+        method.visitVarInsn(opcode, local.index());
+    }
+
+    private void translateSelectVec() throws IOException, CompilationException {
         for (var i = reader.nextUnsigned32(); i != 0; i--) {
             nextValueType();
         }
 
-        compileSelect();
+        translateSelect();
     }
 
-    private void compileI64Mul() {
+    private void translateI64Mul() {
         popOperandType();
         method.visitInsn(Opcodes.LMUL);
     }
 
-    private void compileI64Sub() {
+    private void translateI64Sub() {
         popOperandType();
         method.visitInsn(Opcodes.LSUB);
     }
 
-    private void compileF32Add() {
+    private void translateF32Add() {
         popOperandType();
         method.visitInsn(Opcodes.FADD);
     }
 
-    private void compileF64Add() {
+    private void translateF64Add() {
         popOperandType();
         method.visitInsn(Opcodes.DADD);
     }
 
-    private void compileF32Sub() {
+    private void translateF32Sub() {
         popOperandType();
         method.visitInsn(Opcodes.FSUB);
     }
 
-    private void compileF64Sub() {
+    private void translateF64Sub() {
         popOperandType();
         method.visitInsn(Opcodes.DSUB);
     }
 
-    private void compileF32Mul() {
+    private void translateF32Mul() {
         popOperandType();
         method.visitInsn(Opcodes.FMUL);
     }
 
-    private void compileF64Mul() {
+    private void translateF64Mul() {
         popOperandType();
         method.visitInsn(Opcodes.DMUL);
     }
 
-    private void compileF32Div() {
+    private void translateF32Div() {
         popOperandType();
         method.visitInsn(Opcodes.FDIV);
     }
 
-    private void compileF64Div() {
+    private void translateF64Div() {
         popOperandType();
         method.visitInsn(Opcodes.DDIV);
     }
 
-    private void compileF32Min() {
+    private void translateF32Min() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(FF)F", false);
     }
 
-    private void compileF64Min() {
+    private void translateF64Min() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
     }
 
-    private void compileF32Max() {
+    private void translateF32Max() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(FF)F", false);
     }
 
-    private void compileF64Max() {
+    private void translateF64Max() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
     }
 
-    private void compileF32Copysign() {
+    private void translateF32Copysign() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(FF)F", false);
     }
 
-    private void compileF64Copysign() {
+    private void translateF64Copysign() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(DD)D", false);
     }
 
-    private void compileF32Abs() {
+    private void translateF32Abs() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(F)F", false);
     }
 
-    private void compileF64Abs() {
+    private void translateF64Abs() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
     }
 
-    private void compileF32Neg() {
+    private void translateF32Neg() {
         method.visitInsn(Opcodes.FNEG);
     }
 
-    private void compileF64Neg() {
+    private void translateF64Neg() {
         method.visitInsn(Opcodes.DNEG);
     }
 
-    private void compileF32Sqrt() {
+    private void translateF32Sqrt() {
         emitHelperCall("fsqrt", "(F)F");
     }
 
-    private void compileF64Sqrt() {
+    private void translateF64Sqrt() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "sqrt", "(D)D", false);
     }
 
-    private void compileF32Ceil() {
+    private void translateF32Ceil() {
         emitHelperCall("fceil", "(F)F");
     }
 
-    private void compileF64Ceil() {
+    private void translateF64Ceil() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "ceil", "(D)D", false);
     }
 
-    private void compileF32Floor() {
+    private void translateF32Floor() {
         emitHelperCall("ffloor", "(F)F");
     }
 
-    private void compileF64Floor() {
+    private void translateF64Floor() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "floor", "(D)D", false);
     }
 
-    private void compileF32Trunc() {
+    private void translateF32Trunc() {
         emitHelperCall("ftrunc", "(F)F");
     }
 
-    private void compileF64Trunc() {
+    private void translateF64Trunc() {
         emitHelperCall("ftrunc", "(D)D");
     }
 
-    private void compileF32Nearest() {
+    private void translateF32Nearest() {
         emitHelperCall("fnearest", "(F)F");
     }
 
-    private void compileF64Nearest() {
+    private void translateF64Nearest() {
         // TODO: check equivalence
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "rint", "(D)D", false);
     }
 
-    private void compileF32Eq() {
+    private void translateF32Eq() {
         popOperandType();
         popOperandType();
         emitHelperCall("feq", "(FF)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF64Eq() {
+    private void translateF64Eq() {
         popOperandType();
         popOperandType();
         emitHelperCall("feq", "(DD)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF32Ne() {
+    private void translateF32Ne() {
         popOperandType();
         popOperandType();
         emitHelperCall("fne", "(FF)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF64Ne() {
+    private void translateF64Ne() {
         popOperandType();
         popOperandType();
         emitHelperCall("fne", "(DD)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF32Lt() {
+    private void translateF32Lt() {
         popOperandType();
         popOperandType();
         emitHelperCall("flt", "(FF)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF64Lt() {
+    private void translateF64Lt() {
         popOperandType();
         popOperandType();
         emitHelperCall("flt", "(DD)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF32Gt() {
+    private void translateF32Gt() {
         popOperandType();
         popOperandType();
         emitHelperCall("fgt", "(FF)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF64Gt() {
+    private void translateF64Gt() {
         popOperandType();
         popOperandType();
         emitHelperCall("fgt", "(DD)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF32Le() {
+    private void translateF32Le() {
         popOperandType();
         popOperandType();
         emitHelperCall("fle", "(FF)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF64Le() {
+    private void translateF64Le() {
         popOperandType();
         popOperandType();
         emitHelperCall("fle", "(DD)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF32Ge() {
+    private void translateF32Ge() {
         popOperandType();
         popOperandType();
         emitHelperCall("fge", "(FF)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileF64Ge() {
+    private void translateF64Ge() {
         popOperandType();
         popOperandType();
         emitHelperCall("fge", "(DD)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI32And() {
+    private void translateI32And() {
         popOperandType();
         method.visitInsn(Opcodes.IAND);
     }
 
-    private void compileI64And() {
+    private void translateI64And() {
         popOperandType();
         method.visitInsn(Opcodes.LAND);
     }
 
-    private void compileI32Or() {
+    private void translateI32Or() {
         popOperandType();
         method.visitInsn(Opcodes.IOR);
     }
 
-    private void compileI64Or() {
+    private void translateI64Or() {
         popOperandType();
         method.visitInsn(Opcodes.LOR);
     }
 
-    private void compileI32Xor() {
+    private void translateI32Xor() {
         popOperandType();
         method.visitInsn(Opcodes.IXOR);
     }
 
-    private void compileI64Xor() {
+    private void translateI64Xor() {
         popOperandType();
         method.visitInsn(Opcodes.LXOR);
     }
 
-    private void compileI32Shl() {
+    private void translateI32Shl() {
         popOperandType();
         method.visitInsn(Opcodes.ISHL);
     }
 
-    private void compileI64Shl() {
+    private void translateI64Shl() {
         popOperandType();
         method.visitInsn(Opcodes.LSHL);
     }
 
-    private void compileI32ShrU() {
+    private void translateI32ShrU() {
         popOperandType();
         method.visitInsn(Opcodes.IUSHR);
     }
 
-    private void compileI64ShrU() {
+    private void translateI64ShrU() {
         popOperandType();
         method.visitInsn(Opcodes.LUSHR);
     }
 
-    private void compileI32ShrS() {
+    private void translateI32ShrS() {
         popOperandType();
         method.visitInsn(Opcodes.ISHR);
     }
 
-    private void compileI64ShrS() {
+    private void translateI64ShrS() {
         popOperandType();
         method.visitInsn(Opcodes.LSHR);
     }
 
-    private void compileI32RotL() {
+    private void translateI32RotL() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateLeft", "(II)I", false);
     }
 
-    private void compileI64RotL() {
+    private void translateI64RotL() {
         popOperandType();
         emitHelperCall("rotl", "(JJ)J");
     }
 
-    private void compileI32RotR() {
+    private void translateI32RotR() {
         popOperandType();
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateRight", "(II)I", false);
     }
 
-    private void compileI64RotR() {
+    private void translateI64RotR() {
         popOperandType();
         emitHelperCall("rotr", "(JJ)J");
     }
 
-    private void compileI32Clz() {
+    private void translateI32Clz() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfLeadingZeros", "(I)I", false);
     }
 
-    private void compileI64Clz() {
+    private void translateI64Clz() {
         emitHelperCall("clz", "(J)J");
     }
 
-    private void compileI32Ctz() {
+    private void translateI32Ctz() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfTrailingZeros", "(I)I", false);
     }
 
-    private void compileI64Ctz() {
+    private void translateI64Ctz() {
         emitHelperCall("ctz", "(J)J");
     }
 
-    private void compileI32Popcnt() {
+    private void translateI32Popcnt() {
         method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "bitCount", "(I)I", false);
     }
 
-    private void compileI64Popcnt() {
+    private void translateI64Popcnt() {
         emitHelperCall("popcnt", "(J)J");
     }
 
-    private void compileI32Eqz() {
+    private void translateI32Eqz() {
         emitHelperCall("eqz", "(I)Z");
     }
 
-    private void compileI32Eq() {
+    private void translateI32Eq() {
         popOperandType();
         emitHelperCall("eq", "(II)Z");
     }
 
-    private void compileI32Ne() {
+    private void translateI32Ne() {
         popOperandType();
         emitHelperCall("ne", "(II)Z");
     }
 
-    private void compileI32Ltu() {
+    private void translateI32Ltu() {
         popOperandType();
         emitHelperCall("ltu", "(II)Z");
     }
 
-    private void compileI32Lts() {
+    private void translateI32Lts() {
         popOperandType();
         emitHelperCall("lts", "(II)Z");
     }
 
-    private void compileI32Gtu() {
+    private void translateI32Gtu() {
         popOperandType();
         emitHelperCall("gtu", "(II)Z");
     }
 
-    private void compileI32Gts() {
+    private void translateI32Gts() {
         popOperandType();
         emitHelperCall("gts", "(II)Z");
     }
 
-    private void compileI32Leu() {
+    private void translateI32Leu() {
         popOperandType();
         emitHelperCall("leu", "(II)Z");
     }
 
-    private void compileI32Les() {
+    private void translateI32Les() {
         popOperandType();
         emitHelperCall("les", "(II)Z");
     }
 
-    private void compileI32Geu() {
+    private void translateI32Geu() {
         popOperandType();
         emitHelperCall("geu", "(II)Z");
     }
 
-    private void compileI32Ges() {
+    private void translateI32Ges() {
         popOperandType();
         emitHelperCall("ges", "(II)Z");
     }
 
-    private void compileI64Eqz() {
+    private void translateI64Eqz() {
         popOperandType();
         emitHelperCall("eqz", "(J)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Eq() {
+    private void translateI64Eq() {
         popOperandType();
         popOperandType();
         emitHelperCall("eq", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Ne() {
+    private void translateI64Ne() {
         popOperandType();
         popOperandType();
         emitHelperCall("ne", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Ltu() {
+    private void translateI64Ltu() {
         popOperandType();
         popOperandType();
         emitHelperCall("ltu", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Lts() {
+    private void translateI64Lts() {
         popOperandType();
         popOperandType();
         emitHelperCall("lts", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Gtu() {
+    private void translateI64Gtu() {
         popOperandType();
         popOperandType();
         emitHelperCall("gtu", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Gts() {
+    private void translateI64Gts() {
         popOperandType();
         popOperandType();
         emitHelperCall("gts", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Leu() {
+    private void translateI64Leu() {
         popOperandType();
         popOperandType();
         emitHelperCall("leu", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Les() {
+    private void translateI64Les() {
         popOperandType();
         popOperandType();
         emitHelperCall("les", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Geu() {
+    private void translateI64Geu() {
         popOperandType();
         popOperandType();
         emitHelperCall("geu", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI64Ges() {
+    private void translateI64Ges() {
         popOperandType();
         popOperandType();
         emitHelperCall("ges", "(JJ)Z");
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI32RemU() {
+    private void translateI32RemU() {
         popOperandType();
         emitHelperCall("remU", "(II)I");
     }
 
-    private void compileI32RemS() {
+    private void translateI32RemS() {
         popOperandType();
         emitHelperCall("remS", "(II)I");
     }
 
-    private void compileI64RemU() {
+    private void translateI64RemU() {
         popOperandType();
         emitHelperCall("remU", "(JJ)J");
     }
 
-    private void compileI64RemS() {
+    private void translateI64RemS() {
         popOperandType();
         emitHelperCall("remS", "(JJ)J");
     }
 
-    private void compileI32DivS() {
+    private void translateI32DivS() {
         popOperandType();
         emitHelperCall("divS", "(II)I");
     }
 
-    private void compileI64DivS() {
+    private void translateI64DivS() {
         popOperandType();
         emitHelperCall("divS", "(JJ)J");
     }
 
-    private void compileI64DivU() {
+    private void translateI64DivU() {
         popOperandType();
         emitHelperCall("divU", "(JJ)J");
     }
 
-    private void compileI32DivU() {
+    private void translateI32DivU() {
         popOperandType();
         emitHelperCall("divU", "(II)I");
     }
 
-    private void compileI32Mul() {
+    private void translateI32Mul() {
         popOperandType();
         method.visitInsn(Opcodes.IMUL);
     }
 
-    private void compileI32Add() {
+    private void translateI32Add() {
         popOperandType();
         method.visitInsn(Opcodes.IADD);
     }
 
-    private void compileI32Sub() {
+    private void translateI32Sub() {
         popOperandType();
         method.visitInsn(Opcodes.ISUB);
     }
 
-    private void compileI64Add() {
+    private void translateI64Add() {
         popOperandType();
         method.visitInsn(Opcodes.LADD);
     }
 
-    private void compileRefIsNull() {
+    private void translateRefIsNull() {
         popOperandType();
         emitHelperCall("refIsNull", "(Ljava/lang/Object;)Z");
     }
 
-    private void compileRefNull() throws CompilationException, IOException {
+    private void translateRefNull() throws CompilationException, IOException {
         method.visitInsn(Opcodes.ACONST_NULL);
         operandTypes.add(nextReferenceType().toValueType());
     }
 
-    private void compileBranchTable() throws IOException {
+    private void translateBranchTable() throws IOException {
         var indexedTargetCount = reader.nextUnsigned32();
         var indexedTargets = new BranchTarget[indexedTargetCount];
 
@@ -771,11 +899,11 @@ final class ModuleCompiler {
         return branchTargets.get(branchTargets.size() - 1 - reader.nextUnsigned32());
     }
 
-    private void compileConditionalBranch() throws IOException {
+    private void translateConditionalBranch() throws IOException {
         var pastBranchLabel = new Label();
         method.visitJumpInsn(Opcodes.IFEQ, pastBranchLabel);
         popOperandType();
-        compileBranch();
+        translateBranch();
         method.visitLabel(pastBranchLabel);
     }
 
@@ -828,16 +956,16 @@ final class ModuleCompiler {
         method.visitJumpInsn(Opcodes.GOTO, target.label());
     }
 
-    private void compileBranch() throws IOException {
+    private void translateBranch() throws IOException {
         var targetIndex = branchTargets.size() - 1 - reader.nextUnsigned32();
         if (targetIndex == 0) {
-            compileReturn();
+            translateReturn();
         } else {
             emitBranch(nextBranchTarget());
         }
     }
 
-    private void compileLoop() throws CompilationException, IOException {
+    private void translateLoop() throws CompilationException, IOException {
         var type = nextBlockType();
         var startLabel = new Label();
         branchTargets.add(
@@ -848,10 +976,10 @@ final class ModuleCompiler {
             )
         );
         method.visitLabel(startLabel);
-        compileUntilEnd();
+        translateUntilEnd();
     }
 
-    private void compileBlock() throws CompilationException, IOException {
+    private void translateBlock() throws CompilationException, IOException {
         var type = nextBlockType();
         var endLabel = new Label();
         branchTargets.add(
@@ -861,7 +989,7 @@ final class ModuleCompiler {
                 operandTypes.size() - type.getParameterCount()
             )
         );
-        compileUntilEnd();
+        translateUntilEnd();
         method.visitLabel(endLabel);
     }
 
@@ -881,15 +1009,15 @@ final class ModuleCompiler {
         };
     }
 
-    private void compileUnreachable() {
+    private void translateUnreachable() {
         emitTrap();
     }
 
-    private void compileNop() {
+    private void translateNop() {
         // Nothing to do
     }
 
-    private void compileReturn() {
+    private void translateReturn() {
         var returnTypes = branchTargets.get(0).parameterTypes();
 
         if (returnTypes == null) {
@@ -929,7 +1057,7 @@ final class ModuleCompiler {
         }
     }
 
-    private void compileI32Load() throws IOException {
+    private void translateI32Load() throws IOException {
         emitEffectiveAddress(nextMemArg().unsignedOffset());
         emitGetMemory();
         method.visitInsn(Opcodes.SWAP);
@@ -937,7 +1065,7 @@ final class ModuleCompiler {
         operandTypes.add(ValueType.I32);
     }
 
-    private void compileI32Store() throws IOException {
+    private void translateI32Store() throws IOException {
         popOperandType();
         popOperandType();
 
@@ -950,7 +1078,7 @@ final class ModuleCompiler {
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "storeInt", "(II)V", true);
     }
 
-    private void compileI64Load() throws IOException {
+    private void translateI64Load() throws IOException {
         emitEffectiveAddress(nextMemArg().unsignedOffset());
         emitGetMemory();
         method.visitInsn(Opcodes.SWAP);
@@ -958,7 +1086,7 @@ final class ModuleCompiler {
         operandTypes.add(ValueType.I64);
     }
 
-    private void compileI64Store() throws IOException {
+    private void translateI64Store() throws IOException {
         popOperandType();
         popOperandType();
 
@@ -972,12 +1100,12 @@ final class ModuleCompiler {
         method.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/wastastic/Memory", "storeLong", "(IJ)V", true);
     }
 
-    private void compileCall() {
+    private void translateCall() {
         // TODO
         throw new UnsupportedOperationException("TODO");
     }
 
-    private void compileSelect() {
+    private void translateSelect() {
         popOperandType();
         emitHelperCall("select", switch (popOperandType()) {
             case I32 -> "(III)I";
@@ -988,7 +1116,7 @@ final class ModuleCompiler {
         });
     }
 
-    private void compileDrop() {
+    private void translateDrop() {
         method.visitInsn(popOperandType().isDoubleWidth() ? Opcodes.POP2 : Opcodes.POP);
     }
 
@@ -1044,27 +1172,27 @@ final class ModuleCompiler {
         );
     }
 
-    private void compileMemorySection() throws IOException, CompilationException {
+    private void translateMemorySection() throws IOException, CompilationException {
         var remaining = reader.nextUnsigned32();
-        memories.ensureCapacity(memories.size() + remaining);
+        definedMemories.ensureCapacity(definedMemories.size() + remaining);
         for (; remaining != 0; remaining--) {
-            memories.add(nextMemoryType());
+            definedMemories.add(nextMemoryType());
         }
     }
 
-    private void compileTableSection() throws CompilationException, IOException {
+    private void translateTableSection() throws CompilationException, IOException {
         var remaining = reader.nextUnsigned32();
-        tables.ensureCapacity(tables.size() + remaining);
+        definedTables.ensureCapacity(definedTables.size() + remaining);
         for (; remaining != 0; remaining--) {
-            tables.add(nextTableType());
+            definedTables.add(nextTableType());
         }
     }
 
-    private void compileFunctionSection() throws IOException {
+    private void translateFunctionSection() throws IOException {
         var remaining = reader.nextUnsigned32();
-        functions.ensureCapacity(functions.size() + remaining);
+        definedFunctions.ensureCapacity(definedFunctions.size() + remaining);
         for (; remaining != 0; remaining--) {
-            functions.add(nextIndexedType());
+            definedFunctions.add(nextIndexedType());
         }
     }
 
@@ -1072,15 +1200,15 @@ final class ModuleCompiler {
         return types.get(reader.nextUnsigned32());
     }
 
-    private void compileImportSection() throws CompilationException, IOException {
+    private void translateImportSection() throws CompilationException, IOException {
         for (var remaining = reader.nextUnsigned32(); remaining != 0; remaining--) {
             var moduleName = nextName();
             var name = nextName();
             switch (reader.nextByte()) {
-                case 0x00 -> functions.add(new ImportedFunction(moduleName, name, nextIndexedType()));
-                case 0x01 -> tables.add(new ImportedTable(moduleName, name, nextTableType()));
-                case 0x02 -> memories.add(new ImportedMemory(moduleName, name, nextMemoryType()));
-                case 0x03 -> globals.add(new ImportedGlobal(moduleName, name, nextGlobalType()));
+                case 0x00 -> importedFunctions.add(new ImportedFunction(moduleName, name, nextIndexedType()));
+                case 0x01 -> importedTables.add(new ImportedTable(moduleName, name, nextTableType()));
+                case 0x02 -> importedMemories.add(new ImportedMemory(moduleName, name, nextMemoryType()));
+                case 0x03 -> importedGlobals.add(new ImportedGlobal(moduleName, name, nextGlobalType()));
                 default -> throw new CompilationException("Invalid import description");
             }
         }
@@ -1126,7 +1254,7 @@ final class ModuleCompiler {
         return reader.nextUtf8(reader.nextUnsigned32());
     }
 
-    private void compileTypeSection() throws CompilationException, IOException {
+    private void translateTypeSection() throws CompilationException, IOException {
         var remaining = reader.nextUnsigned32();
         types.ensureCapacity(types.size() + remaining);
         for (; remaining != 0; remaining--) {
