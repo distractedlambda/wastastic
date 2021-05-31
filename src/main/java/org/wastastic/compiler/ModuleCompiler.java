@@ -4,6 +4,7 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -11,6 +12,9 @@ import java.util.ArrayList;
 
 import static java.lang.Integer.toUnsignedLong;
 import static java.util.Objects.requireNonNull;
+import static org.objectweb.asm.Type.getConstructorDescriptor;
+import static org.objectweb.asm.Type.getInternalName;
+import static org.wastastic.compiler.Tuples.getTupleClass;
 
 final class ModuleCompiler {
     private static final int[] EMPTY_INT_ARRAY = new int[0];
@@ -93,12 +97,42 @@ final class ModuleCompiler {
             case OP_LOOP -> compileLoop();
             case OP_BR -> compileBranch();
             case OP_BR_IF -> compileConditionalBranch();
+            case OP_BR_TABLE -> compileBranchTable();
 
             case OP_END -> {
                 popBranchTarget();
                 return;
             }
         }
+    }
+
+    private void compileBranchTable() throws IOException {
+        var indexedTargetCount = reader.nextUnsigned32();
+        var indexedTargets = new BranchTarget[indexedTargetCount];
+
+        for (var i = 0; i < indexedTargetCount; i++) {
+            indexedTargets[i] = nextBranchTarget();
+        }
+
+        var defaultTarget = nextBranchTarget();
+
+        var indexedAdapterLabels = new Label[indexedTargetCount];
+        for (var i = 0; i < indexedTargetCount; i++) {
+            indexedAdapterLabels[i] = new Label();
+        }
+
+        var defaultAdapterLabel = new Label();
+
+        method.visitTableSwitchInsn(0, indexedTargetCount - 1, defaultAdapterLabel, indexedAdapterLabels);
+        popOperandType();
+
+        for (var i = 0; i < indexedTargetCount; i++) {
+            method.visitLabel(indexedAdapterLabels[i]);
+            emitBranch(indexedTargets[i]);
+        }
+
+        method.visitLabel(defaultAdapterLabel);
+        emitBranch(defaultTarget);
     }
 
     private BranchTarget nextBranchTarget() throws IOException {
@@ -112,8 +146,7 @@ final class ModuleCompiler {
         method.visitLabel(pastBranchLabel);
     }
 
-    private void compileBranch() throws IOException {
-        var target = nextBranchTarget();
+    private void emitBranch(BranchTarget target) {
         var localOffset = scratchLocalsOffset;
 
         for (var i = 0; i < target.getParameterCount(); i++) switch (operandTypes.get(operandTypes.size() - i - 1)) {
@@ -160,6 +193,15 @@ final class ModuleCompiler {
         }
 
         method.visitJumpInsn(Opcodes.GOTO, target.label());
+    }
+
+    private void compileBranch() throws IOException {
+        var targetIndex = branchTargets.size() - 1 - reader.nextUnsigned32();
+        if (targetIndex == 0) {
+            compileReturn();
+        } else {
+            emitBranch(nextBranchTarget());
+        }
     }
 
     private void compileLoop() throws CompilationException, IOException {
@@ -215,8 +257,43 @@ final class ModuleCompiler {
     }
 
     private void compileReturn() {
-        // TODO
-        throw new UnsupportedOperationException("TODO");
+        var returnTypes = branchTargets.get(0).parameterTypes();
+
+        if (returnTypes == null) {
+            method.visitInsn(Opcodes.RETURN);
+        } else if (returnTypes instanceof ValueType returnType) {
+            var opcode = switch (returnType) {
+                case I32 -> Opcodes.IRETURN;
+                case F32 -> Opcodes.FRETURN;
+                case I64 -> Opcodes.LRETURN;
+                case F64 -> Opcodes.DRETURN;
+                case FUNCREF, EXTERNREF -> Opcodes.ARETURN;
+            };
+
+            method.visitInsn(opcode);
+        } else {
+            var returnTypesArray = (ValueType[]) returnTypes;
+            var signatureChars = new char[returnTypesArray.length];
+
+            for (var i = 0; i < returnTypesArray.length; i++) {
+                signatureChars[i] = switch (returnTypesArray[i]) {
+                    case I32 -> 'I';
+                    case I64 -> 'J';
+                    case F32 -> 'F';
+                    case F64 -> 'D';
+                    case FUNCREF, EXTERNREF -> 'L';
+                };
+            }
+
+            var signature = new String(signatureChars);
+            var tupleClass = getTupleClass(signature);
+            var internalName = getInternalName(tupleClass);
+            var constructorDescriptor = getConstructorDescriptor(tupleClass.getConstructors()[0]);
+
+            method.visitTypeInsn(Opcodes.NEW, internalName);
+            method.visitMethodInsn(Opcodes.INVOKESPECIAL, internalName, "<init>", constructorDescriptor, false);
+            method.visitInsn(Opcodes.ARETURN);
+        }
     }
 
     private void compileI32Load() throws IOException {
