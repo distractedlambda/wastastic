@@ -205,14 +205,25 @@ final class ModuleTranslator {
             case OP_LOCAL_TEE -> translateLocalTee();
             case OP_GLOBAL_SET -> translateGlobalSet();
             case OP_GLOBAL_GET -> translateGlobalGet();
-            case OP_END -> translateEnd();
             case OP_ELSE -> translateElse();
+
+            case OP_END -> {
+                var scope = popLabelScope();
+
+                if (scope.elseLabel() != null) {
+                    method.visitLabel(scope.elseLabel());
+                }
+
+                if (scope.endLabel() != null) {
+                    method.visitLabel(scope.endLabel());
+                }
+            }
         }
     }
 
     private void translateElse() {
         var scope = popLabelScope();
-        method.visitJumpInsn(Opcodes.GOTO, scope.label());
+        method.visitJumpInsn(Opcodes.GOTO, scope.targetLabel());
         method.visitLabel(scope.elseLabel());
 
         while (operandStack.size() > scope.operandStackSize()) {
@@ -220,15 +231,14 @@ final class ModuleTranslator {
         }
 
         operandStack.addAll(ResultTypes.asList(scope.elseParameterTypes()));
-        labelStack.add(new LabelScope(scope.label(), scope.parameterTypes(), scope.operandStackSize()));
-    }
-
-    private void translateEnd() {
-        var scope = popLabelScope();
-        method.visitLabel(scope.label());
-        if (scope.elseLabel() != null) {
-            method.visitLabel(scope.elseLabel());
-        }
+        labelStack.add(new LabelScope(
+            scope.targetLabel(),
+            scope.parameterTypes(),
+            scope.operandStackSize(),
+            scope.endLabel(),
+            null,
+            null
+        ));
     }
 
     private void translateIf() throws IOException, CompilationException {
@@ -240,6 +250,7 @@ final class ModuleTranslator {
             endLabel,
             type.getReturnTypes(),
             operandStack.size() - type.getParameterCount() - 1,
+            endLabel,
             elseLabel,
             type.getParameterTypes()
         ));
@@ -1000,7 +1011,7 @@ final class ModuleTranslator {
             }
         }
 
-        method.visitJumpInsn(Opcodes.GOTO, target.label());
+        method.visitJumpInsn(Opcodes.GOTO, target.targetLabel());
     }
 
     private void translateBranch() throws IOException {
@@ -1015,29 +1026,28 @@ final class ModuleTranslator {
     private void translateLoop() throws CompilationException, IOException {
         var type = nextBlockType();
         var startLabel = new Label();
-
+        method.visitLabel(startLabel);
         labelStack.add(new LabelScope(
             startLabel,
             type.getParameterTypes(),
-            operandStack.size() - type.getParameterCount()
+            operandStack.size() - type.getParameterCount(),
+            null,
+            null,
+            null
         ));
-
-        method.visitLabel(startLabel);
-        translateFunction();
     }
 
     private void translateBlock() throws CompilationException, IOException {
         var type = nextBlockType();
         var endLabel = new Label();
-
         labelStack.add(new LabelScope(
             endLabel,
             type.getReturnTypes(),
-            operandStack.size() - type.getParameterCount()
+            operandStack.size() - type.getParameterCount(),
+            endLabel,
+            null,
+            null
         ));
-
-        translateFunction();
-        method.visitLabel(endLabel);
     }
 
     private FunctionType nextBlockType() throws IOException, CompilationException {
