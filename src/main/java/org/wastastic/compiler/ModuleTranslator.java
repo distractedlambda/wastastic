@@ -15,8 +15,6 @@ import static org.objectweb.asm.Type.getInternalName;
 import static org.wastastic.compiler.Tuples.getTupleClass;
 
 final class ModuleTranslator {
-    private static final int[] EMPTY_INT_ARRAY = new int[0];
-
     private final String internalName;
     private final ModuleReader reader;
     private final ClassVisitor clazz;
@@ -207,6 +205,10 @@ final class ModuleTranslator {
             case OP_GLOBAL_GET -> translateGlobalGet();
             case OP_IF -> translateIf();
             case OP_ELSE -> translateElse();
+            case OP_I32_CONST -> translateI32Const();
+            case OP_I64_CONST -> translateI64Const();
+            case OP_F32_CONST -> translateF32Const();
+            case OP_F64_CONST -> translateF64Const();
 
             case OP_END -> {
                 var scope = popLabelScope();
@@ -224,6 +226,69 @@ final class ModuleTranslator {
                     return;
                 }
             }
+        }
+    }
+
+    private void translateI32Const() throws IOException {
+        var value = reader.nextSigned32();
+        switch (value) {
+            case -1 -> method.visitInsn(Opcodes.ICONST_M1);
+            case 0 -> method.visitInsn(Opcodes.ICONST_0);
+            case 1 -> method.visitInsn(Opcodes.ICONST_1);
+            case 2 -> method.visitInsn(Opcodes.ICONST_2);
+            case 3 -> method.visitInsn(Opcodes.ICONST_3);
+            case 4 -> method.visitInsn(Opcodes.ICONST_4);
+            case 5 -> method.visitInsn(Opcodes.ICONST_5);
+            default -> {
+                if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
+                    method.visitIntInsn(Opcodes.BIPUSH, value);
+                } else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
+                    method.visitIntInsn(Opcodes.SIPUSH, value);
+                } else {
+                    method.visitLdcInsn(value);
+                }
+            }
+        }
+    }
+
+    private void translateI64Const() throws IOException {
+        var value = reader.nextSigned64();
+        if (value == 0) {
+            method.visitInsn(Opcodes.LCONST_0);
+        } else if (value == 1) {
+            method.visitInsn(Opcodes.LCONST_1);
+        } else if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
+            method.visitIntInsn(Opcodes.BIPUSH, (int) value);
+            method.visitInsn(Opcodes.I2L);
+        } else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
+            method.visitIntInsn(Opcodes.SIPUSH, (int) value);
+            method.visitInsn(Opcodes.I2L);
+        } else {
+            method.visitLdcInsn(value);
+        }
+    }
+
+    private void translateF32Const() throws IOException {
+        var value = reader.nextFloat32();
+        if (value == 0) {
+            method.visitInsn(Opcodes.FCONST_0);
+        } else if (value == 1) {
+            method.visitInsn(Opcodes.FCONST_1);
+        } else if (value == 2) {
+            method.visitInsn(Opcodes.FCONST_2);
+        } else {
+            method.visitLdcInsn(value);
+        }
+    }
+
+    private void translateF64Const() throws IOException {
+        var value = reader.nextFloat64();
+        if (value == 0) {
+            method.visitInsn(Opcodes.DCONST_0);
+        } else if (value == 1) {
+            method.visitInsn(Opcodes.DCONST_1);
+        } else {
+            method.visitLdcInsn(value);
         }
     }
 
@@ -1200,29 +1265,6 @@ final class ModuleTranslator {
 
     private MemArg nextMemArg() throws IOException {
         return new MemArg(reader.nextUnsigned32(), reader.nextUnsigned32());
-    }
-
-    private void emitIntConstant(int value) {
-        switch (value) {
-            case 0 -> method.visitInsn(Opcodes.ICONST_0);
-            case 1 -> method.visitInsn(Opcodes.ICONST_1);
-            case 2 -> method.visitInsn(Opcodes.ICONST_2);
-            case 3 -> method.visitInsn(Opcodes.ICONST_3);
-            case 4 -> method.visitInsn(Opcodes.ICONST_4);
-            case 5 -> method.visitInsn(Opcodes.ICONST_5);
-            case -1 -> method.visitInsn(Opcodes.ICONST_M1);
-            default -> method.visitLdcInsn(value);
-        }
-    }
-
-    private void emitLongConstant(long value) {
-        if (value == 0) {
-            method.visitInsn(Opcodes.LCONST_0);
-        } else if (value == 1) {
-            method.visitInsn(Opcodes.LCONST_1);
-        } else {
-            method.visitLdcInsn(value);
-        }
     }
 
     private void emitHelperCall(String name, String descriptor) {
