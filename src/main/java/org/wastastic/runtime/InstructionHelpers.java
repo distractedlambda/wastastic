@@ -1,7 +1,11 @@
 package org.wastastic.runtime;
 
+import org.objectweb.asm.Opcodes;
 import org.wastastic.TrapException;
 
+import static java.lang.Double.isFinite;
+import static java.lang.Double.isNaN;
+import static java.lang.Float.isFinite;
 import static java.lang.Integer.compareUnsigned;
 import static java.lang.Integer.divideUnsigned;
 import static java.lang.Integer.remainderUnsigned;
@@ -9,6 +13,7 @@ import static java.lang.Integer.toUnsignedLong;
 import static java.lang.Long.compareUnsigned;
 import static java.lang.Long.divideUnsigned;
 import static java.lang.Long.remainderUnsigned;
+import static java.lang.Math.scalb;
 
 @SuppressWarnings("unused")
 public final class InstructionHelpers {
@@ -245,32 +250,26 @@ public final class InstructionHelpers {
     }
 
     public static float fsqrt(float operand) {
-        // TODO: verify correctness / make more efficient
         return (float) Math.sqrt(operand);
     }
 
     public static float fceil(float operand) {
-        // TODO: verify correctness / make more efficient
         return (float) Math.ceil(operand);
     }
 
     public static float ffloor(float operand) {
-        // TODO: verify correctness / make more efficient
         return (float) Math.floor(operand);
     }
 
     public static float ftrunc(float operand) {
-        // TODO: verify correctness / make more efficient
-        return (float) Math.rint(operand - Math.copySign(operand, 0.5f));
+        return operand < 0f ? (float) Math.ceil(operand) : (float) Math.floor(operand);
     }
 
     public static double ftrunc(double operand) {
-        // TODO: verify correctness / make more efficient
-        return Math.rint(operand - Math.copySign(operand, 0.5));
+        return operand < 0.0 ? Math.ceil(operand) : Math.floor(operand);
     }
 
     public static float fnearest(float operand) {
-        // TODO: verify correctness / make more efficient
         return (float) Math.rint(operand);
     }
 
@@ -320,5 +319,119 @@ public final class InstructionHelpers {
 
     public static boolean fge(double lhs, double rhs) {
         return lhs >= rhs;
+    }
+
+    public static int i32TruncU(float operand) throws TrapException {
+        if (!isFinite(operand) || operand <= -1f || operand >= 0x1p32f) {
+            throw new TrapException();
+        }
+
+        return (int) (long) operand;
+    }
+
+    public static int i32TruncU(double operand) throws TrapException {
+        if (isNaN(operand) || operand <= -1.0 || operand >= 0x1p32) {
+            throw new TrapException();
+        }
+
+        return (int) (long) operand;
+    }
+
+    public static int i32TruncS(float operand) throws TrapException {
+        if (isNaN(operand) || operand < -0x1p31f || operand >= 0x1p31f) {
+            throw new TrapException();
+        }
+
+        return (int) operand;
+    }
+
+    public static int i32TruncS(double operand) throws TrapException {
+        if (isNaN(operand) || operand <= -0x1.00000002p31 || operand >= 0x1p31) {
+            throw new TrapException();
+        }
+
+        return (int) operand;
+    }
+
+    public static long i64TruncU(float operand) throws TrapException {
+        if (isNaN(operand) || operand <= -1f || operand >= 0x1p64f) {
+            throw new TrapException();
+        }
+
+        if (operand >= 0x1p63f) {
+            return ((long) scalb(operand, -1)) << 1;
+        } else {
+            return (long) operand;
+        }
+    }
+
+    public static long i64TruncU(double operand) throws TrapException {
+        if (isNaN(operand) || operand <= -1.0 || operand >= 0x1p64) {
+            throw new TrapException();
+        }
+
+        if (operand >= 0x1p63) {
+            return ((long) scalb(operand, -1)) << 1;
+        } else {
+            return (long) operand;
+        }
+    }
+
+    public static long i64TruncS(float operand) throws TrapException {
+        if (isNaN(operand) || operand < -0x1p63f || operand >= 0x1p63f) {
+            throw new TrapException();
+        }
+
+        return (long) operand;
+    }
+
+    public static long i64TruncS(double operand) throws TrapException {
+        if (isNaN(operand) || operand < -0x1p63 || operand >= 0x1p63) {
+            throw new TrapException();
+        }
+
+        return (long) operand;
+    }
+
+    public static float f32ConvertU(int operand) {
+        return (float) toUnsignedLong(operand);
+    }
+
+    public static float f32ConvertU(long operand) {
+        if (compareUnsigned(operand, Long.MAX_VALUE) > 0) {
+            return scalb((float) (operand >>> 1), 1);
+        }
+        else {
+            return (float) operand;
+        }
+    }
+
+    public static double f64ConvertU(int operand) {
+        return (double) toUnsignedLong(operand);
+    }
+
+    public static double f64ConvertU(long operand) {
+        if (compareUnsigned(operand, Long.MAX_VALUE) > 0) {
+            return scalb((double) (operand >>> 1), 1);
+        }
+        else {
+            return (double) operand;
+        }
+    }
+
+    public static int i32Extend8(int operand) {
+        return (byte) operand;
+    }
+
+    public static int i32Extend16(int operand) {
+        return (short) operand;
+    }
+
+    public static long i64Extend8(long operand) {
+        return (byte) operand;
+    }
+
+    public static long i64Extend16(long operand) {
+        return (short) operand;
     }
 }
