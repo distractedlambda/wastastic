@@ -1,5 +1,7 @@
 package org.wastastic.compiler;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
@@ -9,13 +11,8 @@ import org.objectweb.asm.Opcodes;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Arrays;
 import java.util.List;
-
-import static java.util.Objects.requireNonNull;
-import static org.objectweb.asm.Type.getConstructorDescriptor;
-import static org.objectweb.asm.Type.getInternalName;
-import static org.wastastic.compiler.Tuples.getTupleClass;
 
 final class ModuleTranslator {
     private final String internalName;
@@ -38,10 +35,10 @@ final class ModuleTranslator {
 
     private MethodVisitor method;
 
-    ModuleTranslator(String internalName, ModuleReader reader, ClassVisitor clazz) {
-        this.internalName = requireNonNull(internalName);
-        this.reader = requireNonNull(reader);
-        this.clazz = requireNonNull(clazz);
+    ModuleTranslator(@NotNull String internalName, @NotNull ModuleReader reader, @NotNull ClassVisitor clazz) {
+        this.internalName = internalName;
+        this.reader = reader;
+        this.clazz = clazz;
     }
 
     void translate() throws CompilationException, IOException {
@@ -74,13 +71,68 @@ final class ModuleTranslator {
             var unsignedSectionSize = reader.nextUnsigned32();
 
             switch (sectionId) {
-                case SECTION_CUSTOM -> reader.skip(unsignedSectionSize);
-                case SECTION_TYPE -> translateTypeSection();
-                case SECTION_IMPORT -> translateImportSection();
-                case SECTION_FUNCTION -> translateFunctionSection();
-                case SECTION_TABLE -> translateTableSection();
-                case SECTION_MEMORY -> translateMemorySection();
-                default -> throw new CompilationException("Unrecognized section ID: " + sectionId);
+                case SECTION_CUSTOM -> {
+                    reader.skip(unsignedSectionSize);
+                }
+
+                case SECTION_TYPE -> {
+                    var remaining = reader.nextUnsigned32();
+                    types.ensureCapacity(types.size() + remaining);
+                    for (; remaining != 0; remaining--) {
+                        if (reader.nextByte() != TYPE_FUNCTION) {
+                            throw new CompilationException("Invalid function type");
+                        }
+                        types.add(new FunctionType(nextResultType(), nextResultType()));
+                    }
+                }
+
+                case SECTION_IMPORT -> {
+                    for (var remaining = reader.nextUnsigned32(); remaining != 0; remaining--) {
+                        var moduleName = nextName();
+                        var name = nextName();
+                        switch (reader.nextByte()) {
+                            case 0x00 -> importedFunctions.add(new ImportedFunction(moduleName, name, nextIndexedType()));
+                            case 0x01 -> importedTables.add(new ImportedTable(moduleName, name, nextTableType()));
+                            case 0x02 -> importedMemories.add(new ImportedMemory(moduleName, name, nextMemoryType()));
+                            case 0x03 -> importedGlobals.add(new ImportedGlobal(
+                                moduleName,
+                                name,
+                                new GlobalType(nextValueType(), switch (reader.nextByte()) {
+                                    case 0x00 -> Mutability.CONST;
+                                    case 0x01 -> Mutability.VAR;
+                                    default -> throw new CompilationException("Invalid mutability");
+                                })
+                            ));
+                            default -> throw new CompilationException("Invalid import description");
+                        }
+                    }
+                }
+
+                case SECTION_FUNCTION -> {
+                    var remaining = reader.nextUnsigned32();
+                    definedFunctions.ensureCapacity(definedFunctions.size() + remaining);
+                    for (; remaining != 0; remaining--) {
+                        definedFunctions.add(nextIndexedType());
+                    }
+                }
+
+                case SECTION_TABLE -> {
+                    var remaining = reader.nextUnsigned32();
+                    definedTables.ensureCapacity(definedTables.size() + remaining);
+                    for (; remaining != 0; remaining--) {
+                        definedTables.add(nextTableType());
+                    }
+                }
+
+                case SECTION_MEMORY -> {
+                    var remaining = reader.nextUnsigned32();
+                    definedMemories.ensureCapacity(definedMemories.size() + remaining);
+                    for (; remaining != 0; remaining--) {
+                        definedMemories.add(nextMemoryType());
+                    }
+                }
+
+                default -> throw new CompilationException("Invalid section ID");
             }
         }
     }
@@ -102,7 +154,7 @@ final class ModuleTranslator {
                     labelStack.add(new LabelScope(
                         endLabel,
                         type.getReturnTypes(),
-                        operandStack.size() - type.getParameterCount(),
+                        operandStack.size() - type.getParameterTypes().size(),
                         endLabel,
                         null,
                         null
@@ -118,7 +170,7 @@ final class ModuleTranslator {
                     labelStack.add(new LabelScope(
                         startLabel,
                         type.getParameterTypes(),
-                        operandStack.size() - type.getParameterCount(),
+                        operandStack.size() - type.getParameterTypes().size(),
                         null,
                         null,
                         null
@@ -135,7 +187,7 @@ final class ModuleTranslator {
                     labelStack.add(new LabelScope(
                         endLabel,
                         type.getReturnTypes(),
-                        operandStack.size() - type.getParameterCount() - 1,
+                        operandStack.size() - type.getParameterTypes().size() - 1,
                         endLabel,
                         elseLabel,
                         type.getParameterTypes()
@@ -156,7 +208,7 @@ final class ModuleTranslator {
                         popOperandType();
                     }
 
-                    operandStack.addAll(ResultTypes.asList(scope.elseParameterTypes()));
+                    operandStack.addAll(scope.elseParameterTypes());
                     labelStack.add(new LabelScope(
                         scope.targetLabel(),
                         scope.parameterTypes(),
@@ -242,10 +294,10 @@ final class ModuleTranslator {
 
                     if (index < importedFunctions.size()) {
                         var type = importedFunctions.get(index).getType();
-                        int savedValuesEnd = saveValues(type.getParameterTypeList());
+                        int savedValuesEnd = saveValues(type.getParameterTypes());
                         method.visitFieldInsn(Opcodes.GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
                         method.visitVarInsn(Opcodes.ALOAD, 0);
-                        restoreValues(type.getParameterTypeList(), savedValuesEnd);
+                        restoreValues(type.getParameterTypes(), savedValuesEnd);
                         method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", type.getSignatureString(), false);
                         // FIXME: deal with result tuples
                     }
@@ -1268,7 +1320,7 @@ final class ModuleTranslator {
         }
     }
 
-    private int saveValues(List<ValueType> types) {
+    private int saveValues(@NotNull List<ValueType> types) {
         int localsOffset;
 
         if (locals.isEmpty()) {
@@ -1287,18 +1339,18 @@ final class ModuleTranslator {
         return localsOffset;
     }
 
-    private void restoreValues(List<ValueType> types, int localsOffset) {
+    private void restoreValues(@NotNull List<ValueType> types, int localsOffset) {
         for (var type : types) {
             localsOffset -= type.getWidth();
             method.visitVarInsn(type.getLocalLoadOpcode(), localsOffset);
         }
     }
 
-    private Local nextIndexedLocal() throws IOException {
+    private @NotNull Local nextIndexedLocal() throws IOException {
         return locals.get(reader.nextUnsigned32());
     }
 
-    private LabelScope nextBranchTarget() throws IOException {
+    private @NotNull LabelScope nextBranchTarget() throws IOException {
         return labelStack.get(labelStack.size() - 1 - reader.nextUnsigned32());
     }
 
@@ -1312,7 +1364,7 @@ final class ModuleTranslator {
             localOffset = last.index() + (last.type().isDoubleWidth() ? 2 : 1);
         }
 
-        for (var i = 0; i < ResultTypes.length(target.parameterTypes()); i++) {
+        for (var i = 0; i < target.parameterTypes().size(); i++) {
             switch (operandStack.get(operandStack.size() - i - 1)) {
                 case I32 -> {
                     method.visitVarInsn(Opcodes.ISTORE, localOffset);
@@ -1341,7 +1393,7 @@ final class ModuleTranslator {
             }
         }
 
-        for (var i = 0; i < ResultTypes.length(target.parameterTypes()); i++) {
+        for (var i = 0; i < target.parameterTypes().size(); i++) {
             if (operandStack.get(operandStack.size() - i - 1).isDoubleWidth()) {
                 method.visitInsn(Opcodes.POP2);
             }
@@ -1350,7 +1402,7 @@ final class ModuleTranslator {
             }
         }
 
-        for (var parameterType : ResultTypes.asList(target.parameterTypes())) {
+        for (var parameterType : target.parameterTypes()) {
             switch (parameterType) {
                 case I32 -> method.visitVarInsn(Opcodes.ILOAD, (localOffset -= 1));
                 case F32 -> method.visitVarInsn(Opcodes.FLOAD, (localOffset -= 1));
@@ -1363,65 +1415,65 @@ final class ModuleTranslator {
         method.visitJumpInsn(Opcodes.GOTO, target.targetLabel());
     }
 
-    private FunctionType nextBlockType() throws IOException, CompilationException {
+    private @NotNull FunctionType nextBlockType() throws IOException, CompilationException {
         var code = reader.nextSigned33();
         if (code >= 0) {
             return types.get((int) code);
         }
         else {
             return switch ((byte) (code & 0x7F)) {
-                case 0x40 -> new FunctionType(null, null);
-                case TYPE_I32 -> new FunctionType(null, ValueType.I32);
-                case TYPE_I64 -> new FunctionType(null, ValueType.I64);
-                case TYPE_F32 -> new FunctionType(null, ValueType.F32);
-                case TYPE_F64 -> new FunctionType(null, ValueType.F64);
-                case TYPE_EXTERNREF -> new FunctionType(null, ValueType.EXTERNREF);
-                case TYPE_FUNCREF -> new FunctionType(null, ValueType.FUNCREF);
+                case 0x40 -> new FunctionType(List.of(), List.of());
+                case TYPE_I32 -> new FunctionType(List.of(), List.of(ValueType.I32));
+                case TYPE_I64 -> new FunctionType(List.of(), List.of(ValueType.I64));
+                case TYPE_F32 -> new FunctionType(List.of(), List.of(ValueType.F32));
+                case TYPE_F64 -> new FunctionType(List.of(), List.of(ValueType.F64));
+                case TYPE_EXTERNREF -> new FunctionType(List.of(), List.of(ValueType.EXTERNREF));
+                case TYPE_FUNCREF -> new FunctionType(List.of(), List.of(ValueType.FUNCREF));
                 default -> throw new CompilationException("Invalid block type");
             };
         }
     }
 
     private void emitReturn() {
-        var returnTypes = labelStack.get(0).parameterTypes();
+        // var returnTypes = labelStack.get(0).parameterTypes();
 
-        if (returnTypes == null) {
-            method.visitInsn(Opcodes.RETURN);
-        }
-        else if (returnTypes instanceof ValueType returnType) {
-            var opcode = switch (returnType) {
-                case I32 -> Opcodes.IRETURN;
-                case F32 -> Opcodes.FRETURN;
-                case I64 -> Opcodes.LRETURN;
-                case F64 -> Opcodes.DRETURN;
-                case FUNCREF, EXTERNREF -> Opcodes.ARETURN;
-            };
+        // if (returnTypes == null) {
+        //     method.visitInsn(Opcodes.RETURN);
+        // }
+        // else if (returnTypes instanceof ValueType returnType) {
+        //     var opcode = switch (returnType) {
+        //         case I32 -> Opcodes.IRETURN;
+        //         case F32 -> Opcodes.FRETURN;
+        //         case I64 -> Opcodes.LRETURN;
+        //         case F64 -> Opcodes.DRETURN;
+        //         case FUNCREF, EXTERNREF -> Opcodes.ARETURN;
+        //     };
 
-            method.visitInsn(opcode);
-        }
-        else {
-            var returnTypesArray = (ValueType[]) returnTypes;
-            var signatureChars = new char[returnTypesArray.length];
+        //     method.visitInsn(opcode);
+        // }
+        // else {
+        //     var returnTypesArray = (ValueType[]) returnTypes;
+        //     var signatureChars = new char[returnTypesArray.length];
 
-            for (var i = 0; i < returnTypesArray.length; i++) {
-                signatureChars[i] = switch (returnTypesArray[i]) {
-                    case I32 -> 'I';
-                    case I64 -> 'J';
-                    case F32 -> 'F';
-                    case F64 -> 'D';
-                    case FUNCREF, EXTERNREF -> 'L';
-                };
-            }
+        //     for (var i = 0; i < returnTypesArray.length; i++) {
+        //         signatureChars[i] = switch (returnTypesArray[i]) {
+        //             case I32 -> 'I';
+        //             case I64 -> 'J';
+        //             case F32 -> 'F';
+        //             case F64 -> 'D';
+        //             case FUNCREF, EXTERNREF -> 'L';
+        //         };
+        //     }
 
-            var signature = new String(signatureChars);
-            var tupleClass = getTupleClass(signature);
-            var internalName = getInternalName(tupleClass);
-            var constructorDescriptor = getConstructorDescriptor(tupleClass.getConstructors()[0]);
+        //     var signature = new String(signatureChars);
+        //     var tupleClass = getTupleClass(signature);
+        //     var internalName = getInternalName(tupleClass);
+        //     var constructorDescriptor = getConstructorDescriptor(tupleClass.getConstructors()[0]);
 
-            method.visitTypeInsn(Opcodes.NEW, internalName);
-            method.visitMethodInsn(Opcodes.INVOKESPECIAL, internalName, "<init>", constructorDescriptor, false);
-            method.visitInsn(Opcodes.ARETURN);
-        }
+        //     method.visitTypeInsn(Opcodes.NEW, internalName);
+        //     method.visitMethodInsn(Opcodes.INVOKESPECIAL, internalName, "<init>", constructorDescriptor, false);
+        //     method.visitInsn(Opcodes.ARETURN);
+        // }
     }
 
     private void emitHelperCall(String name, String descriptor) {
@@ -1434,73 +1486,27 @@ final class ModuleTranslator {
         );
     }
 
-    private void translateMemorySection() throws IOException, CompilationException {
-        var remaining = reader.nextUnsigned32();
-        definedMemories.ensureCapacity(definedMemories.size() + remaining);
-        for (; remaining != 0; remaining--) {
-            definedMemories.add(nextMemoryType());
-        }
-    }
-
-    private void translateTableSection() throws CompilationException, IOException {
-        var remaining = reader.nextUnsigned32();
-        definedTables.ensureCapacity(definedTables.size() + remaining);
-        for (; remaining != 0; remaining--) {
-            definedTables.add(nextTableType());
-        }
-    }
-
-    private void translateFunctionSection() throws IOException {
-        var remaining = reader.nextUnsigned32();
-        definedFunctions.ensureCapacity(definedFunctions.size() + remaining);
-        for (; remaining != 0; remaining--) {
-            definedFunctions.add(nextIndexedType());
-        }
-    }
-
-    private FunctionType nextIndexedType() throws IOException {
+    private @NotNull FunctionType nextIndexedType() throws IOException {
         return types.get(reader.nextUnsigned32());
     }
 
-    private void translateImportSection() throws CompilationException, IOException {
-        for (var remaining = reader.nextUnsigned32(); remaining != 0; remaining--) {
-            var moduleName = nextName();
-            var name = nextName();
-            switch (reader.nextByte()) {
-                case 0x00 -> importedFunctions.add(new ImportedFunction(moduleName, name, nextIndexedType()));
-                case 0x01 -> importedTables.add(new ImportedTable(moduleName, name, nextTableType()));
-                case 0x02 -> importedMemories.add(new ImportedMemory(moduleName, name, nextMemoryType()));
-                case 0x03 -> importedGlobals.add(new ImportedGlobal(
-                    moduleName,
-                    name,
-                    new GlobalType(nextValueType(), switch (reader.nextByte()) {
-                        case 0x00 -> Mutability.CONST;
-                        case 0x01 -> Mutability.VAR;
-                        default -> throw new CompilationException("Invalid mutability");
-                    })
-                ));
-                default -> throw new CompilationException("Invalid import description");
-            }
-        }
-    }
-
-    private MemoryType nextMemoryType() throws CompilationException, IOException {
+    private @NotNull MemoryType nextMemoryType() throws CompilationException, IOException {
         return new MemoryType(nextLimits());
     }
 
-    private TableType nextTableType() throws CompilationException, IOException {
+    private @NotNull TableType nextTableType() throws CompilationException, IOException {
         return new TableType(nextReferenceType(), nextLimits());
     }
 
-    private ReferenceType nextReferenceType() throws IOException, CompilationException {
+    private @NotNull ReferenceType nextReferenceType() throws CompilationException, IOException {
         return switch (reader.nextByte()) {
-            case 0x6F -> ReferenceType.FUNCREF;
-            case 0x70 -> ReferenceType.EXTERNREF;
+            case TYPE_EXTERNREF -> ReferenceType.EXTERNREF;
+            case TYPE_FUNCREF -> ReferenceType.FUNCREF;
             default -> throw new CompilationException("Invalid reference type");
         };
     }
 
-    private Limits nextLimits() throws IOException, CompilationException {
+    private @NotNull Limits nextLimits() throws CompilationException, IOException {
         return switch (reader.nextByte()) {
             case 0x00 -> new Limits(reader.nextUnsigned32());
             case 0x01 -> new Limits(reader.nextUnsigned32(), reader.nextUnsigned32());
@@ -1508,29 +1514,17 @@ final class ModuleTranslator {
         };
     }
 
-    private String nextName() throws IOException {
+    private @NotNull String nextName() throws IOException {
         return reader.nextUtf8(reader.nextUnsigned32());
     }
 
-    private void translateTypeSection() throws CompilationException, IOException {
-        var remaining = reader.nextUnsigned32();
-        types.ensureCapacity(types.size() + remaining);
-        for (; remaining != 0; remaining--) {
-            if (reader.nextByte() != TYPE_FUNCTION) {
-                throw new CompilationException("Invalid function type");
-            }
-
-            types.add(new FunctionType(nextValueTypeVector(), nextValueTypeVector()));
-        }
-    }
-
-    private Object nextValueTypeVector() throws CompilationException, IOException {
+    private @NotNull List<ValueType> nextResultType() throws CompilationException, IOException {
         var unsignedSize = reader.nextUnsigned32();
         switch (unsignedSize) {
             case 0:
-                return null;
+                return List.of();
             case 1:
-                return nextValueType();
+                return List.of(nextValueType());
             default: {
                 var array = new ValueType[unsignedSize];
 
@@ -1538,12 +1532,12 @@ final class ModuleTranslator {
                     array[i] = nextValueType();
                 }
 
-                return array;
+                return Arrays.asList(array);
             }
         }
     }
 
-    private ValueType nextValueType() throws CompilationException, IOException {
+    private @NotNull ValueType nextValueType() throws CompilationException, IOException {
         return switch (reader.nextByte()) {
             case TYPE_EXTERNREF -> ValueType.EXTERNREF;
             case TYPE_FUNCREF -> ValueType.FUNCREF;
@@ -1555,11 +1549,11 @@ final class ModuleTranslator {
         };
     }
 
-    private ValueType popOperandType() {
+    private @NotNull ValueType popOperandType() {
         return operandStack.remove(operandStack.size() - 1);
     }
 
-    private LabelScope popLabelScope() {
+    private @NotNull LabelScope popLabelScope() {
         return labelStack.remove(labelStack.size() - 1);
     }
 

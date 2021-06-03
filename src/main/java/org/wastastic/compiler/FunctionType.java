@@ -1,39 +1,31 @@
 package org.wastastic.compiler;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.objectweb.asm.Type;
+
 import java.util.List;
 
 final class FunctionType {
-    private final Object parameterTypes;
-    private final Object returnTypes;
+    private final @NotNull List<ValueType> parameterTypes;
+    private final @NotNull List<ValueType> returnTypes;
 
-    private String signatureString;
+    private @Nullable String signatureString;
 
-    FunctionType(Object parameterTypes, Object returnTypes) {
+    FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) {
         this.parameterTypes = parameterTypes;
         this.returnTypes = returnTypes;
     }
 
-    Object getParameterTypes() {
+    @NotNull List<ValueType> getParameterTypes() {
         return parameterTypes;
     }
 
-    Object getReturnTypes() {
+    @NotNull List<ValueType> getReturnTypes() {
         return returnTypes;
     }
 
-    int getParameterCount() {
-        return ResultTypes.length(parameterTypes);
-    }
-
-    int getReturnCount() {
-        return ResultTypes.length(returnTypes);
-    }
-
-    List<ValueType> getParameterTypeList() {
-        return ResultTypes.asList(parameterTypes);
-    }
-
-    String getSignatureString() throws CompilationException {
+    @NotNull String getSignatureString() {
         if (signatureString != null) {
             return signatureString;
         } else {
@@ -41,40 +33,32 @@ final class FunctionType {
         }
     }
 
-    private String makeSignatureString() throws CompilationException {
-        if (returnTypes instanceof ValueType[]) {
-            throw new CompilationException("TODO implement multiple return values");
+    private @NotNull String makeSignatureString() {
+        var builder = new StringBuilder("(");
+
+        for (var type : parameterTypes) {
+            builder.append(type.getDescriptor());
         }
 
-        if (parameterTypes == null) {
-            if (returnTypes == null) {
-                return "()V";
-            } else {
-                return "()" + ((ValueType) returnTypes).getDescriptor();
-            }
-        } else if (parameterTypes instanceof ValueType) {
-            var parameterDescriptor = ((ValueType)parameterTypes).getDescriptor();
-            if (returnTypes == null) {
-                return '(' + parameterDescriptor + ")V";
-            } else {
-                return '(' + parameterDescriptor + ')' + ((ValueType) returnTypes).getDescriptor();
-            }
-        } else {
-            var builder = new StringBuilder("(");
+        builder.append(')');
 
-            for (var parameterType : (ValueType[]) parameterTypes) {
-                builder.append(parameterType.getDescriptor());
-            }
-
-            builder.append(')');
-
-            if (returnTypes == null) {
-                builder.append('V');
-            } else {
-                builder.append(((ValueType) returnTypes).getDescriptor());
-            }
-
-            return builder.toString();
+        if (returnTypes.size() == 0) {
+            builder.append('V');
         }
+        else if (returnTypes.size() == 1) {
+            builder.append(returnTypes.get(0).getDescriptor());
+        }
+        else {
+            var tupleSignatureChars = new char[returnTypes.size()];
+
+            for (var i = 0; i < returnTypes.size(); i++) {
+                 tupleSignatureChars[i] = returnTypes.get(i).getTupleSignatureCharacter();
+            }
+
+            var descriptor = Type.getDescriptor(Tuples.getTupleClass(new String(tupleSignatureChars)));
+            builder.append(descriptor);
+        }
+
+        return builder.toString();
     }
 }

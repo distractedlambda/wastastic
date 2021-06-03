@@ -1,21 +1,21 @@
 package org.wastastic.compiler;
 
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
 abstract class Import {
-    private final String moduleName;
-    private final String name;
+    private final @NotNull String moduleName;
+    private final @NotNull String name;
 
-    Import(String moduleName, String name) {
-        this.moduleName = requireNonNull(moduleName);
-        this.name = requireNonNull(name);
+    Import(@NotNull String moduleName, @NotNull String name) {
+        this.moduleName = moduleName;
+        this.name = name;
     }
 
-    final String getModuleName() {
+    final @NotNull String getModuleName() {
         return moduleName;
     }
 
-    final String getName() {
+    final @NotNull String getName() {
         return name;
     }
 }

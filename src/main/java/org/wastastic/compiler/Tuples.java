@@ -1,5 +1,6 @@
 package org.wastastic.compiler;
 
+import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 
@@ -11,7 +12,7 @@ import static java.util.Objects.requireNonNull;
 final class Tuples {
     private Tuples() {}
 
-    static Class<?> getTupleClass(String signature) {
+    static @NotNull Class<?> getTupleClass(@NotNull String signature) {
         return TUPLE_CLASSES.computeIfAbsent(requireNonNull(signature), sig -> {
             if (sig.length() < 2) {
                 throw new IllegalArgumentException("Invalid signature: '" + sig + "'");

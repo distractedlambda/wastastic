@@ -1,16 +1,16 @@
 package org.wastastic.compiler;
 
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
 final class ImportedTable extends Import {
-    private final TableType type;
+    private final @NotNull TableType type;
 
-    ImportedTable(String moduleName, String name, TableType type) {
+    ImportedTable(@NotNull String moduleName, @NotNull String name, @NotNull TableType type) {
         super(moduleName, name);
-        this.type = requireNonNull(type);
+        this.type = type;
     }
 
-    TableType getType() {
+    @NotNull TableType getType() {
         return type;
     }
 }

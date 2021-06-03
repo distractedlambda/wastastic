@@ -1,10 +1,5 @@
 package org.wastastic.compiler;
 
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
-record TableType(ReferenceType elementType, Limits limits) {
-    TableType {
-        requireNonNull(elementType);
-        requireNonNull(limits);
-    }
-}
+record TableType(@NotNull ReferenceType elementType, @NotNull Limits limits) {}

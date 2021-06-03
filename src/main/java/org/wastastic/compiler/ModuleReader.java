@@ -1,5 +1,7 @@
 package org.wastastic.compiler;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
@@ -284,7 +286,7 @@ public interface ModuleReader {
         return longBitsToDouble(bits);
     }
 
-    default String nextUtf8(int length) throws IOException {
+    default @NotNull String nextUtf8(int length) throws IOException {
         var bytes = new byte[length];
 
         for (var i = 0; i != length; i++) {

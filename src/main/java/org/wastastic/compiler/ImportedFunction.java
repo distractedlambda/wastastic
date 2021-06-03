@@ -1,16 +1,16 @@
 package org.wastastic.compiler;
 
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
 final class ImportedFunction extends Import {
-    private final FunctionType type;
+    private final @NotNull FunctionType type;
 
-    ImportedFunction(String moduleName, String name, FunctionType type) {
+    ImportedFunction(@NotNull String moduleName, @NotNull String name, @NotNull FunctionType type) {
         super(moduleName, name);
-        this.type = requireNonNull(type);
+        this.type = type;
     }
 
-    FunctionType getType() {
+    @NotNull FunctionType getType() {
         return type;
     }
 }

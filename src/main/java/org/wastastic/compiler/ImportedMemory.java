@@ -1,18 +1,16 @@
 package org.wastastic.compiler;
 
-import java.util.Objects;
-
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
 final class ImportedMemory extends Import {
-    private final MemoryType type;
+    private final @NotNull MemoryType type;
 
-    ImportedMemory(String moduleName, String name, MemoryType type) {
+    ImportedMemory(@NotNull String moduleName, @NotNull String name, @NotNull MemoryType type) {
         super(moduleName, name);
-        this.type = requireNonNull(type);
+        this.type = type;
     }
 
-    MemoryType getType() {
+    @NotNull MemoryType getType() {
         return type;
     }
 }

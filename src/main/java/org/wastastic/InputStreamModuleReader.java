@@ -1,5 +1,6 @@
 package org.wastastic;
 
+import org.jetbrains.annotations.NotNull;
 import org.wastastic.compiler.ModuleReader;
 
 import java.io.EOFException;
@@ -38,7 +39,7 @@ public final class InputStreamModuleReader implements ModuleReader {
     }
 
     @Override
-    public String nextUtf8(int length) throws IOException {
+    public @NotNull String nextUtf8(int length) throws IOException {
         var bytes = stream.readNBytes(length);
 
         if (bytes.length != length) {

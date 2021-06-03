@@ -1,16 +1,16 @@
 package org.wastastic.compiler;
 
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
 final class ImportedGlobal extends Import {
-    private final GlobalType type;
+    private final @NotNull GlobalType type;
 
-    ImportedGlobal(String moduleName, String name, GlobalType type) {
+    ImportedGlobal(@NotNull String moduleName, @NotNull String name, @NotNull GlobalType type) {
         super(moduleName, name);
-        this.type = requireNonNull(type);
+        this.type = type;
     }
 
-    GlobalType getType() {
+    @NotNull GlobalType getType() {
         return type;
     }
 }

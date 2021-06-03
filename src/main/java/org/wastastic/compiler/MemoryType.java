@@ -1,9 +1,5 @@
 package org.wastastic.compiler;
 
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
-record MemoryType(Limits limits) {
-    MemoryType {
-        requireNonNull(limits);
-    }
-}
+record MemoryType(@NotNull Limits limits) {}

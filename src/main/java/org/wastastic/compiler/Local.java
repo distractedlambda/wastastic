@@ -1,4 +1,5 @@
 package org.wastastic.compiler;
 
-record Local(ValueType type, int index) {
-}
+import org.jetbrains.annotations.NotNull;
+
+record Local(@NotNull ValueType type, int index) {}

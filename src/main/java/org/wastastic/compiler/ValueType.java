@@ -1,48 +1,68 @@
 package org.wastastic.compiler;
 
+import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Opcodes;
 
-import static java.util.Objects.requireNonNull;
-
 enum ValueType {
-    I32("I", false, 1, Opcodes.ILOAD, Opcodes.ISTORE),
-    I64("J", true, 2, Opcodes.LLOAD, Opcodes.LSTORE),
-    F32("F", false, 1, Opcodes.FLOAD, Opcodes.FSTORE),
-    F64("D", true, 2, Opcodes.DLOAD, Opcodes.DSTORE),
-    FUNCREF("Ljava/lang/invoke/MethodHandle;", false, 1, Opcodes.ALOAD, Opcodes.ASTORE),
-    EXTERNREF("Ljava/lang/Object;", false, 1, Opcodes.ALOAD, Opcodes.ASTORE);
+    I32,
+    I64,
+    F32,
+    F64,
+    FUNCREF,
+    EXTERNREF;
 
-    private final String descriptor;
-    private final boolean doubleWidth;
-    private final int width;
-    private final int localLoadOpcode;
-    private final int localStoreOpcode;
-
-    ValueType(String descriptor, boolean doubleWidth, int width, int localLoadOpcode, int localStoreOpcode) {
-        this.descriptor = requireNonNull(descriptor);
-        this.doubleWidth = doubleWidth;
-        this.width = width;
-        this.localLoadOpcode = localLoadOpcode;
-        this.localStoreOpcode = localStoreOpcode;
+    public @NotNull String getDescriptor() {
+        return switch (this) {
+            case I32 -> "I";
+            case I64 -> "J";
+            case F32 -> "F";
+            case F64 -> "D";
+            case FUNCREF -> "Ljava/lang/invoke/MethodHandle;";
+            case EXTERNREF -> "Ljava/lang/Object;";
+        };
     }
 
-    public String getDescriptor() {
-        return descriptor;
+    public char getTupleSignatureCharacter() {
+        return switch (this) {
+            case I32 -> 'I';
+            case I64 -> 'J';
+            case F32 -> 'F';
+            case F64 -> 'D';
+            case FUNCREF, EXTERNREF -> 'L';
+        };
     }
 
     public boolean isDoubleWidth() {
-        return doubleWidth;
+        return switch (this) {
+            case I32, F32, FUNCREF, EXTERNREF -> false;
+            case I64, F64 -> true;
+        };
     }
 
     public int getWidth() {
-        return width;
+        return switch (this) {
+            case I32, F32, FUNCREF, EXTERNREF -> 1;
+            case I64, F64 -> 2;
+        };
     }
 
     public int getLocalLoadOpcode() {
-        return localLoadOpcode;
+        return switch (this) {
+            case I32 -> Opcodes.ILOAD;
+            case I64 -> Opcodes.LLOAD;
+            case F32 -> Opcodes.FLOAD;
+            case F64 -> Opcodes.DLOAD;
+            case FUNCREF, EXTERNREF -> Opcodes.ALOAD;
+        };
     }
 
     public int getLocalStoreOpcode() {
-        return localStoreOpcode;
+        return switch (this) {
+            case I32 -> Opcodes.ISTORE;
+            case I64 -> Opcodes.LSTORE;
+            case F32 -> Opcodes.FSTORE;
+            case F64 -> Opcodes.DSTORE;
+            case FUNCREF, EXTERNREF -> Opcodes.ASTORE;
+        };
     }
 }

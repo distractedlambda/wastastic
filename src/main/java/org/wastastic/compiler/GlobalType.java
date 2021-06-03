@@ -1,10 +1,5 @@
 package org.wastastic.compiler;
 
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.NotNull;
 
-record GlobalType(ValueType valueType, Mutability mutability) {
-    GlobalType {
-        requireNonNull(valueType);
-        requireNonNull(mutability);
-    }
-}
+record GlobalType(@NotNull ValueType valueType, @NotNull Mutability mutability) {}
