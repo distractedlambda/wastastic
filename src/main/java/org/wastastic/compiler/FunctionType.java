@@ -1,5 +1,7 @@
 package org.wastastic.compiler;
 
+import java.util.List;
+
 final class FunctionType {
     private final Object parameterTypes;
     private final Object returnTypes;
@@ -25,6 +27,10 @@ final class FunctionType {
 
     int getReturnCount() {
         return ResultTypes.length(returnTypes);
+    }
+
+    List<ValueType> getParameterTypeList() {
+        return ResultTypes.asList(parameterTypes);
     }
 
     String getSignatureString() throws CompilationException {

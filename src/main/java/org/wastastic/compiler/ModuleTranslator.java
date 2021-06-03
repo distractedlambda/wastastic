@@ -1,6 +1,7 @@
 package org.wastastic.compiler;
 
 import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -8,6 +9,8 @@ import org.objectweb.asm.Opcodes;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Type.getConstructorDescriptor;
@@ -233,7 +236,26 @@ final class ModuleTranslator {
                     emitBranch(labelStack.get(0));
                     break;
 
-                case OP_CALL:
+                case OP_CALL: {
+                    var index = reader.nextUnsigned32();
+                    var name = "f-" + index;
+
+                    if (index < importedFunctions.size()) {
+                        var type = importedFunctions.get(index).getType();
+                        int savedValuesEnd = saveValues(type.getParameterTypeList());
+                        method.visitFieldInsn(Opcodes.GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
+                        method.visitVarInsn(Opcodes.ALOAD, 0);
+                        restoreValues(type.getParameterTypeList(), savedValuesEnd);
+                        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", type.getSignatureString(), false);
+                        // FIXME: deal with result tuples
+                    }
+                    else {
+
+                    }
+
+                    break;
+                }
+
                 case OP_CALL_INDIRECT:
                     // TODO
                     break;
@@ -976,7 +998,6 @@ final class ModuleTranslator {
                     break;
 
                 case OP_F64_NEAREST:
-                    // TODO: check equivalence
                     method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "rint", "(D)D", false);
                     break;
 
@@ -1202,9 +1223,23 @@ final class ModuleTranslator {
                     break;
                 }
 
-                case OP_REF_FUNC:
-                    // TODO
+                case OP_REF_FUNC: {
+                    var index = reader.nextUnsigned32();
+                    var name = "f-" + index;
+
+                    if (index < importedFunctions.size()) {
+                        method.visitFieldInsn(Opcodes.GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
+                    }
+                    else {
+                        var type = definedFunctions.get(index - importedFunctions.size());
+                        var signature = type.getSignatureString();
+                        var handle = new Handle(Opcodes.H_INVOKESPECIAL, internalName, name, signature, false);
+                        method.visitLdcInsn(handle);
+                    }
+
+                    operandStack.add(ValueType.FUNCREF);
                     break;
+                }
 
                 case OP_CONT_PREFIX:
                     switch (reader.nextByte()) {
@@ -1230,6 +1265,32 @@ final class ModuleTranslator {
                             break;
                     }
             }
+        }
+    }
+
+    private int saveValues(List<ValueType> types) {
+        int localsOffset;
+
+        if (locals.isEmpty()) {
+            localsOffset = 1;
+        } else {
+            var lastLocal = locals.get(locals.size() - 1);
+            localsOffset = lastLocal.index() + (lastLocal.type().isDoubleWidth() ? 2 : 1);
+        }
+
+        for (var i = types.size() - 1; i >= 0; i--) {
+            var type = types.get(i);
+            method.visitVarInsn(type.getLocalStoreOpcode(), localsOffset);
+            localsOffset += type.getWidth();
+        }
+
+        return localsOffset;
+    }
+
+    private void restoreValues(List<ValueType> types, int localsOffset) {
+        for (var type : types) {
+            localsOffset -= type.getWidth();
+            method.visitVarInsn(type.getLocalLoadOpcode(), localsOffset);
         }
     }
 
