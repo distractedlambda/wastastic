@@ -1,7 +1,6 @@
 package org.wastastic.compiler;
 
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
@@ -27,12 +26,14 @@ final class ModuleTranslator {
     private final ArrayList<ImportedMemory> importedMemories = new ArrayList<>();
     private final ArrayList<MemoryType> definedMemories = new ArrayList<>();
     private final ArrayList<ImportedGlobal> importedGlobals = new ArrayList<>();
-    private final ArrayList<GlobalType> definedGlobals = new ArrayList<>();
+    private final ArrayList<DefinedGlobal> definedGlobals = new ArrayList<>();
+    private final ArrayList<Export> exports = new ArrayList<>();
 
     private final ArrayList<Local> locals = new ArrayList<>();
     private final ArrayList<ValueType> operandStack = new ArrayList<>();
     private final ArrayList<LabelScope> labelStack = new ArrayList<>();
 
+    private int startFunctionIndex = -1;
     private MethodVisitor method;
 
     ModuleTranslator(@NotNull String internalName, @NotNull ModuleReader reader, @NotNull ClassVisitor clazz) {
@@ -130,6 +131,55 @@ final class ModuleTranslator {
                     for (; remaining != 0; remaining--) {
                         definedMemories.add(nextMemoryType());
                     }
+                }
+
+                case SECTION_GLOBAL -> {
+                    var remaining = reader.nextUnsigned32();
+                    definedGlobals.ensureCapacity(definedGlobals.size() + remaining);
+                    for (; remaining != 0; remaining--) {
+                        var type = nextValueType();
+
+                        var mutability = switch (reader.nextByte()) {
+                            case 0x00 -> Mutability.CONST;
+                            case 0x01 -> Mutability.VAR;
+                            default -> throw new CompilationException("Invalid mutability");
+                        };
+
+                        var initialValue = switch (reader.nextByte()) {
+                            case OP_GLOBAL_GET -> new ImportedGlobalConstant(reader.nextUnsigned32());
+                            case OP_I32_CONST -> new I32Constant(reader.nextSigned32());
+                            case OP_I64_CONST -> new I64Constant(reader.nextSigned64());
+                            case OP_REF_NULL -> NullConstant.INSTANCE;
+                            case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
+                            default -> throw new CompilationException("Invalid constant expression");
+                        };
+
+                        definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), initialValue));
+                    }
+                }
+
+                case SECTION_EXPORT -> {
+                    var remaining = reader.nextUnsigned32();
+                    exports.ensureCapacity(exports.size() + remaining);
+                    for (; remaining != 0; remaining--) {
+                        var name = nextName();
+
+                        var kind = switch (reader.nextByte()) {
+                            case 0x00 -> ExportKind.FUNCTION;
+                            case 0x01 -> ExportKind.TABLE;
+                            case 0x02 -> ExportKind.MEMORY;
+                            case 0x03 -> ExportKind.GLOBAL;
+                            default -> throw new CompilationException("Invalid export description");
+                        };
+
+                        var index = reader.nextUnsigned32();
+
+                        exports.add(new Export(name, kind, index));
+                    }
+                }
+
+                case SECTION_START -> {
+                    startFunctionIndex = reader.nextUnsigned32();
                 }
 
                 default -> throw new CompilationException("Invalid section ID");
@@ -408,7 +458,7 @@ final class ModuleTranslator {
                         );
                     }
                     else {
-                        type = definedGlobals.get(globalIndex - importedGlobals.size()).valueType();
+                        type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
 
                         method.visitFieldInsn(
                             Opcodes.PUTFIELD,
@@ -445,7 +495,7 @@ final class ModuleTranslator {
                         );
                     }
                     else {
-                        type = definedGlobals.get(globalIndex - importedGlobals.size()).valueType();
+                        type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
 
                         method.visitFieldInsn(
                             Opcodes.GETFIELD,
