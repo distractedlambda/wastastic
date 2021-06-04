@@ -22,8 +22,7 @@ public final class InputStreamModuleReader implements ModuleReader {
         return stream;
     }
 
-    @Override
-    public byte nextByte() throws IOException {
+    @Override public byte nextByte() throws IOException {
         var value = stream.read();
 
         if (value == -1) {
@@ -33,13 +32,11 @@ public final class InputStreamModuleReader implements ModuleReader {
         return (byte) value;
     }
 
-    @Override
-    public void skip(int unsignedCount) throws IOException {
+    @Override public void skip(int unsignedCount) throws IOException {
         stream.skipNBytes(toUnsignedLong(unsignedCount));
     }
 
-    @Override
-    public @NotNull String nextUtf8(int length) throws IOException {
+    @Override public @NotNull String nextUtf8(int length) throws IOException {
         var bytes = stream.readNBytes(length);
 
         if (bytes.length != length) {

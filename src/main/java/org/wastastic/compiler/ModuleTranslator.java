@@ -42,13 +42,13 @@ final class ModuleTranslator {
         this.clazz = clazz;
     }
 
-    void translate() throws CompilationException, IOException {
+    void translate() throws TranslationException, IOException {
         if (reader.nextByte() != 0x00 ||
             reader.nextByte() != 0x61 ||
             reader.nextByte() != 0x73 ||
             reader.nextByte() != 0x6d
         ) {
-            throw new CompilationException("Invalid magic number");
+            throw new TranslationException("Invalid magic number");
         }
 
         if (reader.nextByte() != 0x01 ||
@@ -56,7 +56,7 @@ final class ModuleTranslator {
             reader.nextByte() != 0x00 ||
             reader.nextByte() != 0x00
         ) {
-            throw new CompilationException("Unsupported version");
+            throw new TranslationException("Unsupported version");
         }
 
         while (true) {
@@ -81,7 +81,7 @@ final class ModuleTranslator {
                     types.ensureCapacity(types.size() + remaining);
                     for (; remaining != 0; remaining--) {
                         if (reader.nextByte() != TYPE_FUNCTION) {
-                            throw new CompilationException("Invalid function type");
+                            throw new TranslationException("Invalid function type");
                         }
                         types.add(new FunctionType(nextResultType(), nextResultType()));
                     }
@@ -101,10 +101,10 @@ final class ModuleTranslator {
                                 new GlobalType(nextValueType(), switch (reader.nextByte()) {
                                     case 0x00 -> Mutability.CONST;
                                     case 0x01 -> Mutability.VAR;
-                                    default -> throw new CompilationException("Invalid mutability");
+                                    default -> throw new TranslationException("Invalid mutability");
                                 })
                             ));
-                            default -> throw new CompilationException("Invalid import description");
+                            default -> throw new TranslationException("Invalid import description");
                         }
                     }
                 }
@@ -142,7 +142,7 @@ final class ModuleTranslator {
                         var mutability = switch (reader.nextByte()) {
                             case 0x00 -> Mutability.CONST;
                             case 0x01 -> Mutability.VAR;
-                            default -> throw new CompilationException("Invalid mutability");
+                            default -> throw new TranslationException("Invalid mutability");
                         };
 
                         var initialValue = switch (reader.nextByte()) {
@@ -151,7 +151,7 @@ final class ModuleTranslator {
                             case OP_I64_CONST -> new I64Constant(reader.nextSigned64());
                             case OP_REF_NULL -> NullConstant.INSTANCE;
                             case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
-                            default -> throw new CompilationException("Invalid constant expression");
+                            default -> throw new TranslationException("Invalid constant expression");
                         };
 
                         definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), initialValue));
@@ -169,7 +169,7 @@ final class ModuleTranslator {
                             case 0x01 -> ExportKind.TABLE;
                             case 0x02 -> ExportKind.MEMORY;
                             case 0x03 -> ExportKind.GLOBAL;
-                            default -> throw new CompilationException("Invalid export description");
+                            default -> throw new TranslationException("Invalid export description");
                         };
 
                         var index = reader.nextUnsigned32();
@@ -182,12 +182,12 @@ final class ModuleTranslator {
                     startFunctionIndex = reader.nextUnsigned32();
                 }
 
-                default -> throw new CompilationException("Invalid section ID");
+                default -> throw new TranslationException("Invalid section ID");
             }
         }
     }
 
-    private void translateFunction() throws IOException, CompilationException {
+    private void translateFunction() throws IOException, TranslationException {
         for (var opcode = reader.nextByte(); ; opcode = reader.nextByte()) {
             switch (opcode) {
                 case OP_UNREACHABLE:
@@ -1465,7 +1465,7 @@ final class ModuleTranslator {
         method.visitJumpInsn(Opcodes.GOTO, target.targetLabel());
     }
 
-    private @NotNull FunctionType nextBlockType() throws IOException, CompilationException {
+    private @NotNull FunctionType nextBlockType() throws IOException, TranslationException {
         var code = reader.nextSigned33();
         if (code >= 0) {
             return types.get((int) code);
@@ -1479,7 +1479,7 @@ final class ModuleTranslator {
                 case TYPE_F64 -> new FunctionType(List.of(), List.of(ValueType.F64));
                 case TYPE_EXTERNREF -> new FunctionType(List.of(), List.of(ValueType.EXTERNREF));
                 case TYPE_FUNCREF -> new FunctionType(List.of(), List.of(ValueType.FUNCREF));
-                default -> throw new CompilationException("Invalid block type");
+                default -> throw new TranslationException("Invalid block type");
             };
         }
     }
@@ -1540,27 +1540,27 @@ final class ModuleTranslator {
         return types.get(reader.nextUnsigned32());
     }
 
-    private @NotNull MemoryType nextMemoryType() throws CompilationException, IOException {
+    private @NotNull MemoryType nextMemoryType() throws TranslationException, IOException {
         return new MemoryType(nextLimits());
     }
 
-    private @NotNull TableType nextTableType() throws CompilationException, IOException {
+    private @NotNull TableType nextTableType() throws TranslationException, IOException {
         return new TableType(nextReferenceType(), nextLimits());
     }
 
-    private @NotNull ReferenceType nextReferenceType() throws CompilationException, IOException {
+    private @NotNull ReferenceType nextReferenceType() throws TranslationException, IOException {
         return switch (reader.nextByte()) {
             case TYPE_EXTERNREF -> ReferenceType.EXTERNREF;
             case TYPE_FUNCREF -> ReferenceType.FUNCREF;
-            default -> throw new CompilationException("Invalid reference type");
+            default -> throw new TranslationException("Invalid reference type");
         };
     }
 
-    private @NotNull Limits nextLimits() throws CompilationException, IOException {
+    private @NotNull Limits nextLimits() throws TranslationException, IOException {
         return switch (reader.nextByte()) {
             case 0x00 -> new Limits(reader.nextUnsigned32());
             case 0x01 -> new Limits(reader.nextUnsigned32(), reader.nextUnsigned32());
-            default -> throw new CompilationException("Invalid limits encoding");
+            default -> throw new TranslationException("Invalid limits encoding");
         };
     }
 
@@ -1568,7 +1568,7 @@ final class ModuleTranslator {
         return reader.nextUtf8(reader.nextUnsigned32());
     }
 
-    private @NotNull List<ValueType> nextResultType() throws CompilationException, IOException {
+    private @NotNull List<ValueType> nextResultType() throws TranslationException, IOException {
         var unsignedSize = reader.nextUnsigned32();
         switch (unsignedSize) {
             case 0:
@@ -1587,7 +1587,7 @@ final class ModuleTranslator {
         }
     }
 
-    private @NotNull ValueType nextValueType() throws CompilationException, IOException {
+    private @NotNull ValueType nextValueType() throws TranslationException, IOException {
         return switch (reader.nextByte()) {
             case TYPE_EXTERNREF -> ValueType.EXTERNREF;
             case TYPE_FUNCREF -> ValueType.FUNCREF;
@@ -1595,7 +1595,7 @@ final class ModuleTranslator {
             case TYPE_F32 -> ValueType.F32;
             case TYPE_I64 -> ValueType.I64;
             case TYPE_I32 -> ValueType.I32;
-            default -> throw new CompilationException("Invalid value type");
+            default -> throw new TranslationException("Invalid value type");
         };
     }
 
