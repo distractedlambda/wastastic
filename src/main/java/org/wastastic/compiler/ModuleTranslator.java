@@ -837,13 +837,15 @@ final class ModuleTranslator {
         translateStore("i64Store32", 'J');
     }
 
-    private void translateMemorySize() {
+    private void translateMemorySize() throws IOException {
+        reader.nextByte();
         emitLoadModule();
         method.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memorySize", "(Lorg/wastastic/Module;)I", false);
         operandStack.add(ValueType.I32);
     }
 
-    private void translateMemoryGrow() {
+    private void translateMemoryGrow() throws IOException {
+        reader.nextByte();
         emitLoadModule();
         method.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memoryGrow", "(ILorg/wastastic/Module;)I", false);
         operandStack.add(ValueType.I32);
@@ -1593,39 +1595,48 @@ final class ModuleTranslator {
     }
 
     private void translateI32TruncSatF32S() {
-        // TODO
+        method.visitInsn(Opcodes.F2I);
+        replaceTopOperandType(ValueType.I32);
     }
 
     private void translateI32TruncSatF32U() {
-        // TODO
+        emitHelperCall("i32TruncSatU", "(F)I");
+        replaceTopOperandType(ValueType.I32);
     }
 
     private void translateI32TruncSatF64S() {
-        // TODO
+        method.visitInsn(Opcodes.D2I);
+        replaceTopOperandType(ValueType.I32);
     }
 
     private void translateI32TruncSatF64U() {
-        // TODO
+        emitHelperCall("i32TruncSatU", "(D)I");
+        replaceTopOperandType(ValueType.I32);
     }
 
     private void translateI64TruncSatF32S() {
-        // TODO
+        method.visitInsn(Opcodes.F2L);
+        replaceTopOperandType(ValueType.I64);
     }
 
     private void translateI64TruncSatF32U() {
-        // TODO
+        emitHelperCall("i64TruncSatU", "(F)J");
+        replaceTopOperandType(ValueType.I64);
     }
 
     private void translateI64TruncSatF64S() {
-        // TODO
+        method.visitInsn(Opcodes.D2L);
+        replaceTopOperandType(ValueType.I64);
     }
 
     private void translateI64TruncSatF64U() {
-        // TODO
+        emitHelperCall("i64TruncSatU", "(D)J");
+        replaceTopOperandType(ValueType.I64);
     }
 
     private void translateMemoryInit() throws IOException {
         var dataIndex = reader.nextUnsigned32();
+        reader.nextByte();
         emitLoadModule();
         method.visitInsn(DUP);
         method.visitFieldInsn(GETFIELD, internalName, "d-" + dataIndex, "Ljdk/incubator/foreign/MemorySegment;");
@@ -1642,12 +1653,23 @@ final class ModuleTranslator {
         method.visitFieldInsn(PUTFIELD, internalName, "d-" + index, "Ljdk/incubator/foreign/MemorySegment;");
     }
 
-    private void translateMemoryCopy() {
-        // TODO
+    private void translateMemoryCopy() throws IOException {
+        reader.nextByte();
+        reader.nextByte();
+        emitLoadModule();
+        method.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memoryCopy", "(IIILorg/wastastic/Module;)V", false);
+        popOperandType();
+        popOperandType();
+        popOperandType();
     }
 
-    private void translateMemoryFill() {
-        // TODO
+    private void translateMemoryFill() throws IOException {
+        reader.nextByte();
+        emitLoadModule();
+        method.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memoryFill", "(IBILorg/wastastic/Module;)V", false);
+        popOperandType();
+        popOperandType();
+        popOperandType();
     }
 
     private void translateTableInit() throws IOException {

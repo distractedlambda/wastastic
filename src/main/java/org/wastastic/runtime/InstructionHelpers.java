@@ -394,4 +394,30 @@ public final class InstructionHelpers {
             return (double) operand;
         }
     }
+
+    public static int i32TruncSatU(float operand) {
+        return (int) Math.min(Math.max(0, (long) operand), Integer.toUnsignedLong(-1));
+    }
+
+    public static int i32TruncSatU(double operand) {
+        return (int) Math.min(Math.max(0, (long) operand), Integer.toUnsignedLong(-1));
+    }
+
+    public static long i64TruncSatU(float operand) {
+        if (operand >= 0x1p63f) {
+            return ((long) Math.scalb(operand, -1) << 1);
+        }
+        else {
+            return (long) operand;
+        }
+    }
+
+    public static long i64TruncSatU(double operand) {
+        if (operand >= 0x1p63) {
+            return ((long) Math.scalb(operand, -1) << 1);
+        }
+        else {
+            return (long) operand;
+        }
+    }
 }
