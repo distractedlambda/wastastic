@@ -1,9 +1,7 @@
 package org.wastastic.runtime;
 
-import org.objectweb.asm.Opcodes;
 import org.wastastic.TrapException;
 
-import static java.lang.Double.isFinite;
 import static java.lang.Double.isNaN;
 import static java.lang.Float.isFinite;
 import static java.lang.Integer.compareUnsigned;
@@ -21,16 +19,6 @@ public final class InstructionHelpers {
 
     public static RuntimeException trap() throws TrapException {
         throw new TrapException();
-    }
-
-    public static int effectiveAddress(int dynamicAddress, int offset) throws TrapException {
-        var longSum = toUnsignedLong(dynamicAddress) + toUnsignedLong(offset);
-
-        if (longSum > 0xFFFFFFFF) {
-            throw new TrapException();
-        }
-
-        return (int) longSum;
     }
 
     public static int select(int condition, int ifTrue, int ifFalse) {

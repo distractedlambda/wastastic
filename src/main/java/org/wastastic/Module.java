@@ -24,9 +24,73 @@ public abstract class Module {
         this.memory = memory;
     }
 
+    private static long effectiveAddress(int address) {
+        return Integer.toUnsignedLong(address);
+    }
+
+    private static long effectiveAddress(int address, byte offset) {
+        return Integer.toUnsignedLong(address) + Byte.toUnsignedLong(offset);
+    }
+
+    private static long effectiveAddress(int address, short offset) {
+        return Integer.toUnsignedLong(address) + Short.toUnsignedLong(offset);
+    }
+
+    private static long effectiveAddress(int address, int offset) {
+        return Integer.toUnsignedLong(address) + Integer.toUnsignedLong(offset);
+    }
+
+    protected static int i32Load(int address, Module self) throws TrapException {
+        try {
+            return (int) VH_INT.get(self.memory.segment, effectiveAddress(address));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static int i32Load(int address, byte offset, Module self) throws TrapException {
+        try {
+            return (int) VH_INT.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static int i32Load(int address, short offset, Module self) throws TrapException {
+        try {
+            return (int) VH_INT.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
     protected static int i32Load(int address, int offset, Module self) throws TrapException {
         try {
-            return (int) VH_INT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (int) VH_INT.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static long i64Load(int address, Module self) throws TrapException {
+        try {
+            return (long) VH_LONG.get(self.memory.segment, effectiveAddress(address));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static long i64Load(int address, byte offset, Module self) throws TrapException {
+        try {
+            return (long) VH_LONG.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static long i64Load(int address, short offset, Module self) throws TrapException {
+        try {
+            return (long) VH_LONG.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -34,7 +98,31 @@ public abstract class Module {
 
     protected static long i64Load(int address, int offset, Module self) throws TrapException {
         try {
-            return (long) VH_LONG.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (long) VH_LONG.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static float f32Load(int address, Module self) throws TrapException {
+        try {
+            return (float) VH_FLOAT.get(self.memory.segment, effectiveAddress(address));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static float f32Load(int address, byte offset, Module self) throws TrapException {
+        try {
+            return (float) VH_FLOAT.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static float f32Load(int address, short offset, Module self) throws TrapException {
+        try {
+            return (float) VH_FLOAT.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -42,7 +130,31 @@ public abstract class Module {
 
     protected static float f32Load(int address, int offset, Module self) throws TrapException {
         try {
-            return (float) VH_FLOAT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (float) VH_FLOAT.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static double f64Load(int address, Module self) throws TrapException {
+        try {
+            return (double) VH_DOUBLE.get(self.memory.segment, effectiveAddress(address));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static double f64Load(int address, byte offset, Module self) throws TrapException {
+        try {
+            return (double) VH_DOUBLE.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static double f64Load(int address, short offset, Module self) throws TrapException {
+        try {
+            return (double) VH_DOUBLE.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -50,7 +162,31 @@ public abstract class Module {
 
     protected static double f64Load(int address, int offset, Module self) throws TrapException {
         try {
-            return (double) VH_DOUBLE.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (double) VH_DOUBLE.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static int i32Load8S(int address, Module self) throws TrapException {
+        try {
+            return (byte) VH_BYTE.get(self.memory.segment, effectiveAddress(address));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static int i32Load8S(int address, byte offset, Module self) throws TrapException {
+        try {
+            return (byte) VH_BYTE.get(self.memory.segment, effectiveAddress(address, offset));
+        } catch (IndexOutOfBoundsException ignored) {
+            throw new TrapException();
+        }
+    }
+
+    protected static int i32Load8S(int address, short offset, Module self) throws TrapException {
+        try {
+            return (byte) VH_BYTE.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -58,7 +194,7 @@ public abstract class Module {
 
     protected static int i32Load8S(int address, int offset, Module self) throws TrapException {
         try {
-            return (byte) VH_BYTE.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (byte) VH_BYTE.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -66,7 +202,7 @@ public abstract class Module {
 
     protected static int i32Load8U(int address, int offset, Module self) throws TrapException {
         try {
-            return toUnsignedInt((byte) VH_BYTE.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset)));
+            return toUnsignedInt((byte) VH_BYTE.get(self.memory.segment, effectiveAddress(address, offset)));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -74,7 +210,7 @@ public abstract class Module {
 
     protected static int i32Load16S(int address, int offset, Module self) throws TrapException {
         try {
-            return (short) VH_SHORT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (short) VH_SHORT.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -82,7 +218,7 @@ public abstract class Module {
 
     protected static int i32Load16U(int address, int offset, Module self) throws TrapException {
         try {
-            return toUnsignedInt((short) VH_SHORT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset)));
+            return toUnsignedInt((short) VH_SHORT.get(self.memory.segment, effectiveAddress(address, offset)));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -90,7 +226,7 @@ public abstract class Module {
 
     protected static long i64Load8S(int address, int offset, Module self) throws TrapException {
         try {
-            return (byte) VH_BYTE.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (byte) VH_BYTE.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -98,7 +234,7 @@ public abstract class Module {
 
     protected static long i64Load8U(int address, int offset, Module self) throws TrapException {
         try {
-            return toUnsignedLong((byte) VH_BYTE.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset)));
+            return toUnsignedLong((byte) VH_BYTE.get(self.memory.segment, effectiveAddress(address, offset)));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -106,7 +242,7 @@ public abstract class Module {
 
     protected static long i64Load16S(int address, int offset, Module self) throws TrapException {
         try {
-            return (short) VH_SHORT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (short) VH_SHORT.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -114,7 +250,7 @@ public abstract class Module {
 
     protected static long i64Load16U(int address, int offset, Module self) throws TrapException {
         try {
-            return toUnsignedLong((short) VH_SHORT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset)));
+            return toUnsignedLong((short) VH_SHORT.get(self.memory.segment, effectiveAddress(address, offset)));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -122,7 +258,7 @@ public abstract class Module {
 
     protected static long i64Load32S(int address, int offset, Module self) throws TrapException {
         try {
-            return (int) VH_INT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset));
+            return (int) VH_INT.get(self.memory.segment, effectiveAddress(address, offset));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -130,7 +266,7 @@ public abstract class Module {
 
     protected static long i64Load32U(int address, int offset, Module self) throws TrapException {
         try {
-            return toUnsignedLong((int) VH_INT.get(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset)));
+            return toUnsignedLong((int) VH_INT.get(self.memory.segment, effectiveAddress(address, offset)));
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -138,7 +274,7 @@ public abstract class Module {
 
     protected static void i32Store(int address, int value, int offset, Module self) throws TrapException {
         try {
-            VH_INT.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), value);
+            VH_INT.set(self.memory.segment, effectiveAddress(address, offset), value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -146,7 +282,7 @@ public abstract class Module {
 
     protected static void i64Store(int address, long value, int offset, Module self) throws TrapException {
         try {
-            VH_LONG.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), value);
+            VH_LONG.set(self.memory.segment, effectiveAddress(address, offset), value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -154,7 +290,7 @@ public abstract class Module {
 
     protected static void f32Store(int address, float value, int offset, Module self) throws TrapException {
         try {
-            VH_FLOAT.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), value);
+            VH_FLOAT.set(self.memory.segment, effectiveAddress(address, offset), value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -162,7 +298,7 @@ public abstract class Module {
 
     protected static void f64Store(int address, double value, int offset, Module self) throws TrapException {
         try {
-            VH_DOUBLE.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), value);
+            VH_DOUBLE.set(self.memory.segment, effectiveAddress(address, offset), value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -170,7 +306,7 @@ public abstract class Module {
 
     protected static void i32Store8(int address, int value, int offset, Module self) throws TrapException {
         try {
-            VH_BYTE.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), (byte) value);
+            VH_BYTE.set(self.memory.segment, effectiveAddress(address, offset), (byte) value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -178,7 +314,7 @@ public abstract class Module {
 
     protected static void i32Store16(int address, int value, int offset, Module self) throws TrapException {
         try {
-            VH_SHORT.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), (short) value);
+            VH_SHORT.set(self.memory.segment, effectiveAddress(address, offset), (short) value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -186,7 +322,7 @@ public abstract class Module {
 
     protected static void i64Store8(int address, long value, int offset, Module self) throws TrapException {
         try {
-            VH_BYTE.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), (byte) value);
+            VH_BYTE.set(self.memory.segment, effectiveAddress(address, offset), (byte) value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -194,7 +330,7 @@ public abstract class Module {
 
     protected static void i64Store16(int address, long value, int offset, Module self) throws TrapException {
         try {
-            VH_SHORT.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), (short) value);
+            VH_SHORT.set(self.memory.segment, effectiveAddress(address, offset), (short) value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
@@ -202,7 +338,7 @@ public abstract class Module {
 
     protected static void i64Store32(int address, long value, int offset, Module self) throws TrapException {
         try {
-            VH_INT.set(self.memory.segment, toUnsignedLong(address) + toUnsignedLong(offset), (int) value);
+            VH_INT.set(self.memory.segment, effectiveAddress(address, offset), (int) value);
         } catch (IndexOutOfBoundsException ignored) {
             throw new TrapException();
         }
