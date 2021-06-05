@@ -187,1186 +187,1241 @@ final class ModuleTranslator {
         }
     }
 
-    private void translateFunction() throws IOException, TranslationException {
-        for (var opcode = reader.nextByte(); ; opcode = reader.nextByte()) {
-            switch (opcode) {
-                case OP_UNREACHABLE:
-                    emitHelperCall("trap", "()Ljava/lang/RuntimeException;");
-                    method.visitInsn(Opcodes.ATHROW);
-                    break;
+    private void translateInstruction() throws IOException, TranslationException {
+        var opcode = reader.nextByte();
+        switch (opcode) {
+            case OP_UNREACHABLE:
+                emitHelperCall("trap", "()Ljava/lang/RuntimeException;");
+                method.visitInsn(Opcodes.ATHROW);
+                break;
 
-                case OP_NOP:
-                    break;
+            case OP_NOP:
+                break;
 
-                case OP_BLOCK: {
-                    var type = nextBlockType();
-                    var endLabel = new Label();
-                    labelStack.add(new LabelScope(
-                        endLabel,
-                        type.getReturnTypes(),
-                        operandStack.size() - type.getParameterTypes().size(),
-                        endLabel,
-                        null,
-                        null
-                    ));
+            case OP_BLOCK: {
+                var type = nextBlockType();
+                var endLabel = new Label();
+                labelStack.add(new LabelScope(
+                    endLabel,
+                    type.getReturnTypes(),
+                    operandStack.size() - type.getParameterTypes().size(),
+                    endLabel,
+                    null,
+                    null
+                ));
 
-                    break;
-                }
+                break;
+            }
 
-                case OP_LOOP: {
-                    var type = nextBlockType();
-                    var startLabel = new Label();
-                    method.visitLabel(startLabel);
-                    labelStack.add(new LabelScope(
-                        startLabel,
-                        type.getParameterTypes(),
-                        operandStack.size() - type.getParameterTypes().size(),
-                        null,
-                        null,
-                        null
-                    ));
+            case OP_LOOP: {
+                var type = nextBlockType();
+                var startLabel = new Label();
+                method.visitLabel(startLabel);
+                labelStack.add(new LabelScope(
+                    startLabel,
+                    type.getParameterTypes(),
+                    operandStack.size() - type.getParameterTypes().size(),
+                    null,
+                    null,
+                    null
+                ));
 
-                    break;
-                }
+                break;
+            }
 
-                case OP_IF: {
-                    var type = nextBlockType();
-                    var endLabel = new Label();
-                    var elseLabel = new Label();
+            case OP_IF: {
+                var type = nextBlockType();
+                var endLabel = new Label();
+                var elseLabel = new Label();
 
-                    labelStack.add(new LabelScope(
-                        endLabel,
-                        type.getReturnTypes(),
-                        operandStack.size() - type.getParameterTypes().size() - 1,
-                        endLabel,
-                        elseLabel,
-                        type.getParameterTypes()
-                    ));
+                labelStack.add(new LabelScope(
+                    endLabel,
+                    type.getReturnTypes(),
+                    operandStack.size() - type.getParameterTypes().size() - 1,
+                    endLabel,
+                    elseLabel,
+                    type.getParameterTypes()
+                ));
 
-                    method.visitJumpInsn(Opcodes.IFEQ, elseLabel);
+                method.visitJumpInsn(Opcodes.IFEQ, elseLabel);
+                popOperandType();
+
+                break;
+            }
+
+            case OP_ELSE: {
+                var scope = popLabelScope();
+                method.visitJumpInsn(Opcodes.GOTO, scope.targetLabel());
+                method.visitLabel(scope.elseLabel());
+
+                while (operandStack.size() > scope.operandStackSize()) {
                     popOperandType();
-
-                    break;
                 }
 
-                case OP_ELSE: {
-                    var scope = popLabelScope();
-                    method.visitJumpInsn(Opcodes.GOTO, scope.targetLabel());
-                    method.visitLabel(scope.elseLabel());
+                operandStack.addAll(scope.elseParameterTypes());
+                labelStack.add(new LabelScope(
+                    scope.targetLabel(),
+                    scope.parameterTypes(),
+                    scope.operandStackSize(),
+                    scope.endLabel(),
+                    null,
+                    null
+                ));
 
-                    while (operandStack.size() > scope.operandStackSize()) {
+                break;
+            }
+
+            case OP_END: {
+                var scope = popLabelScope();
+
+                if (scope.elseLabel() != null) {
+                    method.visitLabel(scope.elseLabel());
+                }
+
+                if (scope.endLabel() != null) {
+                    method.visitLabel(scope.endLabel());
+                }
+
+                if (labelStack.isEmpty()) {
+                    // FIXME: generate return instruction instead? Or break from loop maybe?
+                    return;
+                }
+
+                break;
+            }
+
+            case OP_BR:
+                emitBranch(nextBranchTarget());
+                break;
+
+            case OP_BR_IF: {
+                var pastBranchLabel = new Label();
+                method.visitJumpInsn(Opcodes.IFEQ, pastBranchLabel);
+                popOperandType();
+                emitBranch(nextBranchTarget());
+                method.visitLabel(pastBranchLabel);
+                break;
+            }
+
+            case OP_BR_TABLE: {
+                var indexedTargetCount = reader.nextUnsigned32();
+                var indexedTargets = new LabelScope[indexedTargetCount];
+
+                for (var i = 0; i < indexedTargetCount; i++) {
+                    indexedTargets[i] = nextBranchTarget();
+                }
+
+                var defaultTarget = nextBranchTarget();
+
+                var indexedAdapterLabels = new Label[indexedTargetCount];
+                for (var i = 0; i < indexedTargetCount; i++) {
+                    indexedAdapterLabels[i] = new Label();
+                }
+
+                var defaultAdapterLabel = new Label();
+
+                method.visitTableSwitchInsn(0, indexedTargetCount - 1, defaultAdapterLabel, indexedAdapterLabels);
+                popOperandType();
+
+                for (var i = 0; i < indexedTargetCount; i++) {
+                    method.visitLabel(indexedAdapterLabels[i]);
+                    emitBranch(indexedTargets[i]);
+                }
+
+                method.visitLabel(defaultAdapterLabel);
+                emitBranch(defaultTarget);
+
+                break;
+            }
+
+            case OP_RETURN:
+                emitBranch(labelStack.get(0));
+                break;
+
+            case OP_CALL: {
+                var index = reader.nextUnsigned32();
+                var name = "f-" + index;
+
+                if (index < importedFunctions.size()) {
+                    var type = importedFunctions.get(index).getType();
+                    int savedValuesEnd = saveValues(type.getParameterTypes());
+                    method.visitFieldInsn(Opcodes.GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
+                    method.visitVarInsn(Opcodes.ALOAD, 0);
+                    restoreValues(type.getParameterTypes(), savedValuesEnd);
+                    method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", type.getSignatureString(), false);
+                    // FIXME: deal with result tuples
+                }
+                else {
+
+                }
+
+                break;
+            }
+
+            case OP_CALL_INDIRECT:
+                // TODO
+                break;
+
+            case OP_DROP:
+                method.visitInsn(popOperandType().isDoubleWidth() ? Opcodes.POP2 : Opcodes.POP);
+                break;
+
+            case OP_SELECT_VEC:
+                for (var i = reader.nextUnsigned32(); i != 0; i--) {
+                    nextValueType();
+                }
+            case OP_SELECT:
+                popOperandType();
+                emitHelperCall("select", switch (popOperandType()) {
+                    case I32 -> "(III)I";
+                    case I64 -> "(IJJ)J";
+                    case F32 -> "(IFF)F";
+                    case F64 -> "(IDD)D";
+                    case FUNCREF, EXTERNREF -> "(ILjava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+                });
+                break;
+
+            case OP_LOCAL_GET:
+            case OP_LOCAL_SET:
+            case OP_LOCAL_TEE: {
+                var local = nextIndexedLocal();
+
+                switch (opcode) {
+                    case OP_LOCAL_GET -> {
+                        method.visitVarInsn(local.type().getLocalLoadOpcode(), local.index());
+                        operandStack.add(local.type());
+                    }
+
+                    case OP_LOCAL_SET -> {
+                        method.visitVarInsn(local.type().getLocalStoreOpcode(), local.index());
                         popOperandType();
                     }
 
-                    operandStack.addAll(scope.elseParameterTypes());
-                    labelStack.add(new LabelScope(
-                        scope.targetLabel(),
-                        scope.parameterTypes(),
-                        scope.operandStackSize(),
-                        scope.endLabel(),
-                        null,
-                        null
-                    ));
+                    case OP_LOCAL_TEE -> {
+                        method.visitInsn(local.type().isDoubleWidth() ? Opcodes.DUP2 : Opcodes.DUP);
+                        method.visitVarInsn(local.type().getLocalStoreOpcode(), local.index());
+                    }
 
-                    break;
+                    default -> throw new AssertionError();
                 }
 
-                case OP_END: {
-                    var scope = popLabelScope();
+                break;
+            }
 
-                    if (scope.elseLabel() != null) {
-                        method.visitLabel(scope.elseLabel());
-                    }
+            case OP_GLOBAL_SET: {
+                var globalIndex = reader.nextUnsigned32();
+                ValueType type;
 
-                    if (scope.endLabel() != null) {
-                        method.visitLabel(scope.endLabel());
-                    }
+                if (globalIndex < importedGlobals.size()) {
+                    type = importedGlobals.get(globalIndex).getType().valueType();
 
-                    if (labelStack.isEmpty()) {
-                        // FIXME: generate return instruction instead? Or break from loop maybe?
-                        return;
-                    }
-
-                    break;
-                }
-
-                case OP_BR:
-                    emitBranch(nextBranchTarget());
-                    break;
-
-                case OP_BR_IF: {
-                    var pastBranchLabel = new Label();
-                    method.visitJumpInsn(Opcodes.IFEQ, pastBranchLabel);
-                    popOperandType();
-                    emitBranch(nextBranchTarget());
-                    method.visitLabel(pastBranchLabel);
-                    break;
-                }
-
-                case OP_BR_TABLE: {
-                    var indexedTargetCount = reader.nextUnsigned32();
-                    var indexedTargets = new LabelScope[indexedTargetCount];
-
-                    for (var i = 0; i < indexedTargetCount; i++) {
-                        indexedTargets[i] = nextBranchTarget();
-                    }
-
-                    var defaultTarget = nextBranchTarget();
-
-                    var indexedAdapterLabels = new Label[indexedTargetCount];
-                    for (var i = 0; i < indexedTargetCount; i++) {
-                        indexedAdapterLabels[i] = new Label();
-                    }
-
-                    var defaultAdapterLabel = new Label();
-
-                    method.visitTableSwitchInsn(0, indexedTargetCount - 1, defaultAdapterLabel, indexedAdapterLabels);
-                    popOperandType();
-
-                    for (var i = 0; i < indexedTargetCount; i++) {
-                        method.visitLabel(indexedAdapterLabels[i]);
-                        emitBranch(indexedTargets[i]);
-                    }
-
-                    method.visitLabel(defaultAdapterLabel);
-                    emitBranch(defaultTarget);
-
-                    break;
-                }
-
-                case OP_RETURN:
-                    emitBranch(labelStack.get(0));
-                    break;
-
-                case OP_CALL: {
-                    var index = reader.nextUnsigned32();
-                    var name = "f-" + index;
-
-                    if (index < importedFunctions.size()) {
-                        var type = importedFunctions.get(index).getType();
-                        int savedValuesEnd = saveValues(type.getParameterTypes());
-                        method.visitFieldInsn(Opcodes.GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
-                        method.visitVarInsn(Opcodes.ALOAD, 0);
-                        restoreValues(type.getParameterTypes(), savedValuesEnd);
-                        method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", type.getSignatureString(), false);
-                        // FIXME: deal with result tuples
-                    }
-                    else {
-
-                    }
-
-                    break;
-                }
-
-                case OP_CALL_INDIRECT:
-                    // TODO
-                    break;
-
-                case OP_DROP:
-                    method.visitInsn(popOperandType().isDoubleWidth() ? Opcodes.POP2 : Opcodes.POP);
-
-                case OP_SELECT_VEC:
-                    for (var i = reader.nextUnsigned32(); i != 0; i--) {
-                        nextValueType();
-                    }
-                case OP_SELECT:
-                    popOperandType();
-                    emitHelperCall("select", switch (popOperandType()) {
-                        case I32 -> "(III)I";
-                        case I64 -> "(IJJ)J";
-                        case F32 -> "(IFF)F";
-                        case F64 -> "(IDD)D";
-                        case FUNCREF, EXTERNREF -> "(ILjava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
-                    });
-                    break;
-
-                case OP_LOCAL_GET: {
-                    var local = nextIndexedLocal();
-
-                    method.visitVarInsn(
-                        switch (local.type()) {
-                            case I32 -> Opcodes.ILOAD;
-                            case I64 -> Opcodes.LLOAD;
-                            case F32 -> Opcodes.FLOAD;
-                            case F64 -> Opcodes.DLOAD;
-                            case FUNCREF, EXTERNREF -> Opcodes.ALOAD;
-                        },
-                        local.index());
-
-                    operandStack.add(local.type());
-                    break;
-                }
-
-                case OP_LOCAL_SET: {
-                    var local = nextIndexedLocal();
-
-                    popOperandType();
-
-                    method.visitVarInsn(
-                        switch (local.type()) {
-                            case I32 -> Opcodes.ISTORE;
-                            case I64 -> Opcodes.LSTORE;
-                            case F32 -> Opcodes.FSTORE;
-                            case F64 -> Opcodes.DSTORE;
-                            case FUNCREF, EXTERNREF -> Opcodes.ASTORE;
-                        },
-                        local.index()
+                    method.visitFieldInsn(
+                        Opcodes.GETFIELD,
+                        internalName,
+                        "g-" + globalIndex + "-set",
+                        "Ljava/lang/invoke/MethodHandle;"
                     );
 
-                    break;
+                    method.visitMethodInsn(
+                        Opcodes.INVOKEVIRTUAL,
+                        "java/lang/invoke/MethodHandle",
+                        "invoke",
+                        "(" + type.getDescriptor() + ")V",
+                        false
+                    );
+                }
+                else {
+                    type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
+
+                    method.visitFieldInsn(
+                        Opcodes.PUTFIELD,
+                        internalName,
+                        "g-" + globalIndex,
+                        type.getDescriptor()
+                    );
                 }
 
-                case OP_LOCAL_TEE: {
-                    var local = nextIndexedLocal();
+                popOperandType();
+                break;
+            }
 
-                    method.visitInsn(local.type().isDoubleWidth() ? Opcodes.DUP2 : Opcodes.DUP);
+            case OP_GLOBAL_GET: {
+                var globalIndex = reader.nextUnsigned32();
+                ValueType type;
 
-                    method.visitVarInsn(
-                        switch (local.type()) {
-                            case I32 -> Opcodes.ISTORE;
-                            case I64 -> Opcodes.LSTORE;
-                            case F32 -> Opcodes.FSTORE;
-                            case F64 -> Opcodes.DSTORE;
-                            case FUNCREF, EXTERNREF -> Opcodes.ASTORE;
-                        },
-                        local.index()
+                if (globalIndex < importedGlobals.size()) {
+                    type = importedGlobals.get(globalIndex).getType().valueType();
+
+                    method.visitFieldInsn(
+                        Opcodes.GETFIELD,
+                        internalName,
+                        "g-" + globalIndex + "-get",
+                        "Ljava/lang/invoke/MethodHandle;"
                     );
 
-                    break;
+                    method.visitMethodInsn(
+                        Opcodes.INVOKEVIRTUAL,
+                        "java/lang/invoke/MethodHandle",
+                        "invoke",
+                        "()" + type.getDescriptor(),
+                        false
+                    );
+                }
+                else {
+                    type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
+
+                    method.visitFieldInsn(
+                        Opcodes.GETFIELD,
+                        internalName,
+                        "g-" + globalIndex,
+                        type.getDescriptor()
+                    );
                 }
 
-                case OP_GLOBAL_SET: {
-                    var globalIndex = reader.nextUnsigned32();
-                    ValueType type;
+                operandStack.add(type);
+                break;
+            }
 
-                    if (globalIndex < importedGlobals.size()) {
-                        type = importedGlobals.get(globalIndex).getType().valueType();
+            case OP_TABLE_GET:
+            case OP_TABLE_SET:
+                // TODO
+                break;
 
-                        method.visitFieldInsn(
-                            Opcodes.GETFIELD,
-                            internalName,
-                            "g-" + globalIndex + "-set",
-                            "Ljava/lang/invoke/MethodHandle;"
-                        );
+            case OP_I32_STORE:
+            case OP_I64_STORE:
+            case OP_F32_STORE:
+            case OP_F64_STORE:
+            case OP_I32_STORE8:
+            case OP_I32_STORE16:
+            case OP_I64_STORE8:
+            case OP_I64_STORE16:
+            case OP_I64_STORE32:
+                popOperandType();
+            case OP_I32_LOAD:
+            case OP_I64_LOAD:
+            case OP_F32_LOAD:
+            case OP_F64_LOAD:
+            case OP_I32_LOAD8_S:
+            case OP_I32_LOAD8_U:
+            case OP_I32_LOAD16_S:
+            case OP_I32_LOAD16_U:
+            case OP_I64_LOAD8_S:
+            case OP_I64_LOAD8_U:
+            case OP_I64_LOAD16_S:
+            case OP_I64_LOAD16_U:
+            case OP_I64_LOAD32_S:
+            case OP_I64_LOAD32_U:
+                reader.nextUnsigned32();
+                method.visitLdcInsn(reader.nextUnsigned32());
+            case OP_MEMORY_SIZE:
+            case OP_MEMORY_GROW: {
+                method.visitVarInsn(Opcodes.ALOAD, 0);
 
-                        method.visitMethodInsn(
-                            Opcodes.INVOKEVIRTUAL,
-                            "java/lang/invoke/MethodHandle",
-                            "invoke",
-                            "(" + type.getDescriptor() + ")V",
-                            false
-                        );
+                String methodName;
+                String methodDescriptor;
+
+                switch (opcode) {
+                    case OP_I32_LOAD -> {
+                        methodName = "i32Load";
+                        methodDescriptor = "(IILorg/wastastic/Module;)I";
                     }
-                    else {
-                        type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
 
-                        method.visitFieldInsn(
-                            Opcodes.PUTFIELD,
-                            internalName,
-                            "g-" + globalIndex,
-                            type.getDescriptor()
-                        );
+                    case OP_I64_LOAD -> {
+                        methodName = "i64Load";
+                        methodDescriptor = "(IILorg/wastastic/Module;)J";
                     }
 
-                    popOperandType();
-                    break;
+                    case OP_F32_LOAD -> {
+                        methodName = "f32Load";
+                        methodDescriptor = "(IILorg/wastastic/Module;)F";
+                    }
+
+                    case OP_F64_LOAD -> {
+                        methodName = "f64Load";
+                        methodDescriptor = "(IILorg/wastastic/Module;)D";
+                    }
+
+                    case OP_I32_LOAD8_S -> {
+                        methodName = "i32Load8S";
+                        methodDescriptor = "(IILorg/wastastic/Module;)I";
+                    }
+
+                    case OP_I32_LOAD8_U -> {
+                        methodName = "i32Load8U";
+                        methodDescriptor = "(IILorg/wastastic/Module;)I";
+                    }
+
+                    case OP_I32_LOAD16_S -> {
+                        methodName = "i32Load16S";
+                        methodDescriptor = "(IILorg/wastastic/Module;)I";
+                    }
+
+                    case OP_I32_LOAD16_U -> {
+                        methodName = "i32Load16U";
+                        methodDescriptor = "(IILorg/wastastic/Module;)I";
+                    }
+
+                    case OP_I64_LOAD8_S -> {
+                        methodName = "i64Load8S";
+                        methodDescriptor = "(IILorg/wastastic/Module;)J";
+                    }
+
+                    case OP_I64_LOAD8_U -> {
+                        methodName = "i64Load8U";
+                        methodDescriptor = "(IILorg/wastastic/Module;)J";
+                    }
+
+                    case OP_I64_LOAD16_S -> {
+                        methodName = "i64Load16S";
+                        methodDescriptor = "(IILorg/wastastic/Module;)J";
+                    }
+
+                    case OP_I64_LOAD16_U -> {
+                        methodName = "i64Load16U";
+                        methodDescriptor = "(IILorg/wastastic/Module;)J";
+                    }
+
+                    case OP_I64_LOAD32_S -> {
+                        methodName = "i64Load32S";
+                        methodDescriptor = "(IILorg/wastastic/Module;)J";
+                    }
+
+                    case OP_I64_LOAD32_U -> {
+                        methodName = "i64Load32U";
+                        methodDescriptor = "(IILorg/wastastic/Module;)J";
+                    }
+
+                    default -> throw new AssertionError();
                 }
 
-                case OP_GLOBAL_GET: {
-                    var globalIndex = reader.nextUnsigned32();
-                    ValueType type;
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "org/wastastic/Module", methodName, methodDescriptor, false);
+                break;
+            }
 
-                    if (globalIndex < importedGlobals.size()) {
-                        type = importedGlobals.get(globalIndex).getType().valueType();
+            case OP_I32_CONST: {
+                var value = reader.nextSigned32();
 
-                        method.visitFieldInsn(
-                            Opcodes.GETFIELD,
-                            internalName,
-                            "g-" + globalIndex + "-get",
-                            "Ljava/lang/invoke/MethodHandle;"
-                        );
-
-                        method.visitMethodInsn(
-                            Opcodes.INVOKEVIRTUAL,
-                            "java/lang/invoke/MethodHandle",
-                            "invoke",
-                            "()" + type.getDescriptor(),
-                            false
-                        );
-                    }
-                    else {
-                        type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
-
-                        method.visitFieldInsn(
-                            Opcodes.GETFIELD,
-                            internalName,
-                            "g-" + globalIndex,
-                            type.getDescriptor()
-                        );
-                    }
-
-                    operandStack.add(type);
-                    break;
-                }
-
-                case OP_TABLE_GET:
-                case OP_TABLE_SET:
-                    // TODO
-                    break;
-
-                case OP_I32_LOAD:
-                case OP_I64_LOAD:
-                case OP_F32_LOAD:
-                case OP_F64_LOAD:
-                case OP_I32_LOAD8_S:
-                case OP_I32_LOAD8_U:
-                case OP_I32_LOAD16_S:
-                case OP_I32_LOAD16_U:
-                case OP_I64_LOAD8_S:
-                case OP_I64_LOAD8_U:
-                case OP_I64_LOAD16_S:
-                case OP_I64_LOAD16_U:
-                case OP_I64_LOAD32_S:
-                case OP_I64_LOAD32_U:
-                case OP_I32_STORE:
-                case OP_I64_STORE:
-                case OP_F32_STORE:
-                case OP_F64_STORE:
-                case OP_I32_STORE8:
-                case OP_I32_STORE16:
-                case OP_I64_STORE8:
-                case OP_I64_STORE16:
-                case OP_I64_STORE32:
-                case OP_MEMORY_SIZE:
-                case OP_MEMORY_GROW:
-                    // TODO
-                    break;
-
-                case OP_I32_CONST: {
-                    var value = reader.nextSigned32();
-
-                    switch (value) {
-                        case -1 -> method.visitInsn(Opcodes.ICONST_M1);
-                        case 0 -> method.visitInsn(Opcodes.ICONST_0);
-                        case 1 -> method.visitInsn(Opcodes.ICONST_1);
-                        case 2 -> method.visitInsn(Opcodes.ICONST_2);
-                        case 3 -> method.visitInsn(Opcodes.ICONST_3);
-                        case 4 -> method.visitInsn(Opcodes.ICONST_4);
-                        case 5 -> method.visitInsn(Opcodes.ICONST_5);
-                        default -> {
-                            if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
-                                method.visitIntInsn(Opcodes.BIPUSH, value);
-                            }
-                            else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
-                                method.visitIntInsn(Opcodes.SIPUSH, value);
-                            }
-                            else {
-                                method.visitLdcInsn(value);
-                            }
+                switch (value) {
+                    case -1 -> method.visitInsn(Opcodes.ICONST_M1);
+                    case 0 -> method.visitInsn(Opcodes.ICONST_0);
+                    case 1 -> method.visitInsn(Opcodes.ICONST_1);
+                    case 2 -> method.visitInsn(Opcodes.ICONST_2);
+                    case 3 -> method.visitInsn(Opcodes.ICONST_3);
+                    case 4 -> method.visitInsn(Opcodes.ICONST_4);
+                    case 5 -> method.visitInsn(Opcodes.ICONST_5);
+                    default -> {
+                        if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
+                            method.visitIntInsn(Opcodes.BIPUSH, value);
+                        }
+                        else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
+                            method.visitIntInsn(Opcodes.SIPUSH, value);
+                        }
+                        else {
+                            method.visitLdcInsn(value);
                         }
                     }
-
-                    break;
                 }
 
-                case OP_I64_CONST: {
-                    var value = reader.nextSigned64();
-
-                    if (value == 0) {
-                        method.visitInsn(Opcodes.LCONST_0);
-                    }
-                    else if (value == 1) {
-                        method.visitInsn(Opcodes.LCONST_1);
-                    }
-                    else if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
-                        method.visitIntInsn(Opcodes.BIPUSH, (int) value);
-                        method.visitInsn(Opcodes.I2L);
-                    }
-                    else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
-                        method.visitIntInsn(Opcodes.SIPUSH, (int) value);
-                        method.visitInsn(Opcodes.I2L);
-                    }
-                    else {
-                        method.visitLdcInsn(value);
-                    }
-
-                    break;
-                }
-
-                case OP_F32_CONST: {
-                    var value = reader.nextFloat32();
-
-                    if (value == 0) {
-                        method.visitInsn(Opcodes.FCONST_0);
-                    }
-                    else if (value == 1) {
-                        method.visitInsn(Opcodes.FCONST_1);
-                    }
-                    else if (value == 2) {
-                        method.visitInsn(Opcodes.FCONST_2);
-                    }
-                    else {
-                        method.visitLdcInsn(value);
-                    }
-
-                    break;
-                }
-
-                case OP_F64_CONST: {
-                    var value = reader.nextFloat64();
-
-                    if (value == 0) {
-                        method.visitInsn(Opcodes.DCONST_0);
-                    }
-                    else if (value == 1) {
-                        method.visitInsn(Opcodes.DCONST_1);
-                    }
-                    else {
-                        method.visitLdcInsn(value);
-                    }
-
-                    break;
-                }
-
-                case OP_I32_EQZ:
-                    emitHelperCall("eqz", "(I)Z");
-                    break;
-
-                case OP_I32_EQ:
-                    popOperandType();
-                    emitHelperCall("eq", "(II)Z");
-                    break;
-
-                case OP_I32_NE:
-                    popOperandType();
-                    emitHelperCall("ne", "(II)Z");
-                    break;
-
-                case OP_I32_LT_S:
-                    popOperandType();
-                    emitHelperCall("lts", "(II)Z");
-                    break;
-
-                case OP_I32_LT_U:
-                    popOperandType();
-                    emitHelperCall("ltu", "(II)Z");
-                    break;
-
-                case OP_I32_GT_S:
-                    popOperandType();
-                    emitHelperCall("gts", "(II)Z");
-                    break;
-
-                case OP_I32_GT_U:
-                    popOperandType();
-                    emitHelperCall("gtu", "(II)Z");
-                    break;
-
-                case OP_I32_LE_S:
-                    popOperandType();
-                    emitHelperCall("les", "(II)Z");
-                    break;
-
-                case OP_I32_LE_U:
-                    popOperandType();
-                    emitHelperCall("leu", "(II)Z");
-                    break;
-
-                case OP_I32_GE_S:
-                    popOperandType();
-                    emitHelperCall("ges", "(II)Z");
-                    break;
-
-                case OP_I32_GE_U:
-                    popOperandType();
-                    emitHelperCall("geu", "(II)Z");
-                    break;
-
-                case OP_I64_EQZ:
-                    popOperandType();
-                    emitHelperCall("eqz", "(J)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_EQ:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("eq", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_NE:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("ne", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_LT_S:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("lts", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_LT_U:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("ltu", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_GT_S:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("gts", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_GT_U:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("gtu", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_LE_S:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("les", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_LE_U:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("leu", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_GE_S:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("ges", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_GE_U:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("geu", "(JJ)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F32_EQ:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("feq", "(FF)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F32_NE:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fne", "(FF)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F32_LT:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("flt", "(FF)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F32_GT:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fgt", "(FF)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F32_LE:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fle", "(FF)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F32_GE:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fge", "(FF)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F64_EQ:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("feq", "(DD)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F64_NE:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fne", "(DD)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F64_LT:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("flt", "(DD)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F64_GT:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fgt", "(DD)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F64_LE:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fle", "(DD)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F64_GE:
-                    popOperandType();
-                    popOperandType();
-                    emitHelperCall("fge", "(DD)Z");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I32_CLZ:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfLeadingZeros", "(I)I", false);
-                    break;
-
-                case OP_I32_CTZ:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfTrailingZeros", "(I)I", false);
-                    break;
-
-                case OP_I32_POPCNT:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "bitCount", "(I)I", false);
-                    break;
-
-                case OP_I32_ADD:
-                    popOperandType();
-                    method.visitInsn(Opcodes.IADD);
-                    break;
-
-                case OP_I32_SUB:
-                    popOperandType();
-                    method.visitInsn(Opcodes.ISUB);
-                    break;
-
-                case OP_I32_MUL:
-                    popOperandType();
-                    method.visitInsn(Opcodes.IMUL);
-                    break;
-
-                case OP_I32_DIV_S:
-                    popOperandType();
-                    emitHelperCall("divS", "(II)I");
-                    break;
-
-                case OP_I32_DIV_U:
-                    popOperandType();
-                    emitHelperCall("divU", "(II)I");
-                    break;
-
-                case OP_I32_REM_S:
-                    popOperandType();
-                    emitHelperCall("remS", "(II)I");
-                    break;
-
-                case OP_I32_REM_U:
-                    popOperandType();
-                    emitHelperCall("remU", "(II)I");
-                    break;
-
-                case OP_I32_AND:
-                    popOperandType();
-                    method.visitInsn(Opcodes.IAND);
-                    break;
-
-                case OP_I32_OR:
-                    popOperandType();
-                    method.visitInsn(Opcodes.IOR);
-                    break;
-
-                case OP_I32_XOR:
-                    popOperandType();
-                    method.visitInsn(Opcodes.IXOR);
-                    break;
-
-                case OP_I32_SHL:
-                    popOperandType();
-                    method.visitInsn(Opcodes.ISHL);
-                    break;
-
-                case OP_I32_SHR_S:
-                    popOperandType();
-                    method.visitInsn(Opcodes.ISHR);
-                    break;
-
-                case OP_I32_SHR_U:
-                    popOperandType();
-                    method.visitInsn(Opcodes.IUSHR);
-                    break;
-
-                case OP_I32_ROTL:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateLeft", "(II)I", false);
-                    break;
-
-                case OP_I32_ROTR:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateRight", "(II)I", false);
-                    break;
-
-                case OP_I64_CLZ:
-                    emitHelperCall("clz", "(J)J");
-                    break;
-
-                case OP_I64_CTZ:
-                    emitHelperCall("ctz", "(J)J");
-                    break;
-
-                case OP_I64_POPCNT:
-                    emitHelperCall("popcnt", "(J)J");
-                    break;
-
-                case OP_I64_ADD:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LADD);
-                    break;
-
-                case OP_I64_SUB:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LSUB);
-                    break;
-
-                case OP_I64_MUL:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LMUL);
-                    break;
-
-                case OP_I64_DIV_S:
-                    popOperandType();
-                    emitHelperCall("divS", "(JJ)J");
-                    break;
-
-                case OP_I64_DIV_U:
-                    popOperandType();
-                    emitHelperCall("divU", "(JJ)J");
-                    break;
-
-                case OP_I64_REM_S:
-                    popOperandType();
-                    emitHelperCall("remS", "(JJ)J");
-                    break;
-
-                case OP_I64_REM_U:
-                    popOperandType();
-                    emitHelperCall("remU", "(JJ)J");
-                    break;
-
-                case OP_I64_AND:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LAND);
-                    break;
-
-                case OP_I64_OR:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LOR);
-                    break;
-
-                case OP_I64_XOR:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LXOR);
-                    break;
-
-                case OP_I64_SHL:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LSHL);
-                    break;
-
-                case OP_I64_SHR_S:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LSHR);
-                    break;
-
-                case OP_I64_SHR_U:
-                    popOperandType();
-                    method.visitInsn(Opcodes.LUSHR);
-                    break;
-
-                case OP_I64_ROTL:
-                    popOperandType();
-                    emitHelperCall("rotl", "(JJ)J");
-                    break;
-
-                case OP_I64_ROTR:
-                    popOperandType();
-                    emitHelperCall("rotr", "(JJ)J");
-                    break;
-
-                case OP_F32_ABS:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(F)F", false);
-                    break;
-
-                case OP_F32_NEG:
-                    method.visitInsn(Opcodes.FNEG);
-                    break;
-
-                case OP_F32_CEIL:
-                    emitHelperCall("fceil", "(F)F");
-                    break;
-
-                case OP_F32_FLOOR:
-                    emitHelperCall("ffloor", "(F)F");
-                    break;
-
-                case OP_F32_TRUNC:
-                    emitHelperCall("ftrunc", "(F)F");
-                    break;
-
-                case OP_F32_NEAREST:
-                    emitHelperCall("fnearest", "(F)F");
-                    break;
-
-                case OP_F32_SQRT:
-                    emitHelperCall("fsqrt", "(F)F");
-                    break;
-
-                case OP_F32_ADD:
-                    popOperandType();
-                    method.visitInsn(Opcodes.FADD);
-                    break;
-
-                case OP_F32_SUB:
-                    popOperandType();
-                    method.visitInsn(Opcodes.FSUB);
-                    break;
-
-                case OP_F32_MUL:
-                    popOperandType();
-                    method.visitInsn(Opcodes.FMUL);
-                    break;
-
-                case OP_F32_DIV:
-                    popOperandType();
-                    method.visitInsn(Opcodes.FDIV);
-                    break;
-
-                case OP_F32_MIN:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(FF)F", false);
-                    break;
-
-                case OP_F32_MAX:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(FF)F", false);
-                    break;
-
-                case OP_F32_COPYSIGN:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(FF)F", false);
-                    break;
-
-                case OP_F64_ABS:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
-                    break;
-
-                case OP_F64_NEG:
-                    method.visitInsn(Opcodes.DNEG);
-                    break;
-
-                case OP_F64_CEIL:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "ceil", "(D)D", false);
-                    break;
-
-                case OP_F64_FLOOR:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "floor", "(D)D", false);
-                    break;
-
-                case OP_F64_TRUNC:
-                    emitHelperCall("ftrunc", "(D)D");
-                    break;
-
-                case OP_F64_NEAREST:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "rint", "(D)D", false);
-                    break;
-
-                case OP_F64_SQRT:
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "sqrt", "(D)D", false);
-                    break;
-
-                case OP_F64_ADD:
-                    popOperandType();
-                    method.visitInsn(Opcodes.DADD);
-                    break;
-
-                case OP_F64_SUB:
-                    popOperandType();
-                    method.visitInsn(Opcodes.DSUB);
-                    break;
-
-                case OP_F64_MUL:
-                    popOperandType();
-                    method.visitInsn(Opcodes.DMUL);
-                    break;
-
-                case OP_F64_DIV:
-                    popOperandType();
-                    method.visitInsn(Opcodes.DDIV);
-                    break;
-
-                case OP_F64_MIN:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
-                    break;
-
-                case OP_F64_MAX:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
-                    break;
-
-                case OP_F64_COPYSIGN:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(DD)D", false);
-                    break;
-
-                case OP_I32_WRAP_I64:
-                    popOperandType();
-                    method.visitInsn(Opcodes.L2I);
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I32_TRUNC_F32_S:
-                    popOperandType();
-                    emitHelperCall("i32TruncS", "(F)I");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I32_TRUNC_F32_U:
-                    popOperandType();
-                    emitHelperCall("i32TruncU", "(F)I");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I32_TRUNC_F64_S:
-                    popOperandType();
-                    emitHelperCall("i32TruncS", "(D)I");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I32_TRUNC_F64_U:
-                    popOperandType();
-                    emitHelperCall("i32TruncU", "(D)I");
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_EXTEND_I32_S:
-                    popOperandType();
-                    method.visitInsn(Opcodes.I2L);
-                    operandStack.add(ValueType.I64);
-                    break;
-
-                case OP_I64_EXTEND_I32_U:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "toUnsignedLong", "(I)J", false);
-                    operandStack.add(ValueType.I64);
-                    break;
-
-                case OP_I64_TRUNC_F32_S:
-                    popOperandType();
-                    emitHelperCall("i64TruncS", "(F)J");
-                    operandStack.add(ValueType.I64);
-                    break;
-
-                case OP_I64_TRUNC_F32_U:
-                    popOperandType();
-                    emitHelperCall("i64TruncU", "(F)J");
-                    operandStack.add(ValueType.I64);
-                    break;
-
-                case OP_I64_TRUNC_F64_S:
-                    popOperandType();
-                    emitHelperCall("i64TruncS", "(D)J");
-                    operandStack.add(ValueType.I64);
-                    break;
-
-                case OP_I64_TRUNC_F64_U:
-                    popOperandType();
-                    emitHelperCall("i64TruncU", "(D)J");
-                    operandStack.add(ValueType.I64);
-                    break;
-
-                case OP_F32_CONVERT_I32_S:
-                    popOperandType();
-                    method.visitInsn(Opcodes.I2F);
-                    operandStack.add(ValueType.F32);
-                    break;
-
-                case OP_F32_CONVERT_I32_U:
-                    popOperandType();
-                    emitHelperCall("f32ConvertU", "(I)F");
-                    operandStack.add(ValueType.F32);
-                    break;
-
-                case OP_F32_CONVERT_I64_S:
-                    popOperandType();
-                    method.visitInsn(Opcodes.L2F);
-                    operandStack.add(ValueType.F32);
-                    break;
-
-                case OP_F32_CONVERT_I64_U:
-                    popOperandType();
-                    emitHelperCall("f32ConvertU", "(J)F");
-                    operandStack.add(ValueType.F32);
-                    break;
-
-                case OP_F32_DEMOTE_F64:
-                    popOperandType();
-                    method.visitInsn(Opcodes.D2F);
-                    operandStack.add(ValueType.F32);
-                    break;
-
-                case OP_F64_CONVERT_I32_S:
-                    popOperandType();
-                    method.visitInsn(Opcodes.I2D);
-                    operandStack.add(ValueType.F64);
-                    break;
-
-                case OP_F64_CONVERT_I32_U:
-                    popOperandType();
-                    emitHelperCall("f64ConvertU", "(I)D");
-                    operandStack.add(ValueType.F64);
-                    break;
-
-                case OP_F64_CONVERT_I64_S:
-                    popOperandType();
-                    method.visitInsn(Opcodes.L2D);
-                    operandStack.add(ValueType.F64);
-                    break;
-
-                case OP_F64_CONVERT_I64_U:
-                    popOperandType();
-                    emitHelperCall("f64ConvertU", "(J)D");
-                    operandStack.add(ValueType.F64);
-                    break;
-
-                case OP_F64_PROMOTE_F32:
-                    popOperandType();
-                    method.visitInsn(Opcodes.F2D);
-                    operandStack.add(ValueType.F64);
-                    break;
-
-                case OP_I32_REINTERPRET_F32:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Float", "floatToIntBits", "(F)I", false);
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_I64_REINTERPRET_F64:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "doubleToLongBits", "(D)J", false);
-                    operandStack.add(ValueType.I32);
-                    break;
-
-                case OP_F32_REINTERPRET_I32:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Float", "intBitsToFloat", "(I)F", false);
-                    operandStack.add(ValueType.F32);
-                    break;
-
-                case OP_F64_REINTERPRET_I64:
-                    popOperandType();
-                    method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "longBitsToDouble", "(J)D", false);
-                    operandStack.add(ValueType.F64);
-                    break;
-
-                case OP_I32_EXTEND8_S:
-                    emitHelperCall("i32Extend8", "(I)I");
-                    break;
-
-                case OP_I32_EXTEND16_S:
-                    emitHelperCall("i32Extend16", "(I)I");
-                    break;
-
-                case OP_I64_EXTEND8_S:
-                    emitHelperCall("i64Extend8", "(J)J");
-                    break;
-
-                case OP_I64_EXTEND16_S:
-                    emitHelperCall("i64Extend16", "(J)J");
-                    break;
-
-                case OP_I64_EXTEND32_S:
-                    method.visitInsn(Opcodes.L2I);
-                    method.visitInsn(Opcodes.I2L);
-                    break;
-
-                case OP_REF_NULL: {
-                    method.visitInsn(Opcodes.ACONST_NULL);
-                    operandStack.add(nextReferenceType().toValueType());
-                    break;
-                }
-
-                case OP_REF_IS_NULL: {
-                    popOperandType();
-                    emitHelperCall("refIsNull", "(Ljava/lang/Object;)Z");
-                    break;
-                }
-
-                case OP_REF_FUNC: {
-                    var index = reader.nextUnsigned32();
-                    var name = "f-" + index;
-
-                    if (index < importedFunctions.size()) {
-                        method.visitFieldInsn(Opcodes.GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
-                    }
-                    else {
-                        var type = definedFunctions.get(index - importedFunctions.size());
-                        var signature = type.getSignatureString();
-                        var handle = new Handle(Opcodes.H_INVOKESPECIAL, internalName, name, signature, false);
-                        method.visitLdcInsn(handle);
-                    }
-
-                    operandStack.add(ValueType.FUNCREF);
-                    break;
-                }
-
-                case OP_CONT_PREFIX:
-                    switch (reader.nextByte()) {
-                        case OP_CONT_I32_TRUNC_SAT_F32_S:
-                        case OP_CONT_I32_TRUNC_SAT_F32_U:
-                        case OP_CONT_I32_TRUNC_SAT_F64_S:
-                        case OP_CONT_I32_TRUNC_SAT_F64_U:
-                        case OP_CONT_I64_TRUNC_SAT_F32_S:
-                        case OP_CONT_I64_TRUNC_SAT_F32_U:
-                        case OP_CONT_I64_TRUNC_SAT_F64_S:
-                        case OP_CONT_I64_TRUNC_SAT_F64_U:
-                        case OP_CONT_MEMORY_INIT:
-                        case OP_CONT_DATA_DROP:
-                        case OP_CONT_MEMORY_COPY:
-                        case OP_CONT_MEMORY_FILL:
-                        case OP_CONT_TABLE_INIT:
-                        case OP_CONT_ELEM_DROP:
-                        case OP_CONT_TABLE_COPY:
-                        case OP_CONT_TABLE_GROW:
-                        case OP_CONT_TABLE_SIZE:
-                        case OP_CONT_TABLE_FILL:
-                            // TODO
-                            break;
-                    }
+                break;
             }
+
+            case OP_I64_CONST: {
+                var value = reader.nextSigned64();
+
+                if (value == 0) {
+                    method.visitInsn(Opcodes.LCONST_0);
+                }
+                else if (value == 1) {
+                    method.visitInsn(Opcodes.LCONST_1);
+                }
+                else if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
+                    method.visitIntInsn(Opcodes.BIPUSH, (int) value);
+                    method.visitInsn(Opcodes.I2L);
+                }
+                else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
+                    method.visitIntInsn(Opcodes.SIPUSH, (int) value);
+                    method.visitInsn(Opcodes.I2L);
+                }
+                else {
+                    method.visitLdcInsn(value);
+                }
+
+                break;
+            }
+
+            case OP_F32_CONST: {
+                var value = reader.nextFloat32();
+
+                if (value == 0) {
+                    method.visitInsn(Opcodes.FCONST_0);
+                }
+                else if (value == 1) {
+                    method.visitInsn(Opcodes.FCONST_1);
+                }
+                else if (value == 2) {
+                    method.visitInsn(Opcodes.FCONST_2);
+                }
+                else {
+                    method.visitLdcInsn(value);
+                }
+
+                break;
+            }
+
+            case OP_F64_CONST: {
+                var value = reader.nextFloat64();
+
+                if (value == 0) {
+                    method.visitInsn(Opcodes.DCONST_0);
+                }
+                else if (value == 1) {
+                    method.visitInsn(Opcodes.DCONST_1);
+                }
+                else {
+                    method.visitLdcInsn(value);
+                }
+
+                break;
+            }
+
+            case OP_I32_EQZ:
+                emitHelperCall("eqz", "(I)Z");
+                break;
+
+            case OP_I32_EQ:
+                popOperandType();
+                emitHelperCall("eq", "(II)Z");
+                break;
+
+            case OP_I32_NE:
+                popOperandType();
+                emitHelperCall("ne", "(II)Z");
+                break;
+
+            case OP_I32_LT_S:
+                popOperandType();
+                emitHelperCall("lts", "(II)Z");
+                break;
+
+            case OP_I32_LT_U:
+                popOperandType();
+                emitHelperCall("ltu", "(II)Z");
+                break;
+
+            case OP_I32_GT_S:
+                popOperandType();
+                emitHelperCall("gts", "(II)Z");
+                break;
+
+            case OP_I32_GT_U:
+                popOperandType();
+                emitHelperCall("gtu", "(II)Z");
+                break;
+
+            case OP_I32_LE_S:
+                popOperandType();
+                emitHelperCall("les", "(II)Z");
+                break;
+
+            case OP_I32_LE_U:
+                popOperandType();
+                emitHelperCall("leu", "(II)Z");
+                break;
+
+            case OP_I32_GE_S:
+                popOperandType();
+                emitHelperCall("ges", "(II)Z");
+                break;
+
+            case OP_I32_GE_U:
+                popOperandType();
+                emitHelperCall("geu", "(II)Z");
+                break;
+
+            case OP_I64_EQZ:
+                popOperandType();
+                emitHelperCall("eqz", "(J)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_EQ:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("eq", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_NE:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("ne", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_LT_S:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("lts", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_LT_U:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("ltu", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_GT_S:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("gts", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_GT_U:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("gtu", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_LE_S:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("les", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_LE_U:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("leu", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_GE_S:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("ges", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_GE_U:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("geu", "(JJ)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F32_EQ:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("feq", "(FF)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F32_NE:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fne", "(FF)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F32_LT:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("flt", "(FF)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F32_GT:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fgt", "(FF)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F32_LE:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fle", "(FF)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F32_GE:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fge", "(FF)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F64_EQ:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("feq", "(DD)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F64_NE:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fne", "(DD)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F64_LT:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("flt", "(DD)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F64_GT:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fgt", "(DD)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F64_LE:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fle", "(DD)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F64_GE:
+                popOperandType();
+                popOperandType();
+                emitHelperCall("fge", "(DD)Z");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I32_CLZ:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfLeadingZeros", "(I)I", false);
+                break;
+
+            case OP_I32_CTZ:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "numberOfTrailingZeros", "(I)I", false);
+                break;
+
+            case OP_I32_POPCNT:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "bitCount", "(I)I", false);
+                break;
+
+            case OP_I32_ADD:
+                popOperandType();
+                method.visitInsn(Opcodes.IADD);
+                break;
+
+            case OP_I32_SUB:
+                popOperandType();
+                method.visitInsn(Opcodes.ISUB);
+                break;
+
+            case OP_I32_MUL:
+                popOperandType();
+                method.visitInsn(Opcodes.IMUL);
+                break;
+
+            case OP_I32_DIV_S:
+                popOperandType();
+                emitHelperCall("divS", "(II)I");
+                break;
+
+            case OP_I32_DIV_U:
+                popOperandType();
+                emitHelperCall("divU", "(II)I");
+                break;
+
+            case OP_I32_REM_S:
+                popOperandType();
+                emitHelperCall("remS", "(II)I");
+                break;
+
+            case OP_I32_REM_U:
+                popOperandType();
+                emitHelperCall("remU", "(II)I");
+                break;
+
+            case OP_I32_AND:
+                popOperandType();
+                method.visitInsn(Opcodes.IAND);
+                break;
+
+            case OP_I32_OR:
+                popOperandType();
+                method.visitInsn(Opcodes.IOR);
+                break;
+
+            case OP_I32_XOR:
+                popOperandType();
+                method.visitInsn(Opcodes.IXOR);
+                break;
+
+            case OP_I32_SHL:
+                popOperandType();
+                method.visitInsn(Opcodes.ISHL);
+                break;
+
+            case OP_I32_SHR_S:
+                popOperandType();
+                method.visitInsn(Opcodes.ISHR);
+                break;
+
+            case OP_I32_SHR_U:
+                popOperandType();
+                method.visitInsn(Opcodes.IUSHR);
+                break;
+
+            case OP_I32_ROTL:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateLeft", "(II)I", false);
+                break;
+
+            case OP_I32_ROTR:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "rotateRight", "(II)I", false);
+                break;
+
+            case OP_I64_CLZ:
+                emitHelperCall("clz", "(J)J");
+                break;
+
+            case OP_I64_CTZ:
+                emitHelperCall("ctz", "(J)J");
+                break;
+
+            case OP_I64_POPCNT:
+                emitHelperCall("popcnt", "(J)J");
+                break;
+
+            case OP_I64_ADD:
+                popOperandType();
+                method.visitInsn(Opcodes.LADD);
+                break;
+
+            case OP_I64_SUB:
+                popOperandType();
+                method.visitInsn(Opcodes.LSUB);
+                break;
+
+            case OP_I64_MUL:
+                popOperandType();
+                method.visitInsn(Opcodes.LMUL);
+                break;
+
+            case OP_I64_DIV_S:
+                popOperandType();
+                emitHelperCall("divS", "(JJ)J");
+                break;
+
+            case OP_I64_DIV_U:
+                popOperandType();
+                emitHelperCall("divU", "(JJ)J");
+                break;
+
+            case OP_I64_REM_S:
+                popOperandType();
+                emitHelperCall("remS", "(JJ)J");
+                break;
+
+            case OP_I64_REM_U:
+                popOperandType();
+                emitHelperCall("remU", "(JJ)J");
+                break;
+
+            case OP_I64_AND:
+                popOperandType();
+                method.visitInsn(Opcodes.LAND);
+                break;
+
+            case OP_I64_OR:
+                popOperandType();
+                method.visitInsn(Opcodes.LOR);
+                break;
+
+            case OP_I64_XOR:
+                popOperandType();
+                method.visitInsn(Opcodes.LXOR);
+                break;
+
+            case OP_I64_SHL:
+                popOperandType();
+                method.visitInsn(Opcodes.LSHL);
+                break;
+
+            case OP_I64_SHR_S:
+                popOperandType();
+                method.visitInsn(Opcodes.LSHR);
+                break;
+
+            case OP_I64_SHR_U:
+                popOperandType();
+                method.visitInsn(Opcodes.LUSHR);
+                break;
+
+            case OP_I64_ROTL:
+                popOperandType();
+                emitHelperCall("rotl", "(JJ)J");
+                break;
+
+            case OP_I64_ROTR:
+                popOperandType();
+                emitHelperCall("rotr", "(JJ)J");
+                break;
+
+            case OP_F32_ABS:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(F)F", false);
+                break;
+
+            case OP_F32_NEG:
+                method.visitInsn(Opcodes.FNEG);
+                break;
+
+            case OP_F32_CEIL:
+                emitHelperCall("fceil", "(F)F");
+                break;
+
+            case OP_F32_FLOOR:
+                emitHelperCall("ffloor", "(F)F");
+                break;
+
+            case OP_F32_TRUNC:
+                emitHelperCall("ftrunc", "(F)F");
+                break;
+
+            case OP_F32_NEAREST:
+                emitHelperCall("fnearest", "(F)F");
+                break;
+
+            case OP_F32_SQRT:
+                emitHelperCall("fsqrt", "(F)F");
+                break;
+
+            case OP_F32_ADD:
+                popOperandType();
+                method.visitInsn(Opcodes.FADD);
+                break;
+
+            case OP_F32_SUB:
+                popOperandType();
+                method.visitInsn(Opcodes.FSUB);
+                break;
+
+            case OP_F32_MUL:
+                popOperandType();
+                method.visitInsn(Opcodes.FMUL);
+                break;
+
+            case OP_F32_DIV:
+                popOperandType();
+                method.visitInsn(Opcodes.FDIV);
+                break;
+
+            case OP_F32_MIN:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(FF)F", false);
+                break;
+
+            case OP_F32_MAX:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(FF)F", false);
+                break;
+
+            case OP_F32_COPYSIGN:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(FF)F", false);
+                break;
+
+            case OP_F64_ABS:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
+                break;
+
+            case OP_F64_NEG:
+                method.visitInsn(Opcodes.DNEG);
+                break;
+
+            case OP_F64_CEIL:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "ceil", "(D)D", false);
+                break;
+
+            case OP_F64_FLOOR:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "floor", "(D)D", false);
+                break;
+
+            case OP_F64_TRUNC:
+                emitHelperCall("ftrunc", "(D)D");
+                break;
+
+            case OP_F64_NEAREST:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "rint", "(D)D", false);
+                break;
+
+            case OP_F64_SQRT:
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "sqrt", "(D)D", false);
+                break;
+
+            case OP_F64_ADD:
+                popOperandType();
+                method.visitInsn(Opcodes.DADD);
+                break;
+
+            case OP_F64_SUB:
+                popOperandType();
+                method.visitInsn(Opcodes.DSUB);
+                break;
+
+            case OP_F64_MUL:
+                popOperandType();
+                method.visitInsn(Opcodes.DMUL);
+                break;
+
+            case OP_F64_DIV:
+                popOperandType();
+                method.visitInsn(Opcodes.DDIV);
+                break;
+
+            case OP_F64_MIN:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
+                break;
+
+            case OP_F64_MAX:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
+                break;
+
+            case OP_F64_COPYSIGN:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Math", "copySign", "(DD)D", false);
+                break;
+
+            case OP_I32_WRAP_I64:
+                popOperandType();
+                method.visitInsn(Opcodes.L2I);
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I32_TRUNC_F32_S:
+                popOperandType();
+                emitHelperCall("i32TruncS", "(F)I");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I32_TRUNC_F32_U:
+                popOperandType();
+                emitHelperCall("i32TruncU", "(F)I");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I32_TRUNC_F64_S:
+                popOperandType();
+                emitHelperCall("i32TruncS", "(D)I");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I32_TRUNC_F64_U:
+                popOperandType();
+                emitHelperCall("i32TruncU", "(D)I");
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_EXTEND_I32_S:
+                popOperandType();
+                method.visitInsn(Opcodes.I2L);
+                operandStack.add(ValueType.I64);
+                break;
+
+            case OP_I64_EXTEND_I32_U:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "toUnsignedLong", "(I)J", false);
+                operandStack.add(ValueType.I64);
+                break;
+
+            case OP_I64_TRUNC_F32_S:
+                popOperandType();
+                emitHelperCall("i64TruncS", "(F)J");
+                operandStack.add(ValueType.I64);
+                break;
+
+            case OP_I64_TRUNC_F32_U:
+                popOperandType();
+                emitHelperCall("i64TruncU", "(F)J");
+                operandStack.add(ValueType.I64);
+                break;
+
+            case OP_I64_TRUNC_F64_S:
+                popOperandType();
+                emitHelperCall("i64TruncS", "(D)J");
+                operandStack.add(ValueType.I64);
+                break;
+
+            case OP_I64_TRUNC_F64_U:
+                popOperandType();
+                emitHelperCall("i64TruncU", "(D)J");
+                operandStack.add(ValueType.I64);
+                break;
+
+            case OP_F32_CONVERT_I32_S:
+                popOperandType();
+                method.visitInsn(Opcodes.I2F);
+                operandStack.add(ValueType.F32);
+                break;
+
+            case OP_F32_CONVERT_I32_U:
+                popOperandType();
+                emitHelperCall("f32ConvertU", "(I)F");
+                operandStack.add(ValueType.F32);
+                break;
+
+            case OP_F32_CONVERT_I64_S:
+                popOperandType();
+                method.visitInsn(Opcodes.L2F);
+                operandStack.add(ValueType.F32);
+                break;
+
+            case OP_F32_CONVERT_I64_U:
+                popOperandType();
+                emitHelperCall("f32ConvertU", "(J)F");
+                operandStack.add(ValueType.F32);
+                break;
+
+            case OP_F32_DEMOTE_F64:
+                popOperandType();
+                method.visitInsn(Opcodes.D2F);
+                operandStack.add(ValueType.F32);
+                break;
+
+            case OP_F64_CONVERT_I32_S:
+                popOperandType();
+                method.visitInsn(Opcodes.I2D);
+                operandStack.add(ValueType.F64);
+                break;
+
+            case OP_F64_CONVERT_I32_U:
+                popOperandType();
+                emitHelperCall("f64ConvertU", "(I)D");
+                operandStack.add(ValueType.F64);
+                break;
+
+            case OP_F64_CONVERT_I64_S:
+                popOperandType();
+                method.visitInsn(Opcodes.L2D);
+                operandStack.add(ValueType.F64);
+                break;
+
+            case OP_F64_CONVERT_I64_U:
+                popOperandType();
+                emitHelperCall("f64ConvertU", "(J)D");
+                operandStack.add(ValueType.F64);
+                break;
+
+            case OP_F64_PROMOTE_F32:
+                popOperandType();
+                method.visitInsn(Opcodes.F2D);
+                operandStack.add(ValueType.F64);
+                break;
+
+            case OP_I32_REINTERPRET_F32:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Float", "floatToIntBits", "(F)I", false);
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_I64_REINTERPRET_F64:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "doubleToLongBits", "(D)J", false);
+                operandStack.add(ValueType.I32);
+                break;
+
+            case OP_F32_REINTERPRET_I32:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Float", "intBitsToFloat", "(I)F", false);
+                operandStack.add(ValueType.F32);
+                break;
+
+            case OP_F64_REINTERPRET_I64:
+                popOperandType();
+                method.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "longBitsToDouble", "(J)D", false);
+                operandStack.add(ValueType.F64);
+                break;
+
+            case OP_I32_EXTEND8_S:
+                emitHelperCall("i32Extend8", "(I)I");
+                break;
+
+            case OP_I32_EXTEND16_S:
+                emitHelperCall("i32Extend16", "(I)I");
+                break;
+
+            case OP_I64_EXTEND8_S:
+                emitHelperCall("i64Extend8", "(J)J");
+                break;
+
+            case OP_I64_EXTEND16_S:
+                emitHelperCall("i64Extend16", "(J)J");
+                break;
+
+            case OP_I64_EXTEND32_S:
+                method.visitInsn(Opcodes.L2I);
+                method.visitInsn(Opcodes.I2L);
+                break;
+
+            case OP_REF_NULL: {
+                method.visitInsn(Opcodes.ACONST_NULL);
+                operandStack.add(nextReferenceType().toValueType());
+                break;
+            }
+
+            case OP_REF_IS_NULL: {
+                popOperandType();
+                emitHelperCall("refIsNull", "(Ljava/lang/Object;)Z");
+                break;
+            }
+
+            case OP_REF_FUNC: {
+                var index = reader.nextUnsigned32();
+                var name = "f-" + index;
+
+                if (index < importedFunctions.size()) {
+                    method.visitFieldInsn(Opcodes.GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
+                }
+                else {
+                    var type = definedFunctions.get(index - importedFunctions.size());
+                    var signature = type.getSignatureString();
+                    var handle = new Handle(Opcodes.H_INVOKESPECIAL, internalName, name, signature, false);
+                    method.visitLdcInsn(handle);
+                }
+
+                operandStack.add(ValueType.FUNCREF);
+                break;
+            }
+
+            case OP_CONT_PREFIX:
+                switch (reader.nextByte()) {
+                    case OP_CONT_I32_TRUNC_SAT_F32_S:
+                    case OP_CONT_I32_TRUNC_SAT_F32_U:
+                    case OP_CONT_I32_TRUNC_SAT_F64_S:
+                    case OP_CONT_I32_TRUNC_SAT_F64_U:
+                    case OP_CONT_I64_TRUNC_SAT_F32_S:
+                    case OP_CONT_I64_TRUNC_SAT_F32_U:
+                    case OP_CONT_I64_TRUNC_SAT_F64_S:
+                    case OP_CONT_I64_TRUNC_SAT_F64_U:
+                    case OP_CONT_MEMORY_INIT:
+                    case OP_CONT_DATA_DROP:
+                    case OP_CONT_MEMORY_COPY:
+                    case OP_CONT_MEMORY_FILL:
+                    case OP_CONT_TABLE_INIT:
+                    case OP_CONT_ELEM_DROP:
+                    case OP_CONT_TABLE_COPY:
+                    case OP_CONT_TABLE_GROW:
+                    case OP_CONT_TABLE_SIZE:
+                    case OP_CONT_TABLE_FILL:
+                        // TODO
+                        break;
+                }
         }
     }
 
