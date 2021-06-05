@@ -1,3 +1,3 @@
 package org.wastastic;
 
-public final class TrapException extends Exception {}
+public final class TrapException extends RuntimeException {}

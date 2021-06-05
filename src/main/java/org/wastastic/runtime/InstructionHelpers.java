@@ -2,18 +2,6 @@ package org.wastastic.runtime;
 
 import org.wastastic.TrapException;
 
-import static java.lang.Double.isNaN;
-import static java.lang.Float.isFinite;
-import static java.lang.Integer.compareUnsigned;
-import static java.lang.Integer.divideUnsigned;
-import static java.lang.Integer.remainderUnsigned;
-import static java.lang.Integer.toUnsignedLong;
-import static java.lang.Long.compareUnsigned;
-import static java.lang.Long.divideUnsigned;
-import static java.lang.Long.remainderUnsigned;
-import static java.lang.Math.scalb;
-
-@SuppressWarnings("unused")
 public final class InstructionHelpers {
     private InstructionHelpers() {}
 
@@ -65,15 +53,15 @@ public final class InstructionHelpers {
         return ref == null;
     }
 
-    public static int divU(int lhs, int rhs) throws TrapException {
+    public static int divU(int lhs, int rhs) {
         if (rhs == 0) {
             throw new TrapException();
         }
 
-        return divideUnsigned(lhs, rhs);
+        return Integer.divideUnsigned(lhs, rhs);
     }
 
-    public static int divS(int lhs, int rhs) throws TrapException {
+    public static int divS(int lhs, int rhs) {
         if (rhs == 0 || (lhs == Integer.MIN_VALUE && rhs == -1)) {
             throw new TrapException();
         }
@@ -81,15 +69,15 @@ public final class InstructionHelpers {
         return lhs / rhs;
     }
 
-    public static long divU(long lhs, long rhs) throws TrapException {
+    public static long divU(long lhs, long rhs) {
         if (rhs == 0) {
             throw new TrapException();
         }
 
-        return divideUnsigned(lhs, rhs);
+        return Long.divideUnsigned(lhs, rhs);
     }
 
-    public static long divS(long lhs, long rhs) throws TrapException {
+    public static long divS(long lhs, long rhs) {
         if (rhs == 0 || (lhs == Long.MIN_VALUE && rhs == -1)) {
             throw new TrapException();
         }
@@ -97,23 +85,23 @@ public final class InstructionHelpers {
         return lhs / rhs;
     }
 
-    public static int remU(int lhs, int rhs) throws TrapException {
+    public static int remU(int lhs, int rhs) {
         if (rhs == 0) {
             throw new TrapException();
         }
 
-        return remainderUnsigned(lhs, rhs);
+        return Integer.remainderUnsigned(lhs, rhs);
     }
 
-    public static long remU(long lhs, long rhs) throws TrapException {
+    public static long remU(long lhs, long rhs) {
         if (rhs == 0) {
             throw new TrapException();
         }
 
-        return remainderUnsigned(lhs, rhs);
+        return Long.remainderUnsigned(lhs, rhs);
     }
 
-    public static int remS(int lhs, int rhs) throws TrapException {
+    public static int remS(int lhs, int rhs) {
         if (rhs == 0) {
             throw new TrapException();
         }
@@ -121,7 +109,7 @@ public final class InstructionHelpers {
         return lhs % rhs;
     }
 
-    public static long remS(long lhs, long rhs) throws TrapException {
+    public static long remS(long lhs, long rhs) {
         if (rhs == 0) {
             throw new TrapException();
         }
@@ -154,11 +142,11 @@ public final class InstructionHelpers {
     }
 
     public static boolean ltu(int lhs, int rhs) {
-        return compareUnsigned(lhs, rhs) < 0;
+        return Integer.compareUnsigned(lhs, rhs) < 0;
     }
 
     public static boolean ltu(long lhs, long rhs) {
-        return compareUnsigned(lhs, rhs) < 0;
+        return Long.compareUnsigned(lhs, rhs) < 0;
     }
 
     public static boolean lts(int lhs, int rhs) {
@@ -170,11 +158,11 @@ public final class InstructionHelpers {
     }
 
     public static boolean gtu(int lhs, int rhs) {
-        return compareUnsigned(lhs, rhs) > 0;
+        return Integer.compareUnsigned(lhs, rhs) > 0;
     }
 
     public static boolean gtu(long lhs, long rhs) {
-        return compareUnsigned(lhs, rhs) > 0;
+        return Long.compareUnsigned(lhs, rhs) > 0;
     }
 
     public static boolean gts(int lhs, int rhs) {
@@ -186,11 +174,11 @@ public final class InstructionHelpers {
     }
 
     public static boolean leu(int lhs, int rhs) {
-        return compareUnsigned(lhs, rhs) <= 0;
+        return Integer.compareUnsigned(lhs, rhs) <= 0;
     }
 
     public static boolean leu(long lhs, long rhs) {
-        return compareUnsigned(lhs, rhs) <= 0;
+        return Long.compareUnsigned(lhs, rhs) <= 0;
     }
 
     public static boolean les(int lhs, int rhs) {
@@ -202,11 +190,11 @@ public final class InstructionHelpers {
     }
 
     public static boolean geu(int lhs, int rhs) {
-        return compareUnsigned(lhs, rhs) >= 0;
+        return Integer.compareUnsigned(lhs, rhs) >= 0;
     }
 
     public static boolean geu(long lhs, long rhs) {
-        return compareUnsigned(lhs, rhs) >= 0;
+        return Long.compareUnsigned(lhs, rhs) >= 0;
     }
 
     public static boolean ges(int lhs, int rhs) {
@@ -310,7 +298,7 @@ public final class InstructionHelpers {
     }
 
     public static int i32TruncU(float operand) throws TrapException {
-        if (!isFinite(operand) || operand <= -1f || operand >= 0x1p32f) {
+        if (Float.isNaN(operand) || operand <= -1f || operand >= 0x1p32f) {
             throw new TrapException();
         }
 
@@ -318,7 +306,7 @@ public final class InstructionHelpers {
     }
 
     public static int i32TruncU(double operand) throws TrapException {
-        if (isNaN(operand) || operand <= -1.0 || operand >= 0x1p32) {
+        if (Double.isNaN(operand) || operand <= -1.0 || operand >= 0x1p32) {
             throw new TrapException();
         }
 
@@ -326,7 +314,7 @@ public final class InstructionHelpers {
     }
 
     public static int i32TruncS(float operand) throws TrapException {
-        if (isNaN(operand) || operand < -0x1p31f || operand >= 0x1p31f) {
+        if (Float.isNaN(operand) || operand < -0x1p31f || operand >= 0x1p31f) {
             throw new TrapException();
         }
 
@@ -334,7 +322,7 @@ public final class InstructionHelpers {
     }
 
     public static int i32TruncS(double operand) throws TrapException {
-        if (isNaN(operand) || operand <= -0x1.00000002p31 || operand >= 0x1p31) {
+        if (Double.isNaN(operand) || operand <= -0x1.00000002p31 || operand >= 0x1p31) {
             throw new TrapException();
         }
 
@@ -342,31 +330,31 @@ public final class InstructionHelpers {
     }
 
     public static long i64TruncU(float operand) throws TrapException {
-        if (isNaN(operand) || operand <= -1f || operand >= 0x1p64f) {
+        if (Float.isNaN(operand) || operand <= -1f || operand >= 0x1p64f) {
             throw new TrapException();
         }
 
         if (operand >= 0x1p63f) {
-            return ((long) scalb(operand, -1)) << 1;
+            return ((long) Math.scalb(operand, -1)) << 1;
         } else {
             return (long) operand;
         }
     }
 
     public static long i64TruncU(double operand) throws TrapException {
-        if (isNaN(operand) || operand <= -1.0 || operand >= 0x1p64) {
+        if (Double.isNaN(operand) || operand <= -1.0 || operand >= 0x1p64) {
             throw new TrapException();
         }
 
         if (operand >= 0x1p63) {
-            return ((long) scalb(operand, -1)) << 1;
+            return ((long) Math.scalb(operand, -1)) << 1;
         } else {
             return (long) operand;
         }
     }
 
     public static long i64TruncS(float operand) throws TrapException {
-        if (isNaN(operand) || operand < -0x1p63f || operand >= 0x1p63f) {
+        if (Float.isNaN(operand) || operand < -0x1p63f || operand >= 0x1p63f) {
             throw new TrapException();
         }
 
@@ -374,7 +362,7 @@ public final class InstructionHelpers {
     }
 
     public static long i64TruncS(double operand) throws TrapException {
-        if (isNaN(operand) || operand < -0x1p63 || operand >= 0x1p63) {
+        if (Double.isNaN(operand) || operand < -0x1p63 || operand >= 0x1p63) {
             throw new TrapException();
         }
 
@@ -382,12 +370,12 @@ public final class InstructionHelpers {
     }
 
     public static float f32ConvertU(int operand) {
-        return (float) toUnsignedLong(operand);
+        return (float) Integer.toUnsignedLong(operand);
     }
 
     public static float f32ConvertU(long operand) {
-        if (compareUnsigned(operand, Long.MAX_VALUE) > 0) {
-            return scalb((float) (operand >>> 1), 1);
+        if (Long.compareUnsigned(operand, Long.MAX_VALUE) > 0) {
+            return Math.scalb((float) (operand >>> 1), 1);
         }
         else {
             return (float) operand;
@@ -395,31 +383,15 @@ public final class InstructionHelpers {
     }
 
     public static double f64ConvertU(int operand) {
-        return (double) toUnsignedLong(operand);
+        return (double) Integer.toUnsignedLong(operand);
     }
 
     public static double f64ConvertU(long operand) {
-        if (compareUnsigned(operand, Long.MAX_VALUE) > 0) {
-            return scalb((double) (operand >>> 1), 1);
+        if (Long.compareUnsigned(operand, Long.MAX_VALUE) > 0) {
+            return Math.scalb((double) (operand >>> 1), 1);
         }
         else {
             return (double) operand;
         }
-    }
-
-    public static int i32Extend8(int operand) {
-        return (byte) operand;
-    }
-
-    public static int i32Extend16(int operand) {
-        return (short) operand;
-    }
-
-    public static long i64Extend8(long operand) {
-        return (byte) operand;
-    }
-
-    public static long i64Extend16(long operand) {
-        return (short) operand;
     }
 }
