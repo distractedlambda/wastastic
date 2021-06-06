@@ -25,10 +25,8 @@ import static org.objectweb.asm.Opcodes.DADD;
 import static org.objectweb.asm.Opcodes.DCONST_0;
 import static org.objectweb.asm.Opcodes.DCONST_1;
 import static org.objectweb.asm.Opcodes.DDIV;
-import static org.objectweb.asm.Opcodes.DLOAD;
 import static org.objectweb.asm.Opcodes.DMUL;
 import static org.objectweb.asm.Opcodes.DNEG;
-import static org.objectweb.asm.Opcodes.DSTORE;
 import static org.objectweb.asm.Opcodes.DSUB;
 import static org.objectweb.asm.Opcodes.DUP;
 import static org.objectweb.asm.Opcodes.DUP2;
@@ -41,10 +39,8 @@ import static org.objectweb.asm.Opcodes.FCONST_0;
 import static org.objectweb.asm.Opcodes.FCONST_1;
 import static org.objectweb.asm.Opcodes.FCONST_2;
 import static org.objectweb.asm.Opcodes.FDIV;
-import static org.objectweb.asm.Opcodes.FLOAD;
 import static org.objectweb.asm.Opcodes.FMUL;
 import static org.objectweb.asm.Opcodes.FNEG;
-import static org.objectweb.asm.Opcodes.FSTORE;
 import static org.objectweb.asm.Opcodes.FSUB;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
@@ -65,14 +61,12 @@ import static org.objectweb.asm.Opcodes.ICONST_4;
 import static org.objectweb.asm.Opcodes.ICONST_5;
 import static org.objectweb.asm.Opcodes.ICONST_M1;
 import static org.objectweb.asm.Opcodes.IFEQ;
-import static org.objectweb.asm.Opcodes.ILOAD;
 import static org.objectweb.asm.Opcodes.IMUL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.IOR;
 import static org.objectweb.asm.Opcodes.ISHL;
 import static org.objectweb.asm.Opcodes.ISHR;
-import static org.objectweb.asm.Opcodes.ISTORE;
 import static org.objectweb.asm.Opcodes.ISUB;
 import static org.objectweb.asm.Opcodes.IUSHR;
 import static org.objectweb.asm.Opcodes.IXOR;
@@ -83,12 +77,10 @@ import static org.objectweb.asm.Opcodes.LADD;
 import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LCONST_0;
 import static org.objectweb.asm.Opcodes.LCONST_1;
-import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.LMUL;
 import static org.objectweb.asm.Opcodes.LOR;
 import static org.objectweb.asm.Opcodes.LSHL;
 import static org.objectweb.asm.Opcodes.LSHR;
-import static org.objectweb.asm.Opcodes.LSTORE;
 import static org.objectweb.asm.Opcodes.LSUB;
 import static org.objectweb.asm.Opcodes.LUSHR;
 import static org.objectweb.asm.Opcodes.LXOR;
@@ -115,6 +107,7 @@ final class ModuleTranslator {
     private final ArrayList<Export> exports = new ArrayList<>();
 
     private int moduleLocalIndex;
+    private int scratchLocalStartIndex;
     private final ArrayList<Local> locals = new ArrayList<>();
     private final ArrayList<ValueType> operandStack = new ArrayList<>();
     private final ArrayList<LabelScope> labelStack = new ArrayList<>();
@@ -522,11 +515,9 @@ final class ModuleTranslator {
         method.visitJumpInsn(GOTO, scope.targetLabel());
         method.visitLabel(scope.elseLabel());
 
-        while (operandStack.size() > scope.operandStackSize()) {
-            popOperandType();
-        }
-
+        operandStack.subList(scope.operandStackSize(), operandStack.size()).clear();
         operandStack.addAll(scope.elseParameterTypes());
+
         labelStack.add(new LabelScope(
             scope.targetLabel(),
             scope.parameterTypes(),
@@ -600,7 +591,6 @@ final class ModuleTranslator {
 
         FunctionType type;
         if (index < importedFunctions.size()) {
-            // TODO: different calling setup? Don't pass module? How work?
             type = importedFunctions.get(index).getType();
         }
         else {
@@ -641,13 +631,35 @@ final class ModuleTranslator {
     private void translateCallIndirect() throws IOException {
         var type = nextIndexedType();
         var tableIndex = reader.nextUnsigned32();
+        emitLoadTable(tableIndex);
+        method.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "get", "(ILorg/wastastic/Table;)Ljava/lang/Object", false);
+        method.visitInsn(DUP);
+        method.visitLdcInsn(Type.getMethodType(type.getDescriptor()));
+        emitHelperCall("checkFunctionType", "(Ljava/lang/Object;Ljava/lang/invoke/MethodType;)V");
 
-        // emitLoadTable(tableIndex);
-        // method.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "get", "(ILorg/wastastic/Table;)Ljava/lang/Object", false);
-        // method.visitInsn(DUP);
-        // method.visitLdcInsn(Type.getMethodType(type.getDescriptor()));
-        // emitHelperCall("checkFunctionType", "(Ljava/lang/Object;Ljava/lang/invoke/MethodType;)V");
-        // TODO
+        var calleeLocalIndex = scratchLocalStartIndex;
+        method.visitVarInsn(ASTORE, calleeLocalIndex);
+
+        var nextLocalIndex = calleeLocalIndex + 1;
+        var returnTypes = type.getReturnTypes();
+        for (var i = returnTypes.size() - 1; i >= 0; i--) {
+            var returnType = returnTypes.get(i);
+            method.visitVarInsn(returnType.getLocalStoreOpcode(), nextLocalIndex);
+            nextLocalIndex += returnType.getWidth();
+        }
+
+        method.visitVarInsn(ALOAD, calleeLocalIndex);
+
+        for (var returnType : returnTypes) {
+            nextLocalIndex -= returnType.getWidth();
+            method.visitVarInsn(returnType.getLocalLoadOpcode(), nextLocalIndex);
+        }
+
+        emitLoadModule();
+
+        method.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", type.getDescriptor(), false);
+        operandStack.subList(operandStack.size() - type.getParameterTypes().size() - 1, operandStack.size()).clear();
+        operandStack.addAll(returnTypes);
     }
 
     private void translateDrop() {
@@ -692,38 +704,34 @@ final class ModuleTranslator {
     }
 
     private void translateGlobalGet() throws IOException {
-        // TODO
         var globalIndex = reader.nextUnsigned32();
         ValueType type;
 
         if (globalIndex < importedGlobals.size()) {
             type = importedGlobals.get(globalIndex).getType().valueType();
-            method.visitFieldInsn(GETFIELD, internalName, "g-" + globalIndex + "-get", "Ljava/lang/invoke/MethodHandle;");
-            method.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "()" + type.getDescriptor(), false);
         }
         else {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
-            method.visitFieldInsn(GETFIELD, internalName, "g-" + globalIndex, type.getDescriptor());
         }
 
+        emitLoadModule();
+        method.visitMethodInsn(INVOKESTATIC, internalName, "g-" + globalIndex + "-get", "(Lorg/wastastic/Module;)" + type.getDescriptor(), false);
         operandStack.add(type);
     }
 
     private void translateGlobalSet() throws IOException {
-        // TODO
         var globalIndex = reader.nextUnsigned32();
         ValueType type;
 
         if (globalIndex < importedGlobals.size()) {
             type = importedGlobals.get(globalIndex).getType().valueType();
-            method.visitFieldInsn(GETFIELD, internalName, "g-" + globalIndex + "-set", "Ljava/lang/invoke/MethodHandle;");
-            method.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "(" + type.getDescriptor() + ")V", false);
         }
         else {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
-            method.visitFieldInsn(PUTFIELD, internalName, "g-" + globalIndex, type.getDescriptor());
         }
 
+        emitLoadModule();
+        method.visitMethodInsn(INVOKESTATIC, internalName, "g-" + globalIndex + "-set", "(" + type.getDescriptor() + "Lorg/wastastic/Module;" + ")V", false);
         popOperandType();
     }
 
@@ -1798,32 +1806,6 @@ final class ModuleTranslator {
         popOperandType();
     }
 
-    private int saveValues(@NotNull List<ValueType> types) {
-        int localsOffset;
-
-        if (locals.isEmpty()) {
-            localsOffset = 1;
-        } else {
-            var lastLocal = locals.get(locals.size() - 1);
-            localsOffset = lastLocal.index() + (lastLocal.type().isDoubleWidth() ? 2 : 1);
-        }
-
-        for (var i = types.size() - 1; i >= 0; i--) {
-            var type = types.get(i);
-            method.visitVarInsn(type.getLocalStoreOpcode(), localsOffset);
-            localsOffset += type.getWidth();
-        }
-
-        return localsOffset;
-    }
-
-    private void restoreValues(@NotNull List<ValueType> types, int localsOffset) {
-        for (var type : types) {
-            localsOffset -= type.getWidth();
-            method.visitVarInsn(type.getLocalLoadOpcode(), localsOffset);
-        }
-    }
-
     private @NotNull Local nextIndexedLocal() throws IOException {
         return locals.get(reader.nextUnsigned32());
     }
@@ -1833,46 +1815,16 @@ final class ModuleTranslator {
     }
 
     private void emitBranch(LabelScope target) {
-        int localOffset;
-        if (locals.isEmpty()) {
-            localOffset = 0;
-        }
-        else {
-            var last = locals.get(locals.size() - 1);
-            localOffset = last.index() + (last.type().isDoubleWidth() ? 2 : 1);
-        }
+        var nextLocalIndex = scratchLocalStartIndex;
 
-        for (var i = 0; i < target.parameterTypes().size(); i++) {
-            switch (operandStack.get(operandStack.size() - i - 1)) {
-                case I32 -> {
-                    method.visitVarInsn(ISTORE, localOffset);
-                    localOffset += 1;
-                }
-
-                case F32 -> {
-                    method.visitVarInsn(FSTORE, localOffset);
-                    localOffset += 1;
-                }
-
-                case FUNCREF, EXTERNREF -> {
-                    method.visitVarInsn(ASTORE, localOffset);
-                    localOffset += 1;
-                }
-
-                case I64 -> {
-                    method.visitVarInsn(LSTORE, localOffset);
-                    localOffset += 2;
-                }
-
-                case F64 -> {
-                    method.visitVarInsn(DSTORE, localOffset);
-                    localOffset += 2;
-                }
-            }
+        for (var i = target.parameterTypes().size() - 1; i >= 0; i--) {
+            var parameterType = target.parameterTypes().get(i);
+            method.visitVarInsn(parameterType.getLocalStoreOpcode(), nextLocalIndex);
+            nextLocalIndex += parameterType.getWidth();
         }
 
-        for (var i = 0; i < target.parameterTypes().size(); i++) {
-            if (operandStack.get(operandStack.size() - i - 1).isDoubleWidth()) {
+        for (var i = operandStack.size() - target.parameterTypes().size() - 1; i >= target.operandStackSize(); i--) {
+            if (operandStack.get(i).isDoubleWidth()) {
                 method.visitInsn(POP2);
             }
             else {
@@ -1881,13 +1833,8 @@ final class ModuleTranslator {
         }
 
         for (var parameterType : target.parameterTypes()) {
-            switch (parameterType) {
-                case I32 -> method.visitVarInsn(ILOAD, (localOffset -= 1));
-                case F32 -> method.visitVarInsn(FLOAD, (localOffset -= 1));
-                case I64 -> method.visitVarInsn(LLOAD, (localOffset -= 2));
-                case F64 -> method.visitVarInsn(DLOAD, (localOffset -= 2));
-                case FUNCREF, EXTERNREF -> method.visitVarInsn(ALOAD, (localOffset -= 1));
-            }
+            nextLocalIndex -= parameterType.getWidth();
+            method.visitVarInsn(parameterType.getLocalLoadOpcode(), nextLocalIndex);
         }
 
         method.visitJumpInsn(GOTO, target.targetLabel());
