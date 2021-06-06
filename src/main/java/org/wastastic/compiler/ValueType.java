@@ -11,7 +11,7 @@ enum ValueType {
     FUNCREF,
     EXTERNREF;
 
-    public @NotNull String getDescriptor() {
+    @NotNull String getDescriptor() {
         return switch (this) {
             case I32 -> "I";
             case I64 -> "J";
@@ -22,7 +22,17 @@ enum ValueType {
         };
     }
 
-    public char getTupleSignatureCharacter() {
+    @NotNull String getErasedDescriptor() {
+        return switch (this) {
+            case I32 -> "I";
+            case I64 -> "J";
+            case F32 -> "F";
+            case F64 -> "D";
+            case FUNCREF, EXTERNREF -> "Ljava/lang/Object;";
+        };
+    }
+
+    char getTupleSuffixChar() {
         return switch (this) {
             case I32 -> 'I';
             case I64 -> 'J';
@@ -32,21 +42,21 @@ enum ValueType {
         };
     }
 
-    public boolean isDoubleWidth() {
+    boolean isDoubleWidth() {
         return switch (this) {
             case I32, F32, FUNCREF, EXTERNREF -> false;
             case I64, F64 -> true;
         };
     }
 
-    public int getWidth() {
+    int getWidth() {
         return switch (this) {
             case I32, F32, FUNCREF, EXTERNREF -> 1;
             case I64, F64 -> 2;
         };
     }
 
-    public int getLocalLoadOpcode() {
+    int getLocalLoadOpcode() {
         return switch (this) {
             case I32 -> Opcodes.ILOAD;
             case I64 -> Opcodes.LLOAD;
@@ -56,7 +66,7 @@ enum ValueType {
         };
     }
 
-    public int getLocalStoreOpcode() {
+    int getLocalStoreOpcode() {
         return switch (this) {
             case I32 -> Opcodes.ISTORE;
             case I64 -> Opcodes.LSTORE;

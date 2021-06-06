@@ -6,6 +6,7 @@ import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -13,11 +14,90 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.objectweb.asm.Opcodes.ACONST_NULL;
+import static org.objectweb.asm.Opcodes.ALOAD;
+import static org.objectweb.asm.Opcodes.ASTORE;
+import static org.objectweb.asm.Opcodes.ATHROW;
+import static org.objectweb.asm.Opcodes.BIPUSH;
+import static org.objectweb.asm.Opcodes.D2F;
+import static org.objectweb.asm.Opcodes.D2I;
+import static org.objectweb.asm.Opcodes.D2L;
+import static org.objectweb.asm.Opcodes.DADD;
+import static org.objectweb.asm.Opcodes.DCONST_0;
+import static org.objectweb.asm.Opcodes.DCONST_1;
+import static org.objectweb.asm.Opcodes.DDIV;
+import static org.objectweb.asm.Opcodes.DLOAD;
+import static org.objectweb.asm.Opcodes.DMUL;
+import static org.objectweb.asm.Opcodes.DNEG;
+import static org.objectweb.asm.Opcodes.DSTORE;
+import static org.objectweb.asm.Opcodes.DSUB;
 import static org.objectweb.asm.Opcodes.DUP;
+import static org.objectweb.asm.Opcodes.DUP2;
+import static org.objectweb.asm.Opcodes.DUP2_X1;
+import static org.objectweb.asm.Opcodes.F2D;
+import static org.objectweb.asm.Opcodes.F2I;
+import static org.objectweb.asm.Opcodes.F2L;
+import static org.objectweb.asm.Opcodes.FADD;
+import static org.objectweb.asm.Opcodes.FCONST_0;
+import static org.objectweb.asm.Opcodes.FCONST_1;
+import static org.objectweb.asm.Opcodes.FCONST_2;
+import static org.objectweb.asm.Opcodes.FDIV;
+import static org.objectweb.asm.Opcodes.FLOAD;
+import static org.objectweb.asm.Opcodes.FMUL;
+import static org.objectweb.asm.Opcodes.FNEG;
+import static org.objectweb.asm.Opcodes.FSTORE;
+import static org.objectweb.asm.Opcodes.FSUB;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
+import static org.objectweb.asm.Opcodes.GOTO;
+import static org.objectweb.asm.Opcodes.H_INVOKESPECIAL;
+import static org.objectweb.asm.Opcodes.I2B;
+import static org.objectweb.asm.Opcodes.I2D;
+import static org.objectweb.asm.Opcodes.I2F;
+import static org.objectweb.asm.Opcodes.I2L;
+import static org.objectweb.asm.Opcodes.I2S;
+import static org.objectweb.asm.Opcodes.IADD;
+import static org.objectweb.asm.Opcodes.IAND;
+import static org.objectweb.asm.Opcodes.ICONST_0;
+import static org.objectweb.asm.Opcodes.ICONST_1;
+import static org.objectweb.asm.Opcodes.ICONST_2;
+import static org.objectweb.asm.Opcodes.ICONST_3;
+import static org.objectweb.asm.Opcodes.ICONST_4;
+import static org.objectweb.asm.Opcodes.ICONST_5;
+import static org.objectweb.asm.Opcodes.ICONST_M1;
+import static org.objectweb.asm.Opcodes.IFEQ;
+import static org.objectweb.asm.Opcodes.ILOAD;
+import static org.objectweb.asm.Opcodes.IMUL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
+import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
+import static org.objectweb.asm.Opcodes.IOR;
+import static org.objectweb.asm.Opcodes.ISHL;
+import static org.objectweb.asm.Opcodes.ISHR;
+import static org.objectweb.asm.Opcodes.ISTORE;
+import static org.objectweb.asm.Opcodes.ISUB;
+import static org.objectweb.asm.Opcodes.IUSHR;
+import static org.objectweb.asm.Opcodes.IXOR;
+import static org.objectweb.asm.Opcodes.L2D;
+import static org.objectweb.asm.Opcodes.L2F;
+import static org.objectweb.asm.Opcodes.L2I;
+import static org.objectweb.asm.Opcodes.LADD;
+import static org.objectweb.asm.Opcodes.LAND;
+import static org.objectweb.asm.Opcodes.LCONST_0;
+import static org.objectweb.asm.Opcodes.LCONST_1;
+import static org.objectweb.asm.Opcodes.LLOAD;
+import static org.objectweb.asm.Opcodes.LMUL;
+import static org.objectweb.asm.Opcodes.LOR;
+import static org.objectweb.asm.Opcodes.LSHL;
+import static org.objectweb.asm.Opcodes.LSHR;
+import static org.objectweb.asm.Opcodes.LSTORE;
+import static org.objectweb.asm.Opcodes.LSUB;
+import static org.objectweb.asm.Opcodes.LUSHR;
+import static org.objectweb.asm.Opcodes.LXOR;
+import static org.objectweb.asm.Opcodes.POP;
+import static org.objectweb.asm.Opcodes.POP2;
 import static org.objectweb.asm.Opcodes.PUTFIELD;
+import static org.objectweb.asm.Opcodes.SIPUSH;
+import static org.objectweb.asm.Opcodes.SWAP;
 
 final class ModuleTranslator {
     private final String internalName;
@@ -195,8 +275,7 @@ final class ModuleTranslator {
     }
 
     private void translateInstruction() throws IOException, TranslationException {
-        var opcode = reader.nextByte();
-        switch (opcode) {
+        switch (reader.nextByte()) {
             case OP_UNREACHABLE -> translateUnreachable();
             case OP_NOP -> translateNop();
             case OP_BLOCK -> translateBlock();
@@ -387,7 +466,7 @@ final class ModuleTranslator {
 
     private void translateUnreachable() {
         emitHelperCall("trap", "()Ljava/lang/RuntimeException;");
-        method.visitInsn(Opcodes.ATHROW);
+        method.visitInsn(ATHROW);
     }
 
     private void translateNop() {
@@ -435,13 +514,13 @@ final class ModuleTranslator {
             type.getParameterTypes()
         ));
 
-        method.visitJumpInsn(Opcodes.IFEQ, elseLabel);
+        method.visitJumpInsn(IFEQ, elseLabel);
         popOperandType();
     }
 
     private void translateElse() {
         var scope = popLabelScope();
-        method.visitJumpInsn(Opcodes.GOTO, scope.targetLabel());
+        method.visitJumpInsn(GOTO, scope.targetLabel());
         method.visitLabel(scope.elseLabel());
 
         while (operandStack.size() > scope.operandStackSize()) {
@@ -477,7 +556,7 @@ final class ModuleTranslator {
 
     private void translateBrIf() throws IOException {
         var pastBranchLabel = new Label();
-        method.visitJumpInsn(Opcodes.IFEQ, pastBranchLabel);
+        method.visitJumpInsn(IFEQ, pastBranchLabel);
         popOperandType();
         emitBranch(nextBranchTarget());
         method.visitLabel(pastBranchLabel);
@@ -520,18 +599,44 @@ final class ModuleTranslator {
         var index = reader.nextUnsigned32();
         var name = "f-" + index;
 
+        FunctionType type;
         if (index < importedFunctions.size()) {
-            var type = importedFunctions.get(index).getType();
-            int savedValuesEnd = saveValues(type.getParameterTypes());
-            method.visitFieldInsn(GETFIELD, internalName, name, "Ljava/lang/invoke/MethodHandle;");
-            method.visitVarInsn(Opcodes.ALOAD, 0);
-            restoreValues(type.getParameterTypes(), savedValuesEnd);
-            method.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", type.getSignatureString(), false);
-            // FIXME: deal with result tuples
+            // TODO: different calling setup? Don't pass module? How work?
+            type = importedFunctions.get(index).getType();
         }
         else {
-            // TODO
+            type = definedFunctions.get(importedFunctions.size() - index);
         }
+
+        emitLoadModule();
+        method.visitMethodInsn(INVOKESTATIC, internalName, name, type.getDescriptor(), false);
+
+        if (type.getReturnTupleClass() != null) {
+            var returnTypes = type.getReturnTypes();
+            var tupleDescriptor = Type.getDescriptor(type.getReturnTupleClass());
+
+            for (var i = 0; i < returnTypes.size() - 1; i++) {
+                var returnType = returnTypes.get(i);
+
+                method.visitInsn(DUP);
+                method.visitFieldInsn(GETFIELD, tupleDescriptor, "" + i, returnType.getErasedDescriptor());
+
+                if (returnType.isDoubleWidth()) {
+                    method.visitInsn(DUP2_X1);
+                    method.visitInsn(POP2);
+                }
+                else {
+                    method.visitInsn(SWAP);
+                }
+            }
+
+            var lastIndex = returnTypes.size() - 1;
+            var returnType = returnTypes.get(lastIndex);
+            method.visitFieldInsn(GETFIELD, tupleDescriptor, "" + lastIndex, returnType.getErasedDescriptor());
+        }
+
+        operandStack.subList(operandStack.size() - type.getReturnTypes().size(), operandStack.size()).clear();
+        operandStack.addAll(type.getReturnTypes());
     }
 
     private void translateCallIndirect() {
@@ -539,7 +644,7 @@ final class ModuleTranslator {
     }
 
     private void translateDrop() {
-        method.visitInsn(popOperandType().isDoubleWidth() ? Opcodes.POP2 : Opcodes.POP);
+        method.visitInsn(popOperandType().isDoubleWidth() ? POP2 : POP);
     }
 
     private void translateSelect() {
@@ -575,7 +680,7 @@ final class ModuleTranslator {
 
     private void translateLocalTee() throws IOException {
         var local = nextIndexedLocal();
-        method.visitInsn(local.type().isDoubleWidth() ? Opcodes.DUP2 : DUP);
+        method.visitInsn(local.type().isDoubleWidth() ? DUP2 : DUP);
         method.visitVarInsn(local.type().getLocalStoreOpcode(), local.index());
     }
 
@@ -585,31 +690,12 @@ final class ModuleTranslator {
 
         if (globalIndex < importedGlobals.size()) {
             type = importedGlobals.get(globalIndex).getType().valueType();
-
-            method.visitFieldInsn(
-                GETFIELD,
-                internalName,
-                "g-" + globalIndex + "-get",
-                "Ljava/lang/invoke/MethodHandle;"
-            );
-
-            method.visitMethodInsn(
-                Opcodes.INVOKEVIRTUAL,
-                "java/lang/invoke/MethodHandle",
-                "invoke",
-                "()" + type.getDescriptor(),
-                false
-            );
+            method.visitFieldInsn(GETFIELD, internalName, "g-" + globalIndex + "-get", "Ljava/lang/invoke/MethodHandle;");
+            method.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "()" + type.getDescriptor(), false);
         }
         else {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
-
-            method.visitFieldInsn(
-                GETFIELD,
-                internalName,
-                "g-" + globalIndex,
-                type.getDescriptor()
-            );
+            method.visitFieldInsn(GETFIELD, internalName, "g-" + globalIndex, type.getDescriptor());
         }
 
         operandStack.add(type);
@@ -621,31 +707,12 @@ final class ModuleTranslator {
 
         if (globalIndex < importedGlobals.size()) {
             type = importedGlobals.get(globalIndex).getType().valueType();
-
-            method.visitFieldInsn(
-                GETFIELD,
-                internalName,
-                "g-" + globalIndex + "-set",
-                "Ljava/lang/invoke/MethodHandle;"
-            );
-
-            method.visitMethodInsn(
-                Opcodes.INVOKEVIRTUAL,
-                "java/lang/invoke/MethodHandle",
-                "invoke",
-                "(" + type.getDescriptor() + ")V",
-                false
-            );
+            method.visitFieldInsn(GETFIELD, internalName, "g-" + globalIndex + "-set", "Ljava/lang/invoke/MethodHandle;");
+            method.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invoke", "(" + type.getDescriptor() + ")V", false);
         }
         else {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
-
-            method.visitFieldInsn(
-                PUTFIELD,
-                internalName,
-                "g-" + globalIndex,
-                type.getDescriptor()
-            );
+            method.visitFieldInsn(PUTFIELD, internalName, "g-" + globalIndex, type.getDescriptor());
         }
 
         popOperandType();
@@ -684,42 +751,42 @@ final class ModuleTranslator {
             return "";
         }
         else if (value == -1) {
-            method.visitInsn(Opcodes.ICONST_M1);
+            method.visitInsn(ICONST_M1);
             return "I";
         }
         else if (value == 255) {
-            method.visitInsn(Opcodes.ICONST_M1);
+            method.visitInsn(ICONST_M1);
             return "B";
         } else if (value == 65535) {
-            method.visitInsn(Opcodes.ICONST_M1);
+            method.visitInsn(ICONST_M1);
             return "S";
         }
         else if (value == 1) {
-            method.visitInsn(Opcodes.ICONST_1);
+            method.visitInsn(ICONST_1);
             return "B";
         }
         else if (value == 2) {
-            method.visitInsn(Opcodes.ICONST_2);
+            method.visitInsn(ICONST_2);
             return "B";
         }
         else if (value == 3) {
-            method.visitInsn(Opcodes.ICONST_3);
+            method.visitInsn(ICONST_3);
             return "B";
         }
         else if (value == 4) {
-            method.visitInsn(Opcodes.ICONST_4);
+            method.visitInsn(ICONST_4);
             return "B";
         }
         else if (value == 5) {
-            method.visitInsn(Opcodes.ICONST_5);
+            method.visitInsn(ICONST_5);
             return "B";
         }
         else if (value < 256) {
-            method.visitIntInsn(Opcodes.BIPUSH, value);
+            method.visitIntInsn(BIPUSH, value);
             return "B";
         }
         else if (value < 65536) {
-            method.visitIntInsn(Opcodes.SIPUSH, value);
+            method.visitIntInsn(SIPUSH, value);
             return "S";
         }
         else {
@@ -730,7 +797,7 @@ final class ModuleTranslator {
 
     private void translateLoad(@NotNull String name, ValueType type) throws IOException {
         reader.nextUnsigned32(); // expected alignment (ignored)
-        var descriptor = "(I" + translateMemoryOffset() + "Lorg/wastastic/Module;)" + type.getTupleSignatureCharacter();
+        var descriptor = "(I" + translateMemoryOffset() + "Lorg/wastastic/Module;)" + type.getTupleSuffixChar();
         emitLoadModule();
         method.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", name, descriptor, false);
         replaceTopOperandType(type);
@@ -852,26 +919,26 @@ final class ModuleTranslator {
     }
 
     private void emitLoadModule() {
-        method.visitVarInsn(Opcodes.ALOAD, moduleLocalIndex);
+        method.visitVarInsn(ALOAD, moduleLocalIndex);
     }
 
     private void translateI32Const() throws IOException {
         var value = reader.nextSigned32();
 
         switch (value) {
-            case -1 -> method.visitInsn(Opcodes.ICONST_M1);
-            case 0 -> method.visitInsn(Opcodes.ICONST_0);
-            case 1 -> method.visitInsn(Opcodes.ICONST_1);
-            case 2 -> method.visitInsn(Opcodes.ICONST_2);
-            case 3 -> method.visitInsn(Opcodes.ICONST_3);
-            case 4 -> method.visitInsn(Opcodes.ICONST_4);
-            case 5 -> method.visitInsn(Opcodes.ICONST_5);
+            case -1 -> method.visitInsn(ICONST_M1);
+            case 0 -> method.visitInsn(ICONST_0);
+            case 1 -> method.visitInsn(ICONST_1);
+            case 2 -> method.visitInsn(ICONST_2);
+            case 3 -> method.visitInsn(ICONST_3);
+            case 4 -> method.visitInsn(ICONST_4);
+            case 5 -> method.visitInsn(ICONST_5);
             default -> {
                 if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
-                    method.visitIntInsn(Opcodes.BIPUSH, value);
+                    method.visitIntInsn(BIPUSH, value);
                 }
                 else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
-                    method.visitIntInsn(Opcodes.SIPUSH, value);
+                    method.visitIntInsn(SIPUSH, value);
                 }
                 else {
                     method.visitLdcInsn(value);
@@ -884,18 +951,18 @@ final class ModuleTranslator {
         var value = reader.nextSigned64();
 
         if (value == 0) {
-            method.visitInsn(Opcodes.LCONST_0);
+            method.visitInsn(LCONST_0);
         }
         else if (value == 1) {
-            method.visitInsn(Opcodes.LCONST_1);
+            method.visitInsn(LCONST_1);
         }
         else if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
-            method.visitIntInsn(Opcodes.BIPUSH, (int) value);
-            method.visitInsn(Opcodes.I2L);
+            method.visitIntInsn(BIPUSH, (int) value);
+            method.visitInsn(I2L);
         }
         else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
-            method.visitIntInsn(Opcodes.SIPUSH, (int) value);
-            method.visitInsn(Opcodes.I2L);
+            method.visitIntInsn(SIPUSH, (int) value);
+            method.visitInsn(I2L);
         }
         else {
             method.visitLdcInsn(value);
@@ -906,13 +973,13 @@ final class ModuleTranslator {
         var value = reader.nextFloat32();
 
         if (value == 0) {
-            method.visitInsn(Opcodes.FCONST_0);
+            method.visitInsn(FCONST_0);
         }
         else if (value == 1) {
-            method.visitInsn(Opcodes.FCONST_1);
+            method.visitInsn(FCONST_1);
         }
         else if (value == 2) {
-            method.visitInsn(Opcodes.FCONST_2);
+            method.visitInsn(FCONST_2);
         }
         else {
             method.visitLdcInsn(value);
@@ -923,10 +990,10 @@ final class ModuleTranslator {
         var value = reader.nextFloat64();
 
         if (value == 0) {
-            method.visitInsn(Opcodes.DCONST_0);
+            method.visitInsn(DCONST_0);
         }
         else if (value == 1) {
-            method.visitInsn(Opcodes.DCONST_1);
+            method.visitInsn(DCONST_1);
         }
         else {
             method.visitLdcInsn(value);
@@ -1106,17 +1173,17 @@ final class ModuleTranslator {
     }
 
     private void translateI32Add() {
-        method.visitInsn(Opcodes.IADD);
+        method.visitInsn(IADD);
         popOperandType();
     }
 
     private void translateI32Sub() {
-        method.visitInsn(Opcodes.ISUB);
+        method.visitInsn(ISUB);
         popOperandType();
     }
 
     private void translateI32Mul() {
-        method.visitInsn(Opcodes.IMUL);
+        method.visitInsn(IMUL);
         popOperandType();
     }
 
@@ -1141,32 +1208,32 @@ final class ModuleTranslator {
     }
 
     private void translateI32And() {
-        method.visitInsn(Opcodes.IAND);
+        method.visitInsn(IAND);
         popOperandType();
     }
 
     private void translateI32Or() {
-        method.visitInsn(Opcodes.IOR);
+        method.visitInsn(IOR);
         popOperandType();
     }
 
     private void translateI32Xor() {
-        method.visitInsn(Opcodes.IXOR);
+        method.visitInsn(IXOR);
         popOperandType();
     }
 
     private void translateI32Shl() {
-        method.visitInsn(Opcodes.ISHL);
+        method.visitInsn(ISHL);
         popOperandType();
     }
 
     private void translateI32ShrS() {
-        method.visitInsn(Opcodes.ISHR);
+        method.visitInsn(ISHR);
         popOperandType();
     }
 
     private void translateI32ShrU() {
-        method.visitInsn(Opcodes.IUSHR);
+        method.visitInsn(IUSHR);
         popOperandType();
     }
 
@@ -1193,17 +1260,17 @@ final class ModuleTranslator {
     }
 
     private void translateI64Add() {
-        method.visitInsn(Opcodes.LADD);
+        method.visitInsn(LADD);
         popOperandType();
     }
 
     private void translateI64Sub() {
-        method.visitInsn(Opcodes.LSUB);
+        method.visitInsn(LSUB);
         popOperandType();
     }
 
     private void translateI64Mul() {
-        method.visitInsn(Opcodes.LMUL);
+        method.visitInsn(LMUL);
         popOperandType();
     }
 
@@ -1228,32 +1295,32 @@ final class ModuleTranslator {
     }
 
     private void translateI64And() {
-        method.visitInsn(Opcodes.LAND);
+        method.visitInsn(LAND);
         popOperandType();
     }
 
     private void translateI64Or() {
-        method.visitInsn(Opcodes.LOR);
+        method.visitInsn(LOR);
         popOperandType();
     }
 
     private void translateI64Xor() {
-        method.visitInsn(Opcodes.LXOR);
+        method.visitInsn(LXOR);
         popOperandType();
     }
 
     private void translateI64Shl() {
-        method.visitInsn(Opcodes.LSHL);
+        method.visitInsn(LSHL);
         popOperandType();
     }
 
     private void translateI64ShrS() {
-        method.visitInsn(Opcodes.LSHR);
+        method.visitInsn(LSHR);
         popOperandType();
     }
 
     private void translateI64ShrU() {
-        method.visitInsn(Opcodes.LUSHR);
+        method.visitInsn(LUSHR);
         popOperandType();
     }
 
@@ -1272,7 +1339,7 @@ final class ModuleTranslator {
     }
 
     private void translateF32Neg() {
-        method.visitInsn(Opcodes.FNEG);
+        method.visitInsn(FNEG);
     }
 
     private void translateF32Ceil() {
@@ -1296,22 +1363,22 @@ final class ModuleTranslator {
     }
 
     private void translateF32Add() {
-        method.visitInsn(Opcodes.FADD);
+        method.visitInsn(FADD);
         popOperandType();
     }
 
     private void translateF32Sub() {
-        method.visitInsn(Opcodes.FSUB);
+        method.visitInsn(FSUB);
         popOperandType();
     }
 
     private void translateF32Mul() {
-        method.visitInsn(Opcodes.FMUL);
+        method.visitInsn(FMUL);
         popOperandType();
     }
 
     private void translateF32Div() {
-        method.visitInsn(Opcodes.FDIV);
+        method.visitInsn(FDIV);
         popOperandType();
     }
 
@@ -1335,7 +1402,7 @@ final class ModuleTranslator {
     }
 
     private void translateF64Neg() {
-        method.visitInsn(Opcodes.DNEG);
+        method.visitInsn(DNEG);
     }
 
     private void translateF64Ceil() {
@@ -1359,22 +1426,22 @@ final class ModuleTranslator {
     }
 
     private void translateF64Add() {
-        method.visitInsn(Opcodes.DADD);
+        method.visitInsn(DADD);
         popOperandType();
     }
 
     private void translateF64Sub() {
-        method.visitInsn(Opcodes.DSUB);
+        method.visitInsn(DSUB);
         popOperandType();
     }
 
     private void translateF64Mul() {
-        method.visitInsn(Opcodes.DMUL);
+        method.visitInsn(DMUL);
         popOperandType();
     }
 
     private void translateF64Div() {
-        method.visitInsn(Opcodes.DDIV);
+        method.visitInsn(DDIV);
         popOperandType();
     }
 
@@ -1394,7 +1461,7 @@ final class ModuleTranslator {
     }
 
     private void translateI32WrapI64() {
-        method.visitInsn(Opcodes.L2I);
+        method.visitInsn(L2I);
         replaceTopOperandType(ValueType.I32);
     }
 
@@ -1419,7 +1486,7 @@ final class ModuleTranslator {
     }
 
     private void translateI64ExtendI32S() {
-        method.visitInsn(Opcodes.I2L);
+        method.visitInsn(I2L);
         replaceTopOperandType(ValueType.I64);
     }
 
@@ -1449,7 +1516,7 @@ final class ModuleTranslator {
     }
 
     private void translateF32ConvertI32S() {
-        method.visitInsn(Opcodes.I2F);
+        method.visitInsn(I2F);
         replaceTopOperandType(ValueType.F32);
     }
 
@@ -1459,7 +1526,7 @@ final class ModuleTranslator {
     }
 
     private void translateF32ConvertI64S() {
-        method.visitInsn(Opcodes.L2F);
+        method.visitInsn(L2F);
         replaceTopOperandType(ValueType.F32);
     }
 
@@ -1469,12 +1536,12 @@ final class ModuleTranslator {
     }
 
     private void translateF32DemoteF64() {
-        method.visitInsn(Opcodes.D2F);
+        method.visitInsn(D2F);
         replaceTopOperandType(ValueType.F32);
     }
 
     private void translateF64ConvertI32S() {
-        method.visitInsn(Opcodes.I2D);
+        method.visitInsn(I2D);
         replaceTopOperandType(ValueType.F64);
     }
 
@@ -1484,7 +1551,7 @@ final class ModuleTranslator {
     }
 
     private void translateF64ConvertI64S() {
-        method.visitInsn(Opcodes.L2D);
+        method.visitInsn(L2D);
         replaceTopOperandType(ValueType.F64);
     }
 
@@ -1494,7 +1561,7 @@ final class ModuleTranslator {
     }
 
     private void translateF64PromoteF32() {
-        method.visitInsn(Opcodes.F2D);
+        method.visitInsn(F2D);
         replaceTopOperandType(ValueType.F64);
     }
 
@@ -1519,32 +1586,32 @@ final class ModuleTranslator {
     }
 
     private void translateI32Extend8S() {
-        method.visitInsn(Opcodes.I2B);
+        method.visitInsn(I2B);
     }
 
     private void translateI32Extend16S() {
-        method.visitInsn(Opcodes.I2S);
+        method.visitInsn(I2S);
     }
 
     private void translateI64Extend8S() {
-        method.visitInsn(Opcodes.L2I);
-        method.visitInsn(Opcodes.I2B);
-        method.visitInsn(Opcodes.I2L);
+        method.visitInsn(L2I);
+        method.visitInsn(I2B);
+        method.visitInsn(I2L);
     }
 
     private void translateI64Extend16S() {
-        method.visitInsn(Opcodes.L2I);
-        method.visitInsn(Opcodes.I2S);
-        method.visitInsn(Opcodes.L2I);
+        method.visitInsn(L2I);
+        method.visitInsn(I2S);
+        method.visitInsn(L2I);
     }
 
     private void translateI64Extend32S() {
-        method.visitInsn(Opcodes.L2I);
-        method.visitInsn(Opcodes.I2L);
+        method.visitInsn(L2I);
+        method.visitInsn(I2L);
     }
 
     private void translateRefNull() throws TranslationException, IOException {
-        method.visitInsn(Opcodes.ACONST_NULL);
+        method.visitInsn(ACONST_NULL);
         operandStack.add(nextReferenceType().toValueType());
     }
 
@@ -1562,8 +1629,8 @@ final class ModuleTranslator {
         }
         else {
             var type = definedFunctions.get(index - importedFunctions.size());
-            var signature = type.getSignatureString();
-            var handle = new Handle(Opcodes.H_INVOKESPECIAL, internalName, name, signature, false);
+            var signature = type.getDescriptor();
+            var handle = new Handle(H_INVOKESPECIAL, internalName, name, signature, false);
             method.visitLdcInsn(handle);
         }
 
@@ -1595,7 +1662,7 @@ final class ModuleTranslator {
     }
 
     private void translateI32TruncSatF32S() {
-        method.visitInsn(Opcodes.F2I);
+        method.visitInsn(F2I);
         replaceTopOperandType(ValueType.I32);
     }
 
@@ -1605,7 +1672,7 @@ final class ModuleTranslator {
     }
 
     private void translateI32TruncSatF64S() {
-        method.visitInsn(Opcodes.D2I);
+        method.visitInsn(D2I);
         replaceTopOperandType(ValueType.I32);
     }
 
@@ -1615,7 +1682,7 @@ final class ModuleTranslator {
     }
 
     private void translateI64TruncSatF32S() {
-        method.visitInsn(Opcodes.F2L);
+        method.visitInsn(F2L);
         replaceTopOperandType(ValueType.I64);
     }
 
@@ -1625,7 +1692,7 @@ final class ModuleTranslator {
     }
 
     private void translateI64TruncSatF64S() {
-        method.visitInsn(Opcodes.D2L);
+        method.visitInsn(D2L);
         replaceTopOperandType(ValueType.I64);
     }
 
@@ -1769,27 +1836,27 @@ final class ModuleTranslator {
         for (var i = 0; i < target.parameterTypes().size(); i++) {
             switch (operandStack.get(operandStack.size() - i - 1)) {
                 case I32 -> {
-                    method.visitVarInsn(Opcodes.ISTORE, localOffset);
+                    method.visitVarInsn(ISTORE, localOffset);
                     localOffset += 1;
                 }
 
                 case F32 -> {
-                    method.visitVarInsn(Opcodes.FSTORE, localOffset);
+                    method.visitVarInsn(FSTORE, localOffset);
                     localOffset += 1;
                 }
 
                 case FUNCREF, EXTERNREF -> {
-                    method.visitVarInsn(Opcodes.ASTORE, localOffset);
+                    method.visitVarInsn(ASTORE, localOffset);
                     localOffset += 1;
                 }
 
                 case I64 -> {
-                    method.visitVarInsn(Opcodes.LSTORE, localOffset);
+                    method.visitVarInsn(LSTORE, localOffset);
                     localOffset += 2;
                 }
 
                 case F64 -> {
-                    method.visitVarInsn(Opcodes.DSTORE, localOffset);
+                    method.visitVarInsn(DSTORE, localOffset);
                     localOffset += 2;
                 }
             }
@@ -1797,24 +1864,24 @@ final class ModuleTranslator {
 
         for (var i = 0; i < target.parameterTypes().size(); i++) {
             if (operandStack.get(operandStack.size() - i - 1).isDoubleWidth()) {
-                method.visitInsn(Opcodes.POP2);
+                method.visitInsn(POP2);
             }
             else {
-                method.visitInsn(Opcodes.POP);
+                method.visitInsn(POP);
             }
         }
 
         for (var parameterType : target.parameterTypes()) {
             switch (parameterType) {
-                case I32 -> method.visitVarInsn(Opcodes.ILOAD, (localOffset -= 1));
-                case F32 -> method.visitVarInsn(Opcodes.FLOAD, (localOffset -= 1));
-                case I64 -> method.visitVarInsn(Opcodes.LLOAD, (localOffset -= 2));
-                case F64 -> method.visitVarInsn(Opcodes.DLOAD, (localOffset -= 2));
-                case FUNCREF, EXTERNREF -> method.visitVarInsn(Opcodes.ALOAD, (localOffset -= 1));
+                case I32 -> method.visitVarInsn(ILOAD, (localOffset -= 1));
+                case F32 -> method.visitVarInsn(FLOAD, (localOffset -= 1));
+                case I64 -> method.visitVarInsn(LLOAD, (localOffset -= 2));
+                case F64 -> method.visitVarInsn(DLOAD, (localOffset -= 2));
+                case FUNCREF, EXTERNREF -> method.visitVarInsn(ALOAD, (localOffset -= 1));
             }
         }
 
-        method.visitJumpInsn(Opcodes.GOTO, target.targetLabel());
+        method.visitJumpInsn(GOTO, target.targetLabel());
     }
 
     private @NotNull FunctionType nextBlockType() throws IOException, TranslationException {
@@ -1834,48 +1901,6 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid block type");
             };
         }
-    }
-
-    private void emitReturn() {
-        // var returnTypes = labelStack.get(0).parameterTypes();
-
-        // if (returnTypes == null) {
-        //     method.visitInsn(Opcodes.RETURN);
-        // }
-        // else if (returnTypes instanceof ValueType returnType) {
-        //     var opcode = switch (returnType) {
-        //         case I32 -> Opcodes.IRETURN;
-        //         case F32 -> Opcodes.FRETURN;
-        //         case I64 -> Opcodes.LRETURN;
-        //         case F64 -> Opcodes.DRETURN;
-        //         case FUNCREF, EXTERNREF -> Opcodes.ARETURN;
-        //     };
-
-        //     method.visitInsn(opcode);
-        // }
-        // else {
-        //     var returnTypesArray = (ValueType[]) returnTypes;
-        //     var signatureChars = new char[returnTypesArray.length];
-
-        //     for (var i = 0; i < returnTypesArray.length; i++) {
-        //         signatureChars[i] = switch (returnTypesArray[i]) {
-        //             case I32 -> 'I';
-        //             case I64 -> 'J';
-        //             case F32 -> 'F';
-        //             case F64 -> 'D';
-        //             case FUNCREF, EXTERNREF -> 'L';
-        //         };
-        //     }
-
-        //     var signature = new String(signatureChars);
-        //     var tupleClass = getTupleClass(signature);
-        //     var internalName = getInternalName(tupleClass);
-        //     var constructorDescriptor = getConstructorDescriptor(tupleClass.getConstructors()[0]);
-
-        //     method.visitTypeInsn(Opcodes.NEW, internalName);
-        //     method.visitMethodInsn(Opcodes.INVOKESPECIAL, internalName, "<init>", constructorDescriptor, false);
-        //     method.visitInsn(Opcodes.ARETURN);
-        // }
     }
 
     private void emitHelperCall(String name, String descriptor) {

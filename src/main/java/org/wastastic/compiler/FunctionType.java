@@ -9,12 +9,37 @@ import java.util.List;
 final class FunctionType {
     private final @NotNull List<ValueType> parameterTypes;
     private final @NotNull List<ValueType> returnTypes;
+    private final @NotNull String descriptor;
 
-    private @Nullable String signatureString;
+    private final @Nullable Class<?> returnTupleClass;
 
     FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) {
         this.parameterTypes = parameterTypes;
         this.returnTypes = returnTypes;
+
+        var descriptorBuilder = new StringBuilder("(");
+
+        for (var type : parameterTypes) {
+            descriptorBuilder.append(type.getDescriptor());
+        }
+
+        descriptorBuilder.append("Lorg/wastastic/Module;");
+
+        if (returnTypes.size() < 2) {
+            returnTupleClass = null;
+            if (returnTypes.isEmpty()) {
+                descriptorBuilder.append('V');
+            }
+            else {
+                descriptorBuilder.append(returnTypes.get(0).getDescriptor());
+            }
+        }
+        else {
+            returnTupleClass = Tuples.getTupleClass(returnTypes);
+            descriptorBuilder.append(Type.getDescriptor(returnTupleClass));
+        }
+
+        descriptor = descriptorBuilder.toString();
     }
 
     @NotNull List<ValueType> getParameterTypes() {
@@ -25,40 +50,11 @@ final class FunctionType {
         return returnTypes;
     }
 
-    @NotNull String getSignatureString() {
-        if (signatureString != null) {
-            return signatureString;
-        } else {
-            return (signatureString = makeSignatureString());
-        }
+    @Nullable Class<?> getReturnTupleClass() {
+        return returnTupleClass;
     }
 
-    private @NotNull String makeSignatureString() {
-        var builder = new StringBuilder("(");
-
-        for (var type : parameterTypes) {
-            builder.append(type.getDescriptor());
-        }
-
-        builder.append(')');
-
-        if (returnTypes.size() == 0) {
-            builder.append('V');
-        }
-        else if (returnTypes.size() == 1) {
-            builder.append(returnTypes.get(0).getDescriptor());
-        }
-        else {
-            var tupleSignatureChars = new char[returnTypes.size()];
-
-            for (var i = 0; i < returnTypes.size(); i++) {
-                 tupleSignatureChars[i] = returnTypes.get(i).getTupleSignatureCharacter();
-            }
-
-            var descriptor = Type.getDescriptor(Tuples.getTupleClass(new String(tupleSignatureChars)));
-            builder.append(descriptor);
-        }
-
-        return builder.toString();
+    @NotNull String getDescriptor() {
+        return descriptor;
     }
 }

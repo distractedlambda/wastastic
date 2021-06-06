@@ -2,41 +2,39 @@ package org.wastastic.compiler;
 
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Opcodes;
 
 import java.lang.invoke.MethodHandles;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static java.util.Objects.requireNonNull;
+import static org.objectweb.asm.Opcodes.ACC_FINAL;
+import static org.objectweb.asm.Opcodes.DUP;
+import static org.objectweb.asm.Opcodes.PUTFIELD;
+import static org.objectweb.asm.Opcodes.RETURN;
+import static org.objectweb.asm.Opcodes.V16;
 
 final class Tuples {
     private Tuples() {}
 
-    static @NotNull Class<?> getTupleClass(@NotNull String signature) {
-        return TUPLE_CLASSES.computeIfAbsent(requireNonNull(signature), sig -> {
-            if (sig.length() < 2) {
-                throw new IllegalArgumentException("Invalid signature: '" + sig + "'");
+    static @NotNull Class<?> getTupleClass(@NotNull List<ValueType> types) {
+        return TUPLE_CLASSES.computeIfAbsent(types, key -> {
+            var suffixChars = new char[key.size()];
+            for (var i = 0; i < suffixChars.length; i++) {
+                suffixChars[i] = key.get(i).getTupleSuffixChar();
             }
 
-            var internalName = "org/wastastic/Tuple-" + sig;
+            var internalName = "org/wastastic/Tuple-" + new String(suffixChars);
 
-            var writer = new ClassWriter(0);
-            writer.visit(Opcodes.V16, Opcodes.ACC_FINAL, internalName, null, "java/lang/Object", null);
+            var writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+            writer.visit(V16, ACC_FINAL, internalName, null, "java/lang/Object", null);
 
             var constructorDescriptor = new StringBuilder("(");
 
-            for (var i = 0; i < sig.length(); i++) {
-                var descriptor = switch (sig.charAt(i)) {
-                    case 'I' -> "I";
-                    case 'J' -> "J";
-                    case 'F' -> "F";
-                    case 'D' -> "D";
-                    case 'L' -> "Ljava/lang/Object;";
-                    default -> throw new IllegalArgumentException("Invalid signature: '" + sig + "'");
-                };
-
-                writer.visitField(Opcodes.ACC_FINAL, Integer.toString(i), descriptor, null, null);
-                constructorDescriptor.append(descriptor);
+            for (var i = 0; i < key.size(); i++) {
+                var type = key.get(i);
+                var fieldDescriptor = type.getErasedDescriptor();
+                writer.visitField(ACC_FINAL, "" + i, fieldDescriptor, null, null);
+                constructorDescriptor.append(fieldDescriptor);
             }
 
             constructorDescriptor.append(")V");
@@ -44,52 +42,17 @@ final class Tuples {
             var constructorWriter = writer.visitMethod(0, "<init>", constructorDescriptor.toString(), null, null);
             constructorWriter.visitCode();
 
-            var maxStack = 3;
             var localIndex = 0;
-            for (var i = 0; i < sig.length(); i++) {
-                constructorWriter.visitInsn(Opcodes.DUP);
-                switch (sig.charAt(i)) {
-                    case 'I' -> {
-                        constructorWriter.visitVarInsn(Opcodes.ILOAD, localIndex);
-                        constructorWriter.visitFieldInsn(Opcodes.PUTFIELD, internalName, Integer.toString(i), "I");
-                        localIndex += 1;
-                    }
-
-                    case 'J' -> {
-                        constructorWriter.visitVarInsn(Opcodes.LLOAD, localIndex);
-                        constructorWriter.visitFieldInsn(Opcodes.PUTFIELD, internalName, Integer.toString(i), "J");
-                        localIndex += 2;
-                        maxStack = 4;
-                    }
-
-                    case 'F' -> {
-                        constructorWriter.visitVarInsn(Opcodes.FLOAD, localIndex);
-                        constructorWriter.visitFieldInsn(Opcodes.PUTFIELD, internalName, Integer.toString(i), "F");
-                        localIndex += 1;
-                    }
-
-                    case 'D' -> {
-                        constructorWriter.visitVarInsn(Opcodes.DLOAD, localIndex);
-                        constructorWriter.visitFieldInsn(Opcodes.PUTFIELD, internalName, Integer.toString(i), "D");
-                        localIndex += 2;
-                        maxStack = 4;
-                    }
-
-                    case 'L' -> {
-                        constructorWriter.visitVarInsn(Opcodes.ALOAD, localIndex);
-                        constructorWriter.visitFieldInsn(
-                            Opcodes.PUTFIELD,
-                            internalName,
-                            Integer.toString(i),
-                            "Ljava/lang/Object"
-                        );
-                        localIndex += 1;
-                    }
-                }
+            for (var i = 0; i < key.size(); i++) {
+                var type = key.get(i);
+                constructorWriter.visitInsn(DUP);
+                constructorWriter.visitVarInsn(type.getLocalLoadOpcode(), localIndex);
+                constructorWriter.visitFieldInsn(PUTFIELD, internalName, "" + i, type.getErasedDescriptor());
+                localIndex += type.getWidth();
             }
 
-            constructorWriter.visitInsn(Opcodes.RETURN);
-            constructorWriter.visitMaxs(maxStack, localIndex);
+            constructorWriter.visitInsn(RETURN);
+            constructorWriter.visitMaxs(0, 0);
             constructorWriter.visitEnd();
 
             writer.visitEnd();
@@ -102,5 +65,5 @@ final class Tuples {
         });
     }
 
-    private static final ConcurrentHashMap<String, Class<?>> TUPLE_CLASSES = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<List<ValueType>, Class<?>> TUPLE_CLASSES = new ConcurrentHashMap<>();
 }
