@@ -6,6 +6,9 @@ import org.objectweb.asm.Type;
 
 import java.util.List;
 
+import static org.objectweb.asm.Opcodes.ARETURN;
+import static org.objectweb.asm.Opcodes.RETURN;
+
 final class FunctionType {
     private final @NotNull List<ValueType> parameterTypes;
     private final @NotNull List<ValueType> returnTypes;
@@ -20,7 +23,7 @@ final class FunctionType {
         var descriptorBuilder = new StringBuilder("(");
 
         for (var type : parameterTypes) {
-            descriptorBuilder.append(type.getDescriptor());
+            descriptorBuilder.append(type.descriptor());
         }
 
         descriptorBuilder.append("Lorg/wastastic/Module;");
@@ -31,7 +34,7 @@ final class FunctionType {
                 descriptorBuilder.append('V');
             }
             else {
-                descriptorBuilder.append(returnTypes.get(0).getDescriptor());
+                descriptorBuilder.append(returnTypes.get(0).descriptor());
             }
         }
         else {
@@ -42,19 +45,31 @@ final class FunctionType {
         descriptor = descriptorBuilder.toString();
     }
 
-    @NotNull List<ValueType> getParameterTypes() {
+    @NotNull List<ValueType> parameterTypes() {
         return parameterTypes;
     }
 
-    @NotNull List<ValueType> getReturnTypes() {
+    @NotNull List<ValueType> returnTypes() {
         return returnTypes;
     }
 
-    @Nullable Class<?> getReturnTupleClass() {
+    @Nullable Class<?> returnTupleClass() {
         return returnTupleClass;
     }
 
-    @NotNull String getDescriptor() {
+    @NotNull String descriptor() {
         return descriptor;
+    }
+
+    int returnOpcode() {
+        if (returnTypes.isEmpty()) {
+            return RETURN;
+        }
+        else if (returnTypes.size() == 1) {
+            return returnTypes.get(0).returnOpcode();
+        }
+        else {
+            return ARETURN;
+        }
     }
 }

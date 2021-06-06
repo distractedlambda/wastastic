@@ -20,7 +20,7 @@ final class Tuples {
         return TUPLE_CLASSES.computeIfAbsent(types, key -> {
             var suffixChars = new char[key.size()];
             for (var i = 0; i < suffixChars.length; i++) {
-                suffixChars[i] = key.get(i).getTupleSuffixChar();
+                suffixChars[i] = key.get(i).tupleSuffixChar();
             }
 
             var internalName = "org/wastastic/Tuple-" + new String(suffixChars);
@@ -32,7 +32,7 @@ final class Tuples {
 
             for (var i = 0; i < key.size(); i++) {
                 var type = key.get(i);
-                var fieldDescriptor = type.getErasedDescriptor();
+                var fieldDescriptor = type.erasedDescriptor();
                 writer.visitField(ACC_FINAL, "" + i, fieldDescriptor, null, null);
                 constructorDescriptor.append(fieldDescriptor);
             }
@@ -46,9 +46,9 @@ final class Tuples {
             for (var i = 0; i < key.size(); i++) {
                 var type = key.get(i);
                 constructorWriter.visitInsn(DUP);
-                constructorWriter.visitVarInsn(type.getLocalLoadOpcode(), localIndex);
-                constructorWriter.visitFieldInsn(PUTFIELD, internalName, "" + i, type.getErasedDescriptor());
-                localIndex += type.getWidth();
+                constructorWriter.visitVarInsn(type.localLoadOpcode(), localIndex);
+                constructorWriter.visitFieldInsn(PUTFIELD, internalName, "" + i, type.erasedDescriptor());
+                localIndex += type.width();
             }
 
             constructorWriter.visitInsn(RETURN);
