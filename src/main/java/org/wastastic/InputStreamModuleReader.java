@@ -1,7 +1,7 @@
 package org.wastastic;
 
 import org.jetbrains.annotations.NotNull;
-import org.wastastic.compiler.ModuleReader;
+import org.wastastic.translator.ModuleReader;
 
 import java.io.EOFException;
 import java.io.IOException;

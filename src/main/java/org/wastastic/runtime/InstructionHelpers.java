@@ -2,6 +2,9 @@ package org.wastastic.runtime;
 
 import org.wastastic.TrapException;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodType;
+
 public final class InstructionHelpers {
     private InstructionHelpers() {}
 
@@ -418,6 +421,12 @@ public final class InstructionHelpers {
         }
         else {
             return (long) operand;
+        }
+    }
+
+    public static void checkFunctionType(Object function, MethodType type) {
+        if (!(function instanceof MethodHandle handle) || !handle.type().equals(type)) {
+            throw new TrapException();
         }
     }
 }
