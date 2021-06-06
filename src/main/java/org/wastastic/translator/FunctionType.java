@@ -26,7 +26,7 @@ final class FunctionType {
             descriptorBuilder.append(type.descriptor());
         }
 
-        descriptorBuilder.append("Lorg/wastastic/Module;");
+        descriptorBuilder.append(ModuleTranslator.DESCRIPTOR);
 
         if (returnTypes.size() < 2) {
             returnTupleClass = null;
