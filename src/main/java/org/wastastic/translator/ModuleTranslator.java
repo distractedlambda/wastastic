@@ -67,6 +67,7 @@ import static org.objectweb.asm.Opcodes.ICONST_5;
 import static org.objectweb.asm.Opcodes.ICONST_M1;
 import static org.objectweb.asm.Opcodes.IFEQ;
 import static org.objectweb.asm.Opcodes.IMUL;
+import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.IOR;
@@ -89,6 +90,7 @@ import static org.objectweb.asm.Opcodes.LSHR;
 import static org.objectweb.asm.Opcodes.LSUB;
 import static org.objectweb.asm.Opcodes.LUSHR;
 import static org.objectweb.asm.Opcodes.LXOR;
+import static org.objectweb.asm.Opcodes.NEW;
 import static org.objectweb.asm.Opcodes.POP;
 import static org.objectweb.asm.Opcodes.POP2;
 import static org.objectweb.asm.Opcodes.PUTFIELD;
@@ -118,6 +120,7 @@ final class ModuleTranslator {
     private final ArrayList<ImportedGlobal> importedGlobals = new ArrayList<>();
     private final ArrayList<DefinedGlobal> definedGlobals = new ArrayList<>();
     private final ArrayList<Export> exports = new ArrayList<>();
+    private final ArrayList<ElementSegment> elementSegments = new ArrayList<>();
 
     private int moduleLocalIndex;
     private int scratchLocalStartIndex;
@@ -171,6 +174,10 @@ final class ModuleTranslator {
                 case SECTION_GLOBAL -> translateGlobalSection();
                 case SECTION_EXPORT -> translateExportSection();
                 case SECTION_START -> translateStartSection();
+                case SECTION_ELEMENT -> translateElementSection();
+                case SECTION_CODE -> translateCodeSection();
+                case SECTION_DATA -> translateDataSection();
+                case SECTION_DATA_COUNT -> translateDataCountSection();
                 default -> throw new TranslationException("Invalid section ID");
             }
         }
@@ -359,17 +366,26 @@ final class ModuleTranslator {
 
             clazz.visitField(access, fieldName, type.descriptor(), null, null);
 
-            var initialValue = switch (reader.nextByte()) {
-                case OP_GLOBAL_GET -> new ImportedGlobalConstant(reader.nextUnsigned32());
-                case OP_I32_CONST -> new I32Constant(reader.nextSigned32());
-                case OP_I64_CONST -> new I64Constant(reader.nextSigned64());
-                case OP_REF_NULL -> NullConstant.INSTANCE;
-                case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
-                default -> throw new TranslationException("Invalid constant expression");
-            };
-
+            var initialValue = nextConstantExpression();
             definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), initialValue));
         }
+    }
+
+    private @NotNull Constant nextConstantExpression() throws IOException, TranslationException {
+        var value = switch (reader.nextByte()) {
+            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
+            case OP_I32_CONST -> new I32Constant(reader.nextSigned32());
+            case OP_I64_CONST -> new I64Constant(reader.nextSigned64());
+            case OP_REF_NULL -> NullConstant.INSTANCE;
+            case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
+            default -> throw new TranslationException("Invalid constant expression");
+        };
+
+        if (reader.nextByte() != OP_END) {
+            throw new TranslationException("Invalid constant expression");
+        }
+
+        return value;
     }
 
     private void translateExportSection() throws IOException, TranslationException {
@@ -394,6 +410,241 @@ final class ModuleTranslator {
 
     private void translateStartSection() throws IOException {
         startFunctionIndex = reader.nextUnsigned32();
+    }
+
+    private int nextI32ConstantExpression() throws TranslationException, IOException {
+        var value = switch (reader.nextByte()) {
+            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
+            case OP_I32_CONST -> reader.nextSigned32();
+            default -> throw new TranslationException("Invalid i32 constant expression");
+        };
+
+        if (reader.nextByte() != OP_END) {
+            throw new TranslationException("Invalid i32 constant expression");
+        }
+
+        return value;
+    }
+
+    private void nextElementKind() throws IOException, TranslationException {
+        if (reader.nextByte() != 0) {
+            throw new TranslationException("Unsupported elemkind");
+        }
+    }
+
+    private void translateElementSection() throws IOException, TranslationException {
+        for (var remaining = reader.nextUnsigned32(); remaining != 0; remaining--) {
+            translateElementSegment();
+        }
+    }
+
+    private void translateElementSegment() throws IOException, TranslationException {
+        Constant[] values;
+        int tableIndex;
+        int tableOffset;
+
+        switch (reader.nextByte()) {
+            case 0x00 -> {
+                tableIndex = 0;
+                tableOffset = nextI32ConstantExpression();
+                var functionIndexCount = reader.nextUnsigned32();
+                values = new Constant[functionIndexCount];
+                for (var i = 0; i < functionIndexCount; i++) {
+                    values[i] = new FunctionRefConstant(reader.nextUnsigned32());
+                }
+            }
+
+            case 0x01 -> {
+                tableIndex = -1;
+                tableOffset = -1;
+                nextElementKind();
+                var functionIndexCount = reader.nextUnsigned32();
+                values = new Constant[functionIndexCount];
+                for (var i = 0; i < functionIndexCount; i++) {
+                    values[i] = new FunctionRefConstant(reader.nextUnsigned32());
+                }
+            }
+
+            case 0x02 -> {
+                tableIndex = reader.nextUnsigned32();
+                tableOffset = nextI32ConstantExpression();
+                nextElementKind();
+                var functionIndexCount = reader.nextUnsigned32();
+                values = new Constant[functionIndexCount];
+                for (var i = 0; i < functionIndexCount; i++) {
+                    values[i] = new FunctionRefConstant(reader.nextUnsigned32());
+                }
+            }
+
+            case 0x03 -> {
+                nextElementKind();
+                var functionIndexCount = reader.nextUnsigned32();
+                for (var i = 0; i < functionIndexCount; i++) {
+                    reader.nextUnsigned32();
+                }
+                return;
+            }
+
+            case 0x04 -> {
+                tableIndex = 0;
+                tableOffset = nextI32ConstantExpression();
+                var exprCount = reader.nextUnsigned32();
+                values = new Constant[exprCount];
+                for (var i = 0; i < exprCount; i++) {
+                    values[i] = nextFunctionRefConstant();
+                }
+            }
+
+            case 0x05 -> {
+                tableIndex = -1;
+                tableOffset = -1;
+                var type = nextReferenceType();
+                var exprCount = reader.nextUnsigned32();
+                values = new Constant[exprCount];
+                switch (type) {
+                    case FUNCREF -> {
+                        for (var i = 0; i < exprCount; i++) {
+                            values[i] = nextFunctionRefConstant();
+                        }
+                    }
+
+                    case EXTERNREF -> {
+                        for (var i = 0; i < exprCount; i++) {
+                            values[i] = nextExternRefConstant();
+                        }
+                    }
+                }
+            }
+
+            case 0x06 -> {
+                tableIndex = reader.nextUnsigned32();
+                tableOffset = nextI32ConstantExpression();
+                var type = nextReferenceType();
+                var exprCount = reader.nextUnsigned32();
+                values = new Constant[exprCount];
+                switch (type) {
+                    case FUNCREF -> {
+                        for (var i = 0; i < exprCount; i++) {
+                            values[i] = nextFunctionRefConstant();
+                        }
+                    }
+
+                    case EXTERNREF -> {
+                        for (var i = 0; i < exprCount; i++) {
+                            values[i] = nextExternRefConstant();
+                        }
+                    }
+                }
+            }
+
+            case 0x07 -> {
+                nextReferenceType();
+                var type = nextReferenceType();
+                var exprCount = reader.nextUnsigned32();
+                switch (type) {
+                    case FUNCREF -> {
+                        for (var i = 0; i < exprCount; i++) {
+                            nextFunctionRefConstant();
+                        }
+                    }
+
+                    case EXTERNREF -> {
+                        for (var i = 0; i < exprCount; i++) {
+                            nextExternRefConstant();
+                        }
+                    }
+                }
+                return;
+            }
+
+            default -> throw new TranslationException("Invalid element segment");
+        }
+
+        elementSegments.add(new ElementSegment(values, tableIndex, tableOffset));
+    }
+
+    private @NotNull Constant nextExternRefConstant() throws IOException, TranslationException {
+        var value = switch (reader.nextByte()) {
+            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
+            case OP_REF_NULL -> NullConstant.INSTANCE;
+            default -> throw new TranslationException("Invalid externref constant expression");
+        };
+
+        if (reader.nextByte() != OP_END) {
+            throw new TranslationException("Invalid externref constant expression");
+        }
+
+        return value;
+    }
+
+    private @NotNull Constant nextFunctionRefConstant() throws IOException, TranslationException {
+        var value = switch (reader.nextByte()) {
+            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
+            case OP_REF_NULL -> NullConstant.INSTANCE;
+            case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
+            default -> throw new TranslationException("Invalid funcref constant expression");
+        };
+
+        if (reader.nextByte() != OP_END) {
+            throw new TranslationException("Invalid funcref constant expression");
+        }
+
+        return value;
+    }
+
+    private void translateCodeSection() {
+        // TODO
+    }
+
+    private void translateFunction(int index) throws IOException, TranslationException {
+        locals.clear();
+        operandStack.clear();
+        labelStack.clear();
+
+        var type = definedFunctions.get(index);
+
+        method = clazz.visitMethod(ACC_PRIVATE | ACC_STATIC, "f-" + index, type.descriptor(), null, null);
+
+        var nextLocalIndex = 0;
+
+        for (var parameterType : type.parameterTypes()) {
+            locals.add(new Local(parameterType, nextLocalIndex));
+            nextLocalIndex += parameterType.width();
+        }
+
+        moduleLocalIndex = nextLocalIndex;
+        nextLocalIndex += 1;
+
+        for (var fieldVectorsRemaining = reader.nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
+            var fieldsRemaining = reader.nextUnsigned32();
+            var fieldType = nextValueType();
+            for (; fieldsRemaining != 0; fieldsRemaining--) {
+                locals.add(new Local(fieldType, nextLocalIndex));
+                nextLocalIndex += fieldType.width();
+            }
+        }
+
+        scratchLocalStartIndex = nextLocalIndex;
+
+        var returnLabel = new Label();
+        labelStack.add(new LabelScope(returnLabel, type.returnTypes(), 0, returnLabel, null, null));
+
+        while (!labelStack.isEmpty()) {
+            translateInstruction();
+        }
+
+        if (type.returnTupleClass() != null) {
+            var returnTupleClass = type.returnTupleClass();
+            method.visitMethodInsn(INVOKESTATIC, Type.getDescriptor(returnTupleClass), "create", returnTupleClass);
+        }
+    }
+
+    private void translateDataSection() {
+        // TODO
+    }
+
+    private void translateDataCountSection() {
+        // TODO
     }
 
     private void translateInstruction() throws IOException, TranslationException {

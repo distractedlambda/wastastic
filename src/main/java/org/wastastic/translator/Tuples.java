@@ -8,7 +8,12 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.objectweb.asm.Opcodes.ACC_FINAL;
+import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
+import static org.objectweb.asm.Opcodes.ACC_STATIC;
+import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.DUP;
+import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
+import static org.objectweb.asm.Opcodes.NEW;
 import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Opcodes.V16;
@@ -28,18 +33,19 @@ final class Tuples {
             var writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
             writer.visit(V16, ACC_FINAL, internalName, null, "java/lang/Object", null);
 
-            var constructorDescriptor = new StringBuilder("(");
+            var baseDescriptorBuilder = new StringBuilder("(");
 
             for (var i = 0; i < key.size(); i++) {
                 var type = key.get(i);
                 var fieldDescriptor = type.erasedDescriptor();
                 writer.visitField(ACC_FINAL, "" + i, fieldDescriptor, null, null);
-                constructorDescriptor.append(fieldDescriptor);
+                baseDescriptorBuilder.append(fieldDescriptor);
             }
 
-            constructorDescriptor.append(")V");
+            baseDescriptorBuilder.append(')');
+            var baseDescriptor = baseDescriptorBuilder.toString();
 
-            var constructorWriter = writer.visitMethod(0, "<init>", constructorDescriptor.toString(), null, null);
+            var constructorWriter = writer.visitMethod(ACC_PRIVATE, "<init>", baseDescriptor + 'V', null, null);
             constructorWriter.visitCode();
 
             var localIndex = 0;
@@ -54,6 +60,21 @@ final class Tuples {
             constructorWriter.visitInsn(RETURN);
             constructorWriter.visitMaxs(0, 0);
             constructorWriter.visitEnd();
+
+            var factoryWriter = writer.visitMethod(ACC_STATIC, "create", baseDescriptor + 'L' + internalName + ';', null, null);
+            factoryWriter.visitCode();
+            factoryWriter.visitTypeInsn(NEW, internalName);
+
+            var nextArgumentIndex = 0;
+            for (var parameterType : key) {
+                factoryWriter.visitVarInsn(parameterType.localLoadOpcode(), nextArgumentIndex);
+                nextArgumentIndex += parameterType.width();
+            }
+
+            factoryWriter.visitMethodInsn(INVOKESPECIAL, internalName, "<init>", baseDescriptor + 'V', false);
+            factoryWriter.visitInsn(ARETURN);
+            factoryWriter.visitMaxs(0, 0);
+            factoryWriter.visitEnd();
 
             writer.visitEnd();
 
