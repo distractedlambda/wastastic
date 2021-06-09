@@ -2,6 +2,8 @@ package org.wastastic;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.invoke.MethodHandle;
+
 import static org.objectweb.asm.Opcodes.ALOAD;
 import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.ASTORE;
@@ -98,6 +100,17 @@ enum ValueType {
             case F32 -> FRETURN;
             case F64 -> DRETURN;
             case FUNCREF, EXTERNREF -> ARETURN;
+        };
+    }
+
+    @NotNull Class<?> jvmType() {
+        return switch (this) {
+            case I32 -> int.class;
+            case I64 -> long.class;
+            case F32 -> float.class;
+            case F64 -> double.class;
+            case FUNCREF -> MethodHandle.class;
+            case EXTERNREF -> Object.class;
         };
     }
 }

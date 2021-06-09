@@ -3,8 +3,10 @@ package org.wastastic;
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Type;
 
+import java.lang.invoke.MethodType;
 import java.util.List;
 
+import static java.lang.invoke.MethodType.methodType;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Type.getMethodType;
 
@@ -66,5 +68,17 @@ final class FunctionType {
         else {
             throw new AssertionError();
         }
+    }
+
+    @NotNull MethodType jvmType(Class<?> moduleInstanceType) {
+        var jvmParameterTypes = new Class<?>[parameterTypes().size() + 1];
+
+        for (var i = 0; i < parameterTypes.size(); i++) {
+            jvmParameterTypes[i] = parameterTypes.get(i).jvmType();
+        }
+
+        jvmParameterTypes[parameterTypes.size()] = moduleInstanceType;
+
+        return methodType(returnTypes.get(0).jvmType(), jvmParameterTypes);
     }
 }
