@@ -15,6 +15,9 @@ public final class Memory {
     static final int PAGE_SIZE = 65536;
     static final int MAX_MAX_PAGE_COUNT = (int) (toUnsignedLong(-1) / PAGE_SIZE);
 
+    static final String INTERNAL_NAME = "org/wastastic/Memory";
+    static final String DESCRIPTOR = "Lorg/wastastic/Memory;";
+
     static final VarHandle VH_BYTE = MemoryHandles.varHandle(byte.class, 1, LITTLE_ENDIAN);
     static final VarHandle VH_SHORT = MemoryHandles.varHandle(short.class, 1, LITTLE_ENDIAN);
     static final VarHandle VH_INT = MemoryHandles.varHandle(int.class, 1, LITTLE_ENDIAN);

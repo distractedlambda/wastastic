@@ -1,16 +1,18 @@
 package org.wastastic;
 
+import org.jetbrains.annotations.NotNull;
+
 enum ReferenceType {
     FUNCREF(ValueType.FUNCREF),
     EXTERNREF(ValueType.EXTERNREF);
 
-    private final ValueType valueType;
+    private final @NotNull ValueType valueType;
 
-    ReferenceType(ValueType valueType) {
+    ReferenceType(@NotNull ValueType valueType) {
         this.valueType = valueType;
     }
 
-    ValueType toValueType() {
+    @NotNull ValueType toValueType() {
         return valueType;
     }
 }

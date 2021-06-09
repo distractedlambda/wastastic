@@ -5,8 +5,8 @@ import org.jetbrains.annotations.NotNull;
 final class ImportedTable extends Import {
     private final @NotNull TableType type;
 
-    ImportedTable(@NotNull String moduleName, @NotNull String name, @NotNull TableType type) {
-        super(moduleName, name);
+    ImportedTable(@NotNull QualifiedName qualifiedName, @NotNull TableType type) {
+        super(qualifiedName);
         this.type = type;
     }
 

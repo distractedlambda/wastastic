@@ -29,7 +29,13 @@ public final class Table {
         this(initialSize, Integer.MAX_VALUE);
     }
 
-    public static @Nullable Object get(int index, @NotNull Table self) {
+    static final String INTERNAL_NAME = "org/wastastic/Table";
+    static final String DESCRIPTOR = "Lorg/wastastic/Table;";
+
+    static final String GET_NAME = "get";
+    static final String GET_DESCRIPTOR = "(ILorg/wastastic/Table;)Ljava/lang/Object;";
+
+    static @Nullable Object get(int index, @NotNull Table self) {
         try {
             return self.storage[index];
         } catch (IndexOutOfBoundsException ignored) {
@@ -37,7 +43,10 @@ public final class Table {
         }
     }
 
-    public static void set(int index, @Nullable Object value, @NotNull Table self) {
+    static final String SET_NAME = "set";
+    static final String SET_DESCRIPTOR = "(ILjava/lang/Object;Lorg/wastastic/Table;)V";
+
+    static void set(int index, @Nullable Object value, @NotNull Table self) {
         try {
             self.storage[index] = value;
         } catch (IndexOutOfBoundsException ignored) {
@@ -45,11 +54,17 @@ public final class Table {
         }
     }
 
-    public static int size(@NotNull Table self) {
+    static final String SIZE_NAME = "size";
+    static final String SIZE_DESCRIPTOR = "(Lorg/wastastic/Table;)I";
+
+    static int size(@NotNull Table self) {
         return self.storage.length;
     }
 
-    public static int grow(@Nullable Object initialValue, int additionalEntries, @NotNull Table self) {
+    static final String GROW_NAME = "grow";
+    static final String GROW_DESCRIPTOR = "(Ljava/lang/Object;ILorg/wastastic/Table;)I";
+
+    static int grow(@Nullable Object initialValue, int additionalEntries, @NotNull Table self) {
         var storage = self.storage;
 
         if (additionalEntries == 0) {
@@ -75,7 +90,10 @@ public final class Table {
         return storage.length;
     }
 
-    public static void fill(int startIndex, @Nullable Object fillValue, int count, @NotNull Table self) {
+    static final String FILL_NAME = "fill";
+    static final String FILL_DESCRIPTOR = "(ILjava/lang/Object;ILorg/wastastic/Table;)V";
+
+    static void fill(int startIndex, @Nullable Object fillValue, int count, @NotNull Table self) {
         var storage = self.storage;
 
         try {
@@ -87,7 +105,10 @@ public final class Table {
         Arrays.fill(storage, startIndex, startIndex + count, fillValue);
     }
 
-    public static void copy(int dstIndex, int srcIndex, int count, @NotNull Table dst, @NotNull Table src) {
+    static final String COPY_NAME = "copy";
+    static final String COPY_DESCRIPTOR = "(IIILorg/wastastic/Table;Lorg/wastastic/Table;)V";
+
+    static void copy(int dstIndex, int srcIndex, int count, @NotNull Table dst, @NotNull Table src) {
         try {
             arraycopy(src.storage, srcIndex, dst.storage, dstIndex, count);
         } catch (IndexOutOfBoundsException ignored) {
@@ -95,7 +116,10 @@ public final class Table {
         }
     }
 
-    public static void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) {
+    static final String INIT_NAME = "init";
+    static final String INIT_DESCRIPTOR = "(III[Ljava/lang/Object;Lorg/wastastic/Table;)V";
+
+    static void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) {
         try {
             arraycopy(src, srcIndex, self.storage, dstIndex, count);
         } catch (IndexOutOfBoundsException ignored) {

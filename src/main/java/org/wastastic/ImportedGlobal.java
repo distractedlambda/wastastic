@@ -5,8 +5,8 @@ import org.jetbrains.annotations.NotNull;
 final class ImportedGlobal extends Import {
     private final @NotNull GlobalType type;
 
-    ImportedGlobal(@NotNull String moduleName, @NotNull String name, @NotNull GlobalType type) {
-        super(moduleName, name);
+    ImportedGlobal(@NotNull QualifiedName qualifiedName, @NotNull GlobalType type) {
+        super(qualifiedName);
         this.type = type;
     }
 

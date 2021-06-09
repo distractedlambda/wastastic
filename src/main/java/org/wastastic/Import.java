@@ -3,19 +3,13 @@ package org.wastastic;
 import org.jetbrains.annotations.NotNull;
 
 abstract class Import {
-    private final @NotNull String moduleName;
-    private final @NotNull String name;
+    private final @NotNull QualifiedName name;
 
-    Import(@NotNull String moduleName, @NotNull String name) {
-        this.moduleName = moduleName;
+    Import(@NotNull QualifiedName name) {
         this.name = name;
     }
 
-    final @NotNull String getModuleName() {
-        return moduleName;
-    }
-
-    final @NotNull String getName() {
+    final @NotNull QualifiedName qualifiedName() {
         return name;
     }
 }
