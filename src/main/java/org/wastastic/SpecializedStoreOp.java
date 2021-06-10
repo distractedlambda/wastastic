@@ -18,8 +18,8 @@ import static org.objectweb.asm.Opcodes.LADD;
 import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.RETURN;
-import static org.wastastic.Names.GENERATED_MODULE_DESCRIPTOR;
-import static org.wastastic.Names.GENERATED_MODULE_INTERNAL_NAME;
+import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
+import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_INTERNAL_NAME;
@@ -47,7 +47,7 @@ record SpecializedStoreOp(@NotNull Op op, int memoryIndex, int offset) {
         Op(@NotNull String name, char argumentType, char storedType) {
             this.name = name;
             this.vhSetDescriptor = "(" + MEMORY_SEGMENT_DESCRIPTOR + "J" + storedType + ")V";
-            this.methodDescriptor = "(I" + argumentType + GENERATED_MODULE_DESCRIPTOR + ")V";
+            this.methodDescriptor = "(I" + argumentType + GENERATED_INSTANCE_DESCRIPTOR + ")V";
 
             this.vhName = switch (storedType) {
                 case 'B' -> "VH_BYTE";
@@ -79,6 +79,10 @@ record SpecializedStoreOp(@NotNull Op op, int memoryIndex, int offset) {
         return "s" + op.name + "m" + memoryIndex + "o" + offset;
     }
 
+    @NotNull String methodDescriptor() {
+        return op.methodDescriptor;
+    }
+
     void writeMethod(@NotNull ClassWriter classWriter) {
         var writer = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, methodName(), op.methodDescriptor, null, null);
         writer.visitCode();
@@ -86,7 +90,7 @@ record SpecializedStoreOp(@NotNull Op op, int memoryIndex, int offset) {
         writer.visitFieldInsn(GETSTATIC, Memory.INTERNAL_NAME, op.vhName, VAR_HANDLE_DESCRIPTOR);
 
         writer.visitVarInsn(ALOAD, op.moduleArgumentFieldIndex);
-        writer.visitFieldInsn(GETFIELD, GENERATED_MODULE_INTERNAL_NAME, "m" + memoryIndex, Memory.DESCRIPTOR);
+        writer.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "m" + memoryIndex, Memory.DESCRIPTOR);
         writer.visitFieldInsn(GETFIELD, Memory.INTERNAL_NAME, "segment", MEMORY_SEGMENT_DESCRIPTOR);
 
         writer.visitVarInsn(ILOAD, 0);

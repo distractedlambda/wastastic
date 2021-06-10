@@ -9,7 +9,7 @@ import java.util.List;
 import static java.lang.invoke.MethodType.methodType;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Type.getMethodType;
-import static org.wastastic.Names.GENERATED_MODULE_DESCRIPTOR;
+import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
 
 final class FunctionType {
     private final @NotNull List<ValueType> parameterTypes;
@@ -39,7 +39,7 @@ final class FunctionType {
             builder.append(parameterType.descriptor());
         }
 
-        builder.append(GENERATED_MODULE_DESCRIPTOR);
+        builder.append(GENERATED_INSTANCE_DESCRIPTOR);
         builder.append(')');
 
         if (returnTypes.isEmpty()) {

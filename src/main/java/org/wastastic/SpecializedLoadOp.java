@@ -18,8 +18,8 @@ import static org.objectweb.asm.Opcodes.IRETURN;
 import static org.objectweb.asm.Opcodes.LADD;
 import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LRETURN;
-import static org.wastastic.Names.GENERATED_MODULE_DESCRIPTOR;
-import static org.wastastic.Names.GENERATED_MODULE_INTERNAL_NAME;
+import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
+import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_INTERNAL_NAME;
@@ -47,11 +47,12 @@ record SpecializedLoadOp(@NotNull Op op, int memoryIndex, int offset) {
 
         private final @NotNull String vhName;
         private final int returnOpcode;
+        private final @NotNull ValueType returnValueType;
 
         Op(@NotNull String name, char loadedType, char returnType) {
             this.name = name;
             this.vhGetDescriptor = "(" + MEMORY_SEGMENT_DESCRIPTOR + "L)" + loadedType;
-            this.methodDescriptor = "(I" + GENERATED_MODULE_DESCRIPTOR + ")" + returnType;
+            this.methodDescriptor = "(I" + GENERATED_INSTANCE_DESCRIPTOR + ")" + returnType;
 
             this.vhName = switch (loadedType) {
                 case 'B' -> "VH_BYTE";
@@ -70,11 +71,27 @@ record SpecializedLoadOp(@NotNull Op op, int memoryIndex, int offset) {
                 case 'D' -> DRETURN;
                 default -> throw new IllegalArgumentException();
             };
+
+            this.returnValueType = switch (returnType) {
+                case 'I' -> ValueType.I32;
+                case 'J' -> ValueType.I64;
+                case 'F' -> ValueType.F32;
+                case 'D' -> ValueType.F64;
+                default -> throw new IllegalArgumentException();
+            };
         }
     }
 
     @NotNull String methodName() {
         return "l" + op.name + "m" + memoryIndex + "o" + offset;
+    }
+
+    @NotNull String methodDescriptor() {
+        return op.methodDescriptor;
+    }
+
+    @NotNull ValueType returnType() {
+        return op.returnValueType;
     }
 
     void writeMethod(@NotNull ClassWriter classWriter) {
@@ -84,7 +101,7 @@ record SpecializedLoadOp(@NotNull Op op, int memoryIndex, int offset) {
         writer.visitFieldInsn(GETSTATIC, Memory.INTERNAL_NAME, op.vhName, VAR_HANDLE_DESCRIPTOR);
 
         writer.visitVarInsn(ALOAD, 1);
-        writer.visitFieldInsn(GETFIELD, GENERATED_MODULE_INTERNAL_NAME, "m" + memoryIndex, Memory.DESCRIPTOR);
+        writer.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "m" + memoryIndex, Memory.DESCRIPTOR);
         writer.visitFieldInsn(GETFIELD, Memory.INTERNAL_NAME, "segment", MEMORY_SEGMENT_DESCRIPTOR);
 
         writer.visitVarInsn(ILOAD, 0);
