@@ -24,7 +24,7 @@ import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_INTERNAL_NAME;
 
-record SpecializedLoadOp(@NotNull Op op, int memoryIndex, int offset) {
+record SpecializedLoad(@NotNull Op op, int memoryIndex, int offset) {
     enum Op {
         I32("i32", 'I', 'I'),
         I8_AS_I32("i8i32", 'B', 'I'),
@@ -102,14 +102,17 @@ record SpecializedLoadOp(@NotNull Op op, int memoryIndex, int offset) {
 
         writer.visitVarInsn(ALOAD, 1);
         writer.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "m" + memoryIndex, Memory.DESCRIPTOR);
-        writer.visitFieldInsn(GETFIELD, Memory.INTERNAL_NAME, "segment", MEMORY_SEGMENT_DESCRIPTOR);
+        writer.visitFieldInsn(GETFIELD, Memory.INTERNAL_NAME, Memory.SEGMENT_FIELD_NAME, Memory.SEGMENT_FIELD_DESCRIPTOR);
 
         writer.visitVarInsn(ILOAD, 0);
         writer.visitInsn(I2L);
         writer.visitLdcInsn(0xFFFF_FFFFL);
         writer.visitInsn(LAND);
-        writer.visitLdcInsn(Integer.toUnsignedLong(offset));
-        writer.visitInsn(LADD);
+
+        if (offset != 0) {
+            writer.visitLdcInsn(Integer.toUnsignedLong(offset));
+            writer.visitInsn(LADD);
+        }
 
         writer.visitMethodInsn(INVOKEVIRTUAL, VAR_HANDLE_INTERNAL_NAME, "get", op.vhGetDescriptor, false);
 

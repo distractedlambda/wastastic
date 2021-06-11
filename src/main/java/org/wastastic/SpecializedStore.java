@@ -24,7 +24,7 @@ import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_INTERNAL_NAME;
 
-record SpecializedStoreOp(@NotNull Op op, int memoryIndex, int offset) {
+record SpecializedStore(@NotNull Op op, int memoryIndex, int offset) {
     enum Op {
         I32("i32", 'I', 'I'),
         I32_AS_I8("i32i8", 'I', 'B'),
@@ -97,8 +97,11 @@ record SpecializedStoreOp(@NotNull Op op, int memoryIndex, int offset) {
         writer.visitInsn(I2L);
         writer.visitLdcInsn(0xFFFF_FFFFL);
         writer.visitInsn(LAND);
-        writer.visitLdcInsn(Integer.toUnsignedLong(offset));
-        writer.visitInsn(LADD);
+
+        if (offset != 0) {
+            writer.visitLdcInsn(Integer.toUnsignedLong(offset));
+            writer.visitInsn(LADD);
+        }
 
         writer.visitVarInsn(op.argumentLoadOpcode, 1);
 

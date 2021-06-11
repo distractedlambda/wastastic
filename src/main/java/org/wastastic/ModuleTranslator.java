@@ -96,22 +96,18 @@ import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.SWAP;
-import static org.wastastic.Names.GENERATED_CONSTRUCTOR_DESCRIPTOR;
+import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
+import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
+import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
+import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
+import static org.wastastic.Names.dataFieldName;
+import static org.wastastic.Names.functionMethodHandleFieldName;
+import static org.wastastic.Names.memoryFieldName;
+import static org.wastastic.Names.tableFieldName;
 
 final class ModuleTranslator {
-
-    private static final String MAP_INTERNAL_NAME = "java/util/Map";
-    private static final String MAP_DESCRIPTOR = "Ljava/util/Map;";
-
-    private static final String METHOD_HANDLE_INTERNAL_NAME = "java/lang/invoke/MethodHandle";
-    private static final String METHOD_HANDLE_DESCRIPTOR = "Ljava/lang/invoke/MethodHandle;";
-
-    private static final String OBJECT_DESCRIPTOR = "Ljava/lang/Object;";
-
-    private static final String MAP_GET_DESCRIPTOR = '(' + OBJECT_DESCRIPTOR + ')' + OBJECT_DESCRIPTOR;
-
     private final ModuleReader reader;
 
     private final ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
@@ -130,28 +126,16 @@ final class ModuleTranslator {
     private final ArrayList<ElementSegment> elementSegments = new ArrayList<>();
     private final ArrayList<MemorySegment> dataSegments = new ArrayList<>();
 
-    private final Set<SpecializedLoadOp> loadOps = new LinkedHashSet<>();
-    private final Set<SpecializedStoreOp> storeOps = new LinkedHashSet<>();
+    private final Set<SpecializedLoad> loadOps = new LinkedHashSet<>();
+    private final Set<SpecializedStore> storeOps = new LinkedHashSet<>();
 
-    private int moduleArgumentLocalIndex;
+    private int selfArgumentLocalIndex;
     private int firstScratchLocalIndex;
     private final ArrayList<Local> locals = new ArrayList<>();
     private final ArrayList<ValueType> operandStack = new ArrayList<>();
     private final ArrayList<LabelScope> labelStack = new ArrayList<>();
 
     private int startFunctionIndex = -1;
-
-    private static @NotNull String functionFieldName(int index) {
-        return "f-" + index + "-mh";
-    }
-
-    private static @NotNull String tableFieldName(int index) {
-        return "t-" + index;
-    }
-
-    private static @NotNull String memoryFieldName(int index) {
-        return "m-" + index;
-    }
 
     ModuleTranslator(@NotNull ModuleReader reader) {
         this.reader = reader;
@@ -204,7 +188,7 @@ final class ModuleTranslator {
             }
         }
 
-        var constructorWriter = classWriter.visitMethod(ACC_PRIVATE, "<init>", GENERATED_CONSTRUCTOR_DESCRIPTOR, null, new String[]{ModuleInstantiationException.INTERNAL_NAME});
+        var constructorWriter = classWriter.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, new String[]{ModuleInstantiationException.INTERNAL_NAME});
         constructorWriter.visitCode();
 
         for (var i = 0; i < importedFunctions.size(); i++) {
@@ -215,7 +199,7 @@ final class ModuleTranslator {
             constructorWriter.visitLdcInsn(importedFunction.qualifiedName().name());
             constructorWriter.visitLdcInsn(importedFunction.type().asmType());
             constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, Importers.IMPORT_FUNCTION_NAME, Importers.IMPORT_FUNCTION_DESCRIPTOR, false);
-            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionFieldName(i), METHOD_HANDLE_DESCRIPTOR);
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(i), METHOD_HANDLE_DESCRIPTOR);
         }
 
         for (var i = 0; i < importedTables.size(); i++) {
@@ -679,7 +663,7 @@ final class ModuleTranslator {
             nextLocalIndex += parameterType.width();
         }
 
-        moduleArgumentLocalIndex = nextLocalIndex;
+        selfArgumentLocalIndex = nextLocalIndex;
         nextLocalIndex += 1;
 
         for (var fieldVectorsRemaining = reader.nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
@@ -1044,7 +1028,7 @@ final class ModuleTranslator {
             type = definedFunctions.get(importedFunctions.size() - index);
         }
 
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, name, type.descriptor(), false);
         operandStack.subList(operandStack.size() - type.returnTypes().size(), operandStack.size()).clear();
         operandStack.addAll(type.returnTypes());
@@ -1077,7 +1061,7 @@ final class ModuleTranslator {
             functionWriter.visitVarInsn(returnType.localLoadOpcode(), nextLocalIndex);
         }
 
-        emitLoadModule();
+        emitSelfLoad();
 
         functionWriter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", type.descriptor(), false);
         operandStack.subList(operandStack.size() - type.parameterTypes().size() - 1, operandStack.size()).clear();
@@ -1136,7 +1120,7 @@ final class ModuleTranslator {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
         }
 
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, "g-" + globalIndex + "-get", "(Lorg/wastastic/Module;)" + type.descriptor(), false);
         operandStack.add(type);
     }
@@ -1152,13 +1136,13 @@ final class ModuleTranslator {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
         }
 
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, "g-" + globalIndex + "-set", "(" + type.descriptor() + "Lorg/wastastic/Module;" + ")V", false);
         popOperandType();
     }
 
     private void emitLoadTable(int index) {
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "t-" + index, "Lorg/wastastic/Table;");
     }
 
@@ -1183,135 +1167,133 @@ final class ModuleTranslator {
         popOperandType();
     }
 
-    private void translateLoad(@NotNull SpecializedLoadOp.Op op) throws IOException {
+    private void translateLoad(@NotNull SpecializedLoad.Op op) throws IOException {
         reader.nextUnsigned32(); // expected alignment (ignored)
         var offset = reader.nextUnsigned32();
-        var specializedOp = new SpecializedLoadOp(op, 0, offset);
+        var specializedOp = new SpecializedLoad(op, 0, offset);
         loadOps.add(specializedOp);
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
         replaceTopOperandType(specializedOp.returnType());
     }
 
     private void translateI32Load() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.I32);
+        translateLoad(SpecializedLoad.Op.I32);
     }
 
     private void translateI64Load() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.I64);
+        translateLoad(SpecializedLoad.Op.I64);
     }
 
     private void translateF32Load() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.F32);
+        translateLoad(SpecializedLoad.Op.F32);
     }
 
     private void translateF64Load() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.F64);
+        translateLoad(SpecializedLoad.Op.F64);
     }
 
     private void translateI32Load8S() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.I8_AS_I32);
+        translateLoad(SpecializedLoad.Op.I8_AS_I32);
     }
 
     private void translateI32Load8U() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.U8_AS_I32);
+        translateLoad(SpecializedLoad.Op.U8_AS_I32);
     }
 
     private void translateI32Load16S() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.I16_AS_I32);
+        translateLoad(SpecializedLoad.Op.I16_AS_I32);
     }
 
     private void translateI32Load16U() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.U16_AS_I32);
+        translateLoad(SpecializedLoad.Op.U16_AS_I32);
     }
 
     private void translateI64Load8S() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.I8_AS_I64);
+        translateLoad(SpecializedLoad.Op.I8_AS_I64);
     }
 
     private void translateI64Load8U() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.U8_AS_I64);
+        translateLoad(SpecializedLoad.Op.U8_AS_I64);
     }
 
     private void translateI64Load16S() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.I16_AS_I64);
+        translateLoad(SpecializedLoad.Op.I16_AS_I64);
     }
 
     private void translateI64Load16U() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.U16_AS_I64);
+        translateLoad(SpecializedLoad.Op.U16_AS_I64);
     }
 
     private void translateI64Load32S() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.I32_AS_I64);
+        translateLoad(SpecializedLoad.Op.I32_AS_I64);
     }
 
     private void translateI64Load32U() throws IOException {
-        translateLoad(SpecializedLoadOp.Op.U32_AS_I64);
+        translateLoad(SpecializedLoad.Op.U32_AS_I64);
     }
 
-    private void translateStore(@NotNull SpecializedStoreOp.Op op) throws IOException {
+    private void translateStore(@NotNull SpecializedStore.Op op) throws IOException {
         reader.nextUnsigned32(); // expected alignment (ignored)
         var offset = reader.nextUnsigned32();
-        var specializedOp = new SpecializedStoreOp(op, 0, offset);
+        var specializedOp = new SpecializedStore(op, 0, offset);
         storeOps.add(specializedOp);
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
         popOperandType(); // stored value arg
         popOperandType(); // address arg
     }
 
     private void translateI32Store() throws IOException {
-        translateStore(SpecializedStoreOp.Op.I32);
+        translateStore(SpecializedStore.Op.I32);
     }
 
     private void translateI64Store() throws IOException {
-        translateStore(SpecializedStoreOp.Op.I64);
+        translateStore(SpecializedStore.Op.I64);
     }
 
     private void translateF32Store() throws IOException {
-        translateStore(SpecializedStoreOp.Op.F32);
+        translateStore(SpecializedStore.Op.F32);
     }
 
     private void translateF64Store() throws IOException {
-        translateStore(SpecializedStoreOp.Op.F64);
+        translateStore(SpecializedStore.Op.F64);
     }
 
     private void translateI32Store8() throws IOException {
-        translateStore(SpecializedStoreOp.Op.I32_AS_I8);
+        translateStore(SpecializedStore.Op.I32_AS_I8);
     }
 
     private void translateI32Store16() throws IOException {
-        translateStore(SpecializedStoreOp.Op.I32_AS_I16);
+        translateStore(SpecializedStore.Op.I32_AS_I16);
     }
 
     private void translateI64Store8() throws IOException {
-        translateStore(SpecializedStoreOp.Op.I64_AS_I8);
+        translateStore(SpecializedStore.Op.I64_AS_I8);
     }
 
     private void translateI64Store16() throws IOException {
-        translateStore(SpecializedStoreOp.Op.I64_AS_I16);
+        translateStore(SpecializedStore.Op.I64_AS_I16);
     }
 
     private void translateI64Store32() throws IOException {
-        translateStore(SpecializedStoreOp.Op.I64_AS_I32);
+        translateStore(SpecializedStore.Op.I64_AS_I32);
     }
 
     private void translateMemorySize() throws IOException {
-        reader.nextByte();
-        emitLoadModule();
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memorySize", "(Lorg/wastastic/Module;)I", false);
+        emitMemoryFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.SIZE_METHOD_NAME, Memory.SIZE_METHOD_DESCRIPTOR, false);
         operandStack.add(ValueType.I32);
     }
 
     private void translateMemoryGrow() throws IOException {
-        reader.nextByte();
-        emitLoadModule();
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memoryGrow", "(ILorg/wastastic/Module;)I", false);
+        emitMemoryFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.GROW_METHOD_NAME, Memory.GROW_METHOD_DESCRIPTOR, false);
         operandStack.add(ValueType.I32);
     }
 
-    private void emitLoadModule() {
-        functionWriter.visitVarInsn(ALOAD, moduleArgumentLocalIndex);
+    private void emitSelfLoad() {
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
     }
 
     private void translateI32Const() throws IOException {
@@ -2017,7 +1999,7 @@ final class ModuleTranslator {
         var name = "f-" + index;
 
         if (index < importedFunctions.size()) {
-            emitLoadModule();
+            emitSelfLoad();
             functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, name + "-mh", METHOD_HANDLE_DESCRIPTOR);
         }
         else {
@@ -2093,13 +2075,15 @@ final class ModuleTranslator {
         replaceTopOperandType(ValueType.I64);
     }
 
+    private void emitDataFieldLoad(int index) {
+        emitSelfLoad();
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
+    }
+
     private void translateMemoryInit() throws IOException {
-        var dataIndex = reader.nextUnsigned32();
-        reader.nextByte();
-        emitLoadModule();
-        functionWriter.visitInsn(DUP);
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "d-" + dataIndex, "Ljdk/incubator/foreign/MemorySegment;");
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memoryInit", "(IIILorg/wastastic/Module;Ljdk/incubator/foreign/MemorySegment;)V", false);
+        emitDataFieldLoad(reader.nextUnsigned32());
+        emitMemoryFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_METHOD_NAME, Memory.INIT_METHOD_DESCRIPTOR, false);
         popOperandType();
         popOperandType();
         popOperandType();
@@ -2107,25 +2091,28 @@ final class ModuleTranslator {
 
     private void translateDataDrop() throws IOException {
         var index = reader.nextUnsigned32();
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitFieldInsn(GETSTATIC, "org/wastastic/Module", "EMPTY_DATA", "Ljdk/incubator/foreign/MemorySegment;");
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "d-" + index, "Ljdk/incubator/foreign/MemorySegment;");
     }
 
     private void translateMemoryCopy() throws IOException {
-        reader.nextByte();
-        reader.nextByte();
-        emitLoadModule();
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memoryCopy", "(IIILorg/wastastic/Module;)V", false);
+        emitMemoryFieldLoad(reader.nextUnsigned32());
+        emitMemoryFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.COPY_METHOD_NAME, Memory.COPY_METHOD_DESCRIPTOR, false);
         popOperandType();
         popOperandType();
         popOperandType();
     }
 
+    private void emitMemoryFieldLoad(int index) {
+        emitSelfLoad();
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(index), Memory.DESCRIPTOR);
+    }
+
     private void translateMemoryFill() throws IOException {
-        reader.nextByte();
-        emitLoadModule();
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Module", "memoryFill", "(IBILorg/wastastic/Module;)V", false);
+        emitMemoryFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.FILL_METHOD_NAME, Memory.FILL_METHOD_DESCRIPTOR, false);
         popOperandType();
         popOperandType();
         popOperandType();
@@ -2134,7 +2121,7 @@ final class ModuleTranslator {
     private void translateTableInit() throws IOException {
         var elemIndex = reader.nextUnsigned32();
         var tableIndex = reader.nextUnsigned32();
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitInsn(DUP);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "e-" + elemIndex, "[Ljava/lang/Object;");
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "t-" + tableIndex, "Lorg/wastastic/Table;");
@@ -2146,7 +2133,7 @@ final class ModuleTranslator {
 
     private void translateElemDrop() throws IOException {
         var index = reader.nextUnsigned32();
-        emitLoadModule();
+        emitSelfLoad();
         functionWriter.visitFieldInsn(GETSTATIC, "org/wastastic/Module", "EMPTY_ELEMENT", "[Ljava/lang/Object;");
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "e-" + index, "[Ljava/lang/Object;");
     }
