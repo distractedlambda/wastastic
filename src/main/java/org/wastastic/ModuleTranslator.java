@@ -13,6 +13,7 @@ import org.objectweb.asm.Type;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -162,12 +163,6 @@ import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_DESCRIPTOR;
 import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_NAME;
 import static org.wastastic.Lists.removeLast;
 import static org.wastastic.Lists.replaceLast;
-import static org.wastastic.ModuleReading.nextMemoryType;
-import static org.wastastic.ModuleReading.nextName;
-import static org.wastastic.ModuleReading.nextReferenceType;
-import static org.wastastic.ModuleReading.nextResultType;
-import static org.wastastic.ModuleReading.nextTableType;
-import static org.wastastic.ModuleReading.nextValueType;
 import static org.wastastic.Names.DOUBLE_INTERNAL_NAME;
 import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
@@ -188,228 +183,6 @@ import static org.wastastic.Names.globalGetterMethodName;
 import static org.wastastic.Names.globalSetterMethodName;
 import static org.wastastic.Names.memoryFieldName;
 import static org.wastastic.Names.tableFieldName;
-import static org.wastastic.Opcodes.OP_BLOCK;
-import static org.wastastic.Opcodes.OP_BR;
-import static org.wastastic.Opcodes.OP_BR_IF;
-import static org.wastastic.Opcodes.OP_BR_TABLE;
-import static org.wastastic.Opcodes.OP_CALL;
-import static org.wastastic.Opcodes.OP_CALL_INDIRECT;
-import static org.wastastic.Opcodes.OP_CONT_DATA_DROP;
-import static org.wastastic.Opcodes.OP_CONT_ELEM_DROP;
-import static org.wastastic.Opcodes.OP_CONT_I32_TRUNC_SAT_F32_S;
-import static org.wastastic.Opcodes.OP_CONT_I32_TRUNC_SAT_F32_U;
-import static org.wastastic.Opcodes.OP_CONT_I32_TRUNC_SAT_F64_S;
-import static org.wastastic.Opcodes.OP_CONT_I32_TRUNC_SAT_F64_U;
-import static org.wastastic.Opcodes.OP_CONT_I64_TRUNC_SAT_F32_S;
-import static org.wastastic.Opcodes.OP_CONT_I64_TRUNC_SAT_F32_U;
-import static org.wastastic.Opcodes.OP_CONT_I64_TRUNC_SAT_F64_S;
-import static org.wastastic.Opcodes.OP_CONT_I64_TRUNC_SAT_F64_U;
-import static org.wastastic.Opcodes.OP_CONT_MEMORY_COPY;
-import static org.wastastic.Opcodes.OP_CONT_MEMORY_FILL;
-import static org.wastastic.Opcodes.OP_CONT_MEMORY_INIT;
-import static org.wastastic.Opcodes.OP_CONT_PREFIX;
-import static org.wastastic.Opcodes.OP_CONT_TABLE_COPY;
-import static org.wastastic.Opcodes.OP_CONT_TABLE_FILL;
-import static org.wastastic.Opcodes.OP_CONT_TABLE_GROW;
-import static org.wastastic.Opcodes.OP_CONT_TABLE_INIT;
-import static org.wastastic.Opcodes.OP_CONT_TABLE_SIZE;
-import static org.wastastic.Opcodes.OP_DROP;
-import static org.wastastic.Opcodes.OP_ELSE;
-import static org.wastastic.Opcodes.OP_END;
-import static org.wastastic.Opcodes.OP_F32_ABS;
-import static org.wastastic.Opcodes.OP_F32_ADD;
-import static org.wastastic.Opcodes.OP_F32_CEIL;
-import static org.wastastic.Opcodes.OP_F32_CONST;
-import static org.wastastic.Opcodes.OP_F32_CONVERT_I32_S;
-import static org.wastastic.Opcodes.OP_F32_CONVERT_I32_U;
-import static org.wastastic.Opcodes.OP_F32_CONVERT_I64_S;
-import static org.wastastic.Opcodes.OP_F32_CONVERT_I64_U;
-import static org.wastastic.Opcodes.OP_F32_COPYSIGN;
-import static org.wastastic.Opcodes.OP_F32_DEMOTE_F64;
-import static org.wastastic.Opcodes.OP_F32_DIV;
-import static org.wastastic.Opcodes.OP_F32_EQ;
-import static org.wastastic.Opcodes.OP_F32_FLOOR;
-import static org.wastastic.Opcodes.OP_F32_GE;
-import static org.wastastic.Opcodes.OP_F32_GT;
-import static org.wastastic.Opcodes.OP_F32_LE;
-import static org.wastastic.Opcodes.OP_F32_LOAD;
-import static org.wastastic.Opcodes.OP_F32_LT;
-import static org.wastastic.Opcodes.OP_F32_MAX;
-import static org.wastastic.Opcodes.OP_F32_MIN;
-import static org.wastastic.Opcodes.OP_F32_MUL;
-import static org.wastastic.Opcodes.OP_F32_NE;
-import static org.wastastic.Opcodes.OP_F32_NEAREST;
-import static org.wastastic.Opcodes.OP_F32_NEG;
-import static org.wastastic.Opcodes.OP_F32_REINTERPRET_I32;
-import static org.wastastic.Opcodes.OP_F32_SQRT;
-import static org.wastastic.Opcodes.OP_F32_STORE;
-import static org.wastastic.Opcodes.OP_F32_SUB;
-import static org.wastastic.Opcodes.OP_F32_TRUNC;
-import static org.wastastic.Opcodes.OP_F64_ABS;
-import static org.wastastic.Opcodes.OP_F64_ADD;
-import static org.wastastic.Opcodes.OP_F64_CEIL;
-import static org.wastastic.Opcodes.OP_F64_CONST;
-import static org.wastastic.Opcodes.OP_F64_CONVERT_I32_S;
-import static org.wastastic.Opcodes.OP_F64_CONVERT_I32_U;
-import static org.wastastic.Opcodes.OP_F64_CONVERT_I64_S;
-import static org.wastastic.Opcodes.OP_F64_CONVERT_I64_U;
-import static org.wastastic.Opcodes.OP_F64_COPYSIGN;
-import static org.wastastic.Opcodes.OP_F64_DIV;
-import static org.wastastic.Opcodes.OP_F64_EQ;
-import static org.wastastic.Opcodes.OP_F64_FLOOR;
-import static org.wastastic.Opcodes.OP_F64_GE;
-import static org.wastastic.Opcodes.OP_F64_GT;
-import static org.wastastic.Opcodes.OP_F64_LE;
-import static org.wastastic.Opcodes.OP_F64_LOAD;
-import static org.wastastic.Opcodes.OP_F64_LT;
-import static org.wastastic.Opcodes.OP_F64_MAX;
-import static org.wastastic.Opcodes.OP_F64_MIN;
-import static org.wastastic.Opcodes.OP_F64_MUL;
-import static org.wastastic.Opcodes.OP_F64_NE;
-import static org.wastastic.Opcodes.OP_F64_NEAREST;
-import static org.wastastic.Opcodes.OP_F64_NEG;
-import static org.wastastic.Opcodes.OP_F64_PROMOTE_F32;
-import static org.wastastic.Opcodes.OP_F64_REINTERPRET_I64;
-import static org.wastastic.Opcodes.OP_F64_SQRT;
-import static org.wastastic.Opcodes.OP_F64_STORE;
-import static org.wastastic.Opcodes.OP_F64_SUB;
-import static org.wastastic.Opcodes.OP_F64_TRUNC;
-import static org.wastastic.Opcodes.OP_GLOBAL_GET;
-import static org.wastastic.Opcodes.OP_GLOBAL_SET;
-import static org.wastastic.Opcodes.OP_I32_ADD;
-import static org.wastastic.Opcodes.OP_I32_AND;
-import static org.wastastic.Opcodes.OP_I32_CLZ;
-import static org.wastastic.Opcodes.OP_I32_CONST;
-import static org.wastastic.Opcodes.OP_I32_CTZ;
-import static org.wastastic.Opcodes.OP_I32_DIV_S;
-import static org.wastastic.Opcodes.OP_I32_DIV_U;
-import static org.wastastic.Opcodes.OP_I32_EQ;
-import static org.wastastic.Opcodes.OP_I32_EQZ;
-import static org.wastastic.Opcodes.OP_I32_EXTEND16_S;
-import static org.wastastic.Opcodes.OP_I32_EXTEND8_S;
-import static org.wastastic.Opcodes.OP_I32_GE_S;
-import static org.wastastic.Opcodes.OP_I32_GE_U;
-import static org.wastastic.Opcodes.OP_I32_GT_S;
-import static org.wastastic.Opcodes.OP_I32_GT_U;
-import static org.wastastic.Opcodes.OP_I32_LE_S;
-import static org.wastastic.Opcodes.OP_I32_LE_U;
-import static org.wastastic.Opcodes.OP_I32_LOAD;
-import static org.wastastic.Opcodes.OP_I32_LOAD16_S;
-import static org.wastastic.Opcodes.OP_I32_LOAD16_U;
-import static org.wastastic.Opcodes.OP_I32_LOAD8_S;
-import static org.wastastic.Opcodes.OP_I32_LOAD8_U;
-import static org.wastastic.Opcodes.OP_I32_LT_S;
-import static org.wastastic.Opcodes.OP_I32_LT_U;
-import static org.wastastic.Opcodes.OP_I32_MUL;
-import static org.wastastic.Opcodes.OP_I32_NE;
-import static org.wastastic.Opcodes.OP_I32_OR;
-import static org.wastastic.Opcodes.OP_I32_POPCNT;
-import static org.wastastic.Opcodes.OP_I32_REINTERPRET_F32;
-import static org.wastastic.Opcodes.OP_I32_REM_S;
-import static org.wastastic.Opcodes.OP_I32_REM_U;
-import static org.wastastic.Opcodes.OP_I32_ROTL;
-import static org.wastastic.Opcodes.OP_I32_ROTR;
-import static org.wastastic.Opcodes.OP_I32_SHL;
-import static org.wastastic.Opcodes.OP_I32_SHR_S;
-import static org.wastastic.Opcodes.OP_I32_SHR_U;
-import static org.wastastic.Opcodes.OP_I32_STORE;
-import static org.wastastic.Opcodes.OP_I32_STORE16;
-import static org.wastastic.Opcodes.OP_I32_STORE8;
-import static org.wastastic.Opcodes.OP_I32_SUB;
-import static org.wastastic.Opcodes.OP_I32_TRUNC_F32_S;
-import static org.wastastic.Opcodes.OP_I32_TRUNC_F32_U;
-import static org.wastastic.Opcodes.OP_I32_TRUNC_F64_S;
-import static org.wastastic.Opcodes.OP_I32_TRUNC_F64_U;
-import static org.wastastic.Opcodes.OP_I32_WRAP_I64;
-import static org.wastastic.Opcodes.OP_I32_XOR;
-import static org.wastastic.Opcodes.OP_I64_ADD;
-import static org.wastastic.Opcodes.OP_I64_AND;
-import static org.wastastic.Opcodes.OP_I64_CLZ;
-import static org.wastastic.Opcodes.OP_I64_CONST;
-import static org.wastastic.Opcodes.OP_I64_CTZ;
-import static org.wastastic.Opcodes.OP_I64_DIV_S;
-import static org.wastastic.Opcodes.OP_I64_DIV_U;
-import static org.wastastic.Opcodes.OP_I64_EQ;
-import static org.wastastic.Opcodes.OP_I64_EQZ;
-import static org.wastastic.Opcodes.OP_I64_EXTEND16_S;
-import static org.wastastic.Opcodes.OP_I64_EXTEND32_S;
-import static org.wastastic.Opcodes.OP_I64_EXTEND8_S;
-import static org.wastastic.Opcodes.OP_I64_EXTEND_I32_S;
-import static org.wastastic.Opcodes.OP_I64_EXTEND_I32_U;
-import static org.wastastic.Opcodes.OP_I64_GE_S;
-import static org.wastastic.Opcodes.OP_I64_GE_U;
-import static org.wastastic.Opcodes.OP_I64_GT_S;
-import static org.wastastic.Opcodes.OP_I64_GT_U;
-import static org.wastastic.Opcodes.OP_I64_LE_S;
-import static org.wastastic.Opcodes.OP_I64_LE_U;
-import static org.wastastic.Opcodes.OP_I64_LOAD;
-import static org.wastastic.Opcodes.OP_I64_LOAD16_S;
-import static org.wastastic.Opcodes.OP_I64_LOAD16_U;
-import static org.wastastic.Opcodes.OP_I64_LOAD32_S;
-import static org.wastastic.Opcodes.OP_I64_LOAD32_U;
-import static org.wastastic.Opcodes.OP_I64_LOAD8_S;
-import static org.wastastic.Opcodes.OP_I64_LOAD8_U;
-import static org.wastastic.Opcodes.OP_I64_LT_S;
-import static org.wastastic.Opcodes.OP_I64_LT_U;
-import static org.wastastic.Opcodes.OP_I64_MUL;
-import static org.wastastic.Opcodes.OP_I64_NE;
-import static org.wastastic.Opcodes.OP_I64_OR;
-import static org.wastastic.Opcodes.OP_I64_POPCNT;
-import static org.wastastic.Opcodes.OP_I64_REINTERPRET_F64;
-import static org.wastastic.Opcodes.OP_I64_REM_S;
-import static org.wastastic.Opcodes.OP_I64_REM_U;
-import static org.wastastic.Opcodes.OP_I64_ROTL;
-import static org.wastastic.Opcodes.OP_I64_ROTR;
-import static org.wastastic.Opcodes.OP_I64_SHL;
-import static org.wastastic.Opcodes.OP_I64_SHR_S;
-import static org.wastastic.Opcodes.OP_I64_SHR_U;
-import static org.wastastic.Opcodes.OP_I64_STORE;
-import static org.wastastic.Opcodes.OP_I64_STORE16;
-import static org.wastastic.Opcodes.OP_I64_STORE32;
-import static org.wastastic.Opcodes.OP_I64_STORE8;
-import static org.wastastic.Opcodes.OP_I64_SUB;
-import static org.wastastic.Opcodes.OP_I64_TRUNC_F32_S;
-import static org.wastastic.Opcodes.OP_I64_TRUNC_F32_U;
-import static org.wastastic.Opcodes.OP_I64_TRUNC_F64_S;
-import static org.wastastic.Opcodes.OP_I64_TRUNC_F64_U;
-import static org.wastastic.Opcodes.OP_I64_XOR;
-import static org.wastastic.Opcodes.OP_IF;
-import static org.wastastic.Opcodes.OP_LOCAL_GET;
-import static org.wastastic.Opcodes.OP_LOCAL_SET;
-import static org.wastastic.Opcodes.OP_LOCAL_TEE;
-import static org.wastastic.Opcodes.OP_LOOP;
-import static org.wastastic.Opcodes.OP_MEMORY_GROW;
-import static org.wastastic.Opcodes.OP_MEMORY_SIZE;
-import static org.wastastic.Opcodes.OP_NOP;
-import static org.wastastic.Opcodes.OP_REF_FUNC;
-import static org.wastastic.Opcodes.OP_REF_IS_NULL;
-import static org.wastastic.Opcodes.OP_REF_NULL;
-import static org.wastastic.Opcodes.OP_RETURN;
-import static org.wastastic.Opcodes.OP_SELECT;
-import static org.wastastic.Opcodes.OP_SELECT_VEC;
-import static org.wastastic.Opcodes.OP_TABLE_GET;
-import static org.wastastic.Opcodes.OP_TABLE_SET;
-import static org.wastastic.Opcodes.OP_UNREACHABLE;
-import static org.wastastic.Opcodes.SECTION_CODE;
-import static org.wastastic.Opcodes.SECTION_CUSTOM;
-import static org.wastastic.Opcodes.SECTION_DATA;
-import static org.wastastic.Opcodes.SECTION_DATA_COUNT;
-import static org.wastastic.Opcodes.SECTION_ELEMENT;
-import static org.wastastic.Opcodes.SECTION_EXPORT;
-import static org.wastastic.Opcodes.SECTION_FUNCTION;
-import static org.wastastic.Opcodes.SECTION_GLOBAL;
-import static org.wastastic.Opcodes.SECTION_IMPORT;
-import static org.wastastic.Opcodes.SECTION_MEMORY;
-import static org.wastastic.Opcodes.SECTION_START;
-import static org.wastastic.Opcodes.SECTION_TABLE;
-import static org.wastastic.Opcodes.SECTION_TYPE;
-import static org.wastastic.Opcodes.TYPE_EXTERNREF;
-import static org.wastastic.Opcodes.TYPE_F32;
-import static org.wastastic.Opcodes.TYPE_F64;
-import static org.wastastic.Opcodes.TYPE_FUNCREF;
-import static org.wastastic.Opcodes.TYPE_FUNCTION;
-import static org.wastastic.Opcodes.TYPE_I32;
-import static org.wastastic.Opcodes.TYPE_I64;
 
 final class ModuleTranslator {
     private final ModuleReader reader;
@@ -547,14 +320,14 @@ final class ModuleTranslator {
             if (reader.nextByte() != TYPE_FUNCTION) {
                 throw new TranslationException("Invalid function type");
             }
-            types.add(new FunctionType(nextResultType(reader), nextResultType(reader)));
+            types.add(new FunctionType(nextResultType(), nextResultType()));
         }
     }
 
     private void translateImportSection() throws IOException, TranslationException {
         for (var remaining = reader.nextUnsigned32(); remaining != 0; remaining--) {
-            var moduleName = nextName(reader);
-            var name = nextName(reader);
+            var moduleName = nextName();
+            var name = nextName();
             switch (reader.nextByte()) {
                 case 0x00 -> translateFunctionImport(moduleName, name);
                 case 0x01 -> translateTableImport(moduleName, name);
@@ -602,13 +375,13 @@ final class ModuleTranslator {
     private void translateTableImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         var index = importedTables.size();
         classWriter.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
-        importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType(reader)));
+        importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType()));
     }
 
     private void translateMemoryImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         var index = importedMemories.size();
         classWriter.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
-        importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType(reader)));
+        importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType()));
     }
 
     private void translateGlobalImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
@@ -674,7 +447,7 @@ final class ModuleTranslator {
         for (; remaining != 0; remaining--) {
             var index = definedTables.size() + importedTables.size();
             classWriter.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
-            definedTables.add(nextTableType(reader));
+            definedTables.add(nextTableType());
         }
     }
 
@@ -684,7 +457,7 @@ final class ModuleTranslator {
         for (; remaining != 0; remaining--) {
             var index = definedMemories.size() + importedMemories.size();
             classWriter.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
-            definedMemories.add(nextMemoryType(reader));
+            definedMemories.add(nextMemoryType());
         }
     }
 
@@ -692,7 +465,7 @@ final class ModuleTranslator {
         var remaining = reader.nextUnsigned32();
         definedGlobals.ensureCapacity(definedGlobals.size() + remaining);
         for (; remaining != 0; remaining--) {
-            var type = nextValueType(reader);
+            var type = nextValueType();
             var index = definedGlobals.size() + importedGlobals.size();
             var access = ACC_PRIVATE;
             var fieldName = globalFieldName(index);
@@ -732,28 +505,11 @@ final class ModuleTranslator {
         }
     }
 
-    private @NotNull Constant nextConstantExpression() throws IOException, TranslationException {
-        var value = switch (reader.nextByte()) {
-            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
-            case OP_I32_CONST -> new I32Constant(reader.nextSigned32());
-            case OP_I64_CONST -> new I64Constant(reader.nextSigned64());
-            case OP_REF_NULL -> NullConstant.INSTANCE;
-            case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
-            default -> throw new TranslationException("Invalid constant expression");
-        };
-
-        if (reader.nextByte() != OP_END) {
-            throw new TranslationException("Invalid constant expression");
-        }
-
-        return value;
-    }
-
     private void translateExportSection() throws IOException, TranslationException {
         var remaining = reader.nextUnsigned32();
         exports.ensureCapacity(exports.size() + remaining);
         for (; remaining != 0; remaining--) {
-            var name = nextName(reader);
+            var name = nextName();
 
             var kind = switch (reader.nextByte()) {
                 case 0x00 -> ExportKind.FUNCTION;
@@ -783,12 +539,6 @@ final class ModuleTranslator {
         }
 
         return value;
-    }
-
-    private void nextElementKind() throws IOException, TranslationException {
-        if (reader.nextByte() != 0) {
-            throw new TranslationException("Unsupported elemkind");
-        }
     }
 
     private void translateElementSection() throws IOException, TranslationException {
@@ -857,7 +607,7 @@ final class ModuleTranslator {
             case 0x05 -> {
                 tableIndex = -1;
                 tableOffset = -1;
-                var type = nextReferenceType(reader);
+                var type = nextReferenceType();
                 var exprCount = reader.nextUnsigned32();
                 values = new Constant[exprCount];
                 switch (type) {
@@ -878,7 +628,7 @@ final class ModuleTranslator {
             case 0x06 -> {
                 tableIndex = reader.nextUnsigned32();
                 tableOffset = nextI32ConstantExpression();
-                var type = nextReferenceType(reader);
+                var type = nextReferenceType();
                 var exprCount = reader.nextUnsigned32();
                 values = new Constant[exprCount];
                 switch (type) {
@@ -897,8 +647,8 @@ final class ModuleTranslator {
             }
 
             case 0x07 -> {
-                nextReferenceType(reader);
-                var type = nextReferenceType(reader);
+                nextReferenceType();
+                var type = nextReferenceType();
                 var exprCount = reader.nextUnsigned32();
                 switch (type) {
                     case FUNCREF -> {
@@ -920,35 +670,6 @@ final class ModuleTranslator {
         }
 
         elementSegments.add(new ElementSegment(values, tableIndex, tableOffset));
-    }
-
-    private @NotNull Constant nextExternRefConstantExpression() throws IOException, TranslationException {
-        var value = switch (reader.nextByte()) {
-            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
-            case OP_REF_NULL -> NullConstant.INSTANCE;
-            default -> throw new TranslationException("Invalid externref constant expression");
-        };
-
-        if (reader.nextByte() != OP_END) {
-            throw new TranslationException("Invalid externref constant expression");
-        }
-
-        return value;
-    }
-
-    private @NotNull Constant nextFunctionRefConstantExpression() throws IOException, TranslationException {
-        var value = switch (reader.nextByte()) {
-            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
-            case OP_REF_NULL -> NullConstant.INSTANCE;
-            case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
-            default -> throw new TranslationException("Invalid funcref constant expression");
-        };
-
-        if (reader.nextByte() != OP_END) {
-            throw new TranslationException("Invalid funcref constant expression");
-        }
-
-        return value;
     }
 
     private void translateCodeSection() {
@@ -977,7 +698,7 @@ final class ModuleTranslator {
 
         for (var fieldVectorsRemaining = reader.nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
             var fieldsRemaining = reader.nextUnsigned32();
-            var fieldType = nextValueType(reader);
+            var fieldType = nextValueType();
             for (; fieldsRemaining != 0; fieldsRemaining--) {
                 locals.add(new Local(fieldType, nextLocalIndex));
                 nextLocalIndex += fieldType.width();
@@ -1403,7 +1124,7 @@ final class ModuleTranslator {
 
     private void translateSelectVec() throws TranslationException, IOException {
         for (var i = reader.nextUnsigned32(); i != 0; i--) {
-            nextValueType(reader);
+            nextValueType();
         }
 
         translateSelect();
@@ -2338,7 +2059,7 @@ final class ModuleTranslator {
     }
 
     private void translateRefNull() throws TranslationException, IOException {
-        operandStack.add(nextReferenceType(reader));
+        operandStack.add(nextReferenceType());
         functionWriter.visitInsn(ACONST_NULL);
     }
 
@@ -2527,14 +2248,6 @@ final class ModuleTranslator {
         removeLast(operandStack);
     }
 
-    private @NotNull Local nextIndexedLocal() throws IOException {
-        return locals.get(reader.nextUnsigned32());
-    }
-
-    private @NotNull LabelScope nextBranchTarget() throws IOException {
-        return labelStack.get(labelStack.size() - 1 - reader.nextUnsigned32());
-    }
-
     private void emitBranch(LabelScope target) {
         var nextLocalIndex = firstScratchLocalIndex;
 
@@ -2580,7 +2293,352 @@ final class ModuleTranslator {
         }
     }
 
+    private @NotNull LabelScope nextBranchTarget() throws IOException {
+        return labelStack.get(labelStack.size() - 1 - reader.nextUnsigned32());
+    }
+
+    private @NotNull Constant nextConstantExpression() throws IOException, TranslationException {
+        var value = switch (reader.nextByte()) {
+            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
+            case OP_I32_CONST -> new I32Constant(reader.nextSigned32());
+            case OP_I64_CONST -> new I64Constant(reader.nextSigned64());
+            case OP_REF_NULL -> NullConstant.INSTANCE;
+            case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
+            default -> throw new TranslationException("Invalid constant expression");
+        };
+
+        if (reader.nextByte() != OP_END) {
+            throw new TranslationException("Invalid constant expression");
+        }
+
+        return value;
+    }
+
+    private void nextElementKind() throws IOException, TranslationException {
+        if (reader.nextByte() != 0) {
+            throw new TranslationException("Unsupported elemkind");
+        }
+    }
+
+    private @NotNull Constant nextExternRefConstantExpression() throws IOException, TranslationException {
+        var value = switch (reader.nextByte()) {
+            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
+            case OP_REF_NULL -> NullConstant.INSTANCE;
+            default -> throw new TranslationException("Invalid externref constant expression");
+        };
+
+        if (reader.nextByte() != OP_END) {
+            throw new TranslationException("Invalid externref constant expression");
+        }
+
+        return value;
+    }
+
+    private @NotNull Constant nextFunctionRefConstantExpression() throws IOException, TranslationException {
+        var value = switch (reader.nextByte()) {
+            case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
+            case OP_REF_NULL -> NullConstant.INSTANCE;
+            case OP_REF_FUNC -> new FunctionRefConstant(reader.nextUnsigned32());
+            default -> throw new TranslationException("Invalid funcref constant expression");
+        };
+
+        if (reader.nextByte() != OP_END) {
+            throw new TranslationException("Invalid funcref constant expression");
+        }
+
+        return value;
+    }
+
+    private @NotNull Local nextIndexedLocal() throws IOException {
+        return locals.get(reader.nextUnsigned32());
+    }
+
     private @NotNull FunctionType nextIndexedType() throws IOException {
         return types.get(reader.nextUnsigned32());
     }
+
+    private @NotNull Limits nextLimits() throws TranslationException, IOException {
+        return switch (reader.nextByte()) {
+            case 0x00 -> new Limits(reader.nextUnsigned32());
+            case 0x01 -> new Limits(reader.nextUnsigned32(), reader.nextUnsigned32());
+            default -> throw new TranslationException("Invalid limits encoding");
+        };
+    }
+
+    private @NotNull MemoryType nextMemoryType() throws TranslationException, IOException {
+        return new MemoryType(nextLimits());
+    }
+
+    private @NotNull String nextName() throws IOException {
+        return reader.nextUtf8(reader.nextUnsigned32());
+    }
+
+    private @NotNull ValueType nextReferenceType() throws TranslationException, IOException {
+        return switch (reader.nextByte()) {
+            case TYPE_EXTERNREF -> ValueType.EXTERNREF;
+            case TYPE_FUNCREF -> ValueType.FUNCREF;
+            default -> throw new TranslationException("Invalid reference type");
+        };
+    }
+
+    private @NotNull List<ValueType> nextResultType() throws IOException, TranslationException {
+        var unsignedSize = reader.nextUnsigned32();
+        switch (unsignedSize) {
+            case 0:
+                return List.of();
+            case 1:
+                return List.of(nextValueType());
+            default: {
+                var array = new ValueType[unsignedSize];
+
+                for (var i = 0; i != array.length; i++) {
+                    array[i] = nextValueType();
+                }
+
+                return Arrays.asList(array);
+            }
+        }
+    }
+
+    private @NotNull TableType nextTableType() throws TranslationException, IOException {
+        return new TableType(nextReferenceType(), nextLimits());
+    }
+
+    private @NotNull ValueType nextValueType() throws IOException, TranslationException {
+        return switch (reader.nextByte()) {
+            case TYPE_EXTERNREF -> ValueType.EXTERNREF;
+            case TYPE_FUNCREF -> ValueType.FUNCREF;
+            case TYPE_F64 -> ValueType.F64;
+            case TYPE_F32 -> ValueType.F32;
+            case TYPE_I64 -> ValueType.I64;
+            case TYPE_I32 -> ValueType.I32;
+            default -> throw new TranslationException("Invalid value type");
+        };
+    }
+
+    private static final byte SECTION_CUSTOM = 0;
+    private static final byte SECTION_TYPE = 1;
+    private static final byte SECTION_IMPORT = 2;
+    private static final byte SECTION_FUNCTION = 3;
+    private static final byte SECTION_TABLE = 4;
+    private static final byte SECTION_MEMORY = 5;
+    private static final byte SECTION_GLOBAL = 6;
+    private static final byte SECTION_EXPORT = 7;
+    private static final byte SECTION_START = 8;
+    private static final byte SECTION_ELEMENT = 9;
+    private static final byte SECTION_CODE = 10;
+    private static final byte SECTION_DATA = 11;
+    private static final byte SECTION_DATA_COUNT = 12;
+
+    private static final byte TYPE_FUNCTION = 0x60;
+    private static final byte TYPE_EXTERNREF = 0x6f;
+    private static final byte TYPE_FUNCREF = 0x70;
+    private static final byte TYPE_F64 = 0x7c;
+    private static final byte TYPE_F32 = 0x7d;
+    private static final byte TYPE_I64 = 0x7e;
+    private static final byte TYPE_I32 = 0x7f;
+
+    private static final byte OP_UNREACHABLE = 0x00;
+    private static final byte OP_NOP = 0x01;
+    private static final byte OP_BLOCK = 0x02;
+    private static final byte OP_LOOP = 0x03;
+    private static final byte OP_IF = 0x04;
+    private static final byte OP_ELSE = 0x05;
+    private static final byte OP_END = 0x0b;
+    private static final byte OP_BR = 0x0c;
+    private static final byte OP_BR_IF = 0x0d;
+    private static final byte OP_BR_TABLE = 0x0e;
+    private static final byte OP_RETURN = 0x0f;
+    private static final byte OP_CALL = 0x10;
+    private static final byte OP_CALL_INDIRECT = 0x11;
+    private static final byte OP_DROP = 0x1a;
+    private static final byte OP_SELECT = 0x1b;
+    private static final byte OP_SELECT_VEC = 0x1c;
+    private static final byte OP_LOCAL_GET = 0x20;
+    private static final byte OP_LOCAL_SET = 0x21;
+    private static final byte OP_LOCAL_TEE = 0x22;
+    private static final byte OP_GLOBAL_GET = 0x23;
+    private static final byte OP_GLOBAL_SET = 0x24;
+    private static final byte OP_TABLE_GET = 0x25;
+    private static final byte OP_TABLE_SET = 0x26;
+    private static final byte OP_I32_LOAD = 0x28;
+    private static final byte OP_I64_LOAD = 0x29;
+    private static final byte OP_F32_LOAD = 0x2a;
+    private static final byte OP_F64_LOAD = 0x2b;
+    private static final byte OP_I32_LOAD8_S = 0x2c;
+    private static final byte OP_I32_LOAD8_U = 0x2d;
+    private static final byte OP_I32_LOAD16_S = 0x2e;
+    private static final byte OP_I32_LOAD16_U = 0x2f;
+    private static final byte OP_I64_LOAD8_S = 0x30;
+    private static final byte OP_I64_LOAD8_U = 0x31;
+    private static final byte OP_I64_LOAD16_S = 0x32;
+    private static final byte OP_I64_LOAD16_U = 0x33;
+    private static final byte OP_I64_LOAD32_S = 0x34;
+    private static final byte OP_I64_LOAD32_U = 0x35;
+    private static final byte OP_I32_STORE = 0x36;
+    private static final byte OP_I64_STORE = 0x37;
+    private static final byte OP_F32_STORE = 0x38;
+    private static final byte OP_F64_STORE = 0x39;
+    private static final byte OP_I32_STORE8 = 0x3a;
+    private static final byte OP_I32_STORE16 = 0x3b;
+    private static final byte OP_I64_STORE8 = 0x3c;
+    private static final byte OP_I64_STORE16 = 0x3d;
+    private static final byte OP_I64_STORE32 = 0x3e;
+    private static final byte OP_MEMORY_SIZE = 0x3f;
+    private static final byte OP_MEMORY_GROW = 0x40;
+    private static final byte OP_I32_CONST = 0x41;
+    private static final byte OP_I64_CONST = 0x42;
+    private static final byte OP_F32_CONST = 0x43;
+    private static final byte OP_F64_CONST = 0x44;
+    private static final byte OP_I32_EQZ = 0x45;
+    private static final byte OP_I32_EQ = 0x46;
+    private static final byte OP_I32_NE = 0x47;
+    private static final byte OP_I32_LT_S = 0x48;
+    private static final byte OP_I32_LT_U = 0x49;
+    private static final byte OP_I32_GT_S = 0x4a;
+    private static final byte OP_I32_GT_U = 0x4b;
+    private static final byte OP_I32_LE_S = 0x4c;
+    private static final byte OP_I32_LE_U = 0x4d;
+    private static final byte OP_I32_GE_S = 0x4e;
+    private static final byte OP_I32_GE_U = 0x4f;
+    private static final byte OP_I64_EQZ = 0x50;
+    private static final byte OP_I64_EQ = 0x51;
+    private static final byte OP_I64_NE = 0x52;
+    private static final byte OP_I64_LT_S = 0x53;
+    private static final byte OP_I64_LT_U = 0x54;
+    private static final byte OP_I64_GT_S = 0x55;
+    private static final byte OP_I64_GT_U = 0x56;
+    private static final byte OP_I64_LE_S = 0x57;
+    private static final byte OP_I64_LE_U = 0x58;
+    private static final byte OP_I64_GE_S = 0x59;
+    private static final byte OP_I64_GE_U = 0x5a;
+    private static final byte OP_F32_EQ = 0x5b;
+    private static final byte OP_F32_NE = 0x5c;
+    private static final byte OP_F32_LT = 0x5d;
+    private static final byte OP_F32_GT = 0x5e;
+    private static final byte OP_F32_LE = 0x5f;
+    private static final byte OP_F32_GE = 0x60;
+    private static final byte OP_F64_EQ = 0x61;
+    private static final byte OP_F64_NE = 0x62;
+    private static final byte OP_F64_LT = 0x63;
+    private static final byte OP_F64_GT = 0x64;
+    private static final byte OP_F64_LE = 0x65;
+    private static final byte OP_F64_GE = 0x66;
+    private static final byte OP_I32_CLZ = 0x67;
+    private static final byte OP_I32_CTZ = 0x68;
+    private static final byte OP_I32_POPCNT = 0x69;
+    private static final byte OP_I32_ADD = 0x6a;
+    private static final byte OP_I32_SUB = 0x6b;
+    private static final byte OP_I32_MUL = 0x6c;
+    private static final byte OP_I32_DIV_S = 0x6d;
+    private static final byte OP_I32_DIV_U = 0x6e;
+    private static final byte OP_I32_REM_S = 0x6f;
+    private static final byte OP_I32_REM_U = 0x70;
+    private static final byte OP_I32_AND = 0x71;
+    private static final byte OP_I32_OR = 0x72;
+    private static final byte OP_I32_XOR = 0x73;
+    private static final byte OP_I32_SHL = 0x74;
+    private static final byte OP_I32_SHR_S = 0x75;
+    private static final byte OP_I32_SHR_U = 0x76;
+    private static final byte OP_I32_ROTL = 0x77;
+    private static final byte OP_I32_ROTR = 0x78;
+    private static final byte OP_I64_CLZ = 0x79;
+    private static final byte OP_I64_CTZ = 0x7a;
+    private static final byte OP_I64_POPCNT = 0x7b;
+    private static final byte OP_I64_ADD = 0x7c;
+    private static final byte OP_I64_SUB = 0x7d;
+    private static final byte OP_I64_MUL = 0x7e;
+    private static final byte OP_I64_DIV_S = 0x7f;
+    private static final byte OP_I64_DIV_U = (byte) 0x80;
+    private static final byte OP_I64_REM_S = (byte) 0x81;
+    private static final byte OP_I64_REM_U = (byte) 0x82;
+    private static final byte OP_I64_AND = (byte) 0x83;
+    private static final byte OP_I64_OR = (byte) 0x84;
+    private static final byte OP_I64_XOR = (byte) 0x85;
+    private static final byte OP_I64_SHL = (byte) 0x86;
+    private static final byte OP_I64_SHR_S = (byte) 0x87;
+    private static final byte OP_I64_SHR_U = (byte) 0x88;
+    private static final byte OP_I64_ROTL = (byte) 0x89;
+    private static final byte OP_I64_ROTR = (byte) 0x8a;
+    private static final byte OP_F32_ABS = (byte) 0x8b;
+    private static final byte OP_F32_NEG = (byte) 0x8c;
+    private static final byte OP_F32_CEIL = (byte) 0x8d;
+    private static final byte OP_F32_FLOOR = (byte) 0x8e;
+    private static final byte OP_F32_TRUNC = (byte) 0x8f;
+    private static final byte OP_F32_NEAREST = (byte) 0x90;
+    private static final byte OP_F32_SQRT = (byte) 0x91;
+    private static final byte OP_F32_ADD = (byte) 0x92;
+    private static final byte OP_F32_SUB = (byte) 0x93;
+    private static final byte OP_F32_MUL = (byte) 0x94;
+    private static final byte OP_F32_DIV = (byte) 0x95;
+    private static final byte OP_F32_MIN = (byte) 0x96;
+    private static final byte OP_F32_MAX = (byte) 0x97;
+    private static final byte OP_F32_COPYSIGN = (byte) 0x98;
+    private static final byte OP_F64_ABS = (byte) 0x99;
+    private static final byte OP_F64_NEG = (byte) 0x9a;
+    private static final byte OP_F64_CEIL = (byte) 0x9b;
+    private static final byte OP_F64_FLOOR = (byte) 0x9c;
+    private static final byte OP_F64_TRUNC = (byte) 0x9d;
+    private static final byte OP_F64_NEAREST = (byte) 0x9e;
+    private static final byte OP_F64_SQRT = (byte) 0x9f;
+    private static final byte OP_F64_ADD = (byte) 0xa0;
+    private static final byte OP_F64_SUB = (byte) 0xa1;
+    private static final byte OP_F64_MUL = (byte) 0xa2;
+    private static final byte OP_F64_DIV = (byte) 0xa3;
+    private static final byte OP_F64_MIN = (byte) 0xa4;
+    private static final byte OP_F64_MAX = (byte) 0xa5;
+    private static final byte OP_F64_COPYSIGN = (byte) 0xa6;
+    private static final byte OP_I32_WRAP_I64 = (byte) 0xa7;
+    private static final byte OP_I32_TRUNC_F32_S = (byte) 0xa8;
+    private static final byte OP_I32_TRUNC_F32_U = (byte) 0xa9;
+    private static final byte OP_I32_TRUNC_F64_S = (byte) 0xaa;
+    private static final byte OP_I32_TRUNC_F64_U = (byte) 0xab;
+    private static final byte OP_I64_EXTEND_I32_S = (byte) 0xac;
+    private static final byte OP_I64_EXTEND_I32_U = (byte) 0xad;
+    private static final byte OP_I64_TRUNC_F32_S = (byte) 0xae;
+    private static final byte OP_I64_TRUNC_F32_U = (byte) 0xaf;
+    private static final byte OP_I64_TRUNC_F64_S = (byte) 0xb0;
+    private static final byte OP_I64_TRUNC_F64_U = (byte) 0xb1;
+    private static final byte OP_F32_CONVERT_I32_S = (byte) 0xb2;
+    private static final byte OP_F32_CONVERT_I32_U = (byte) 0xb3;
+    private static final byte OP_F32_CONVERT_I64_S = (byte) 0xb4;
+    private static final byte OP_F32_CONVERT_I64_U = (byte) 0xb5;
+    private static final byte OP_F32_DEMOTE_F64 = (byte) 0xb6;
+    private static final byte OP_F64_CONVERT_I32_S = (byte) 0xb7;
+    private static final byte OP_F64_CONVERT_I32_U = (byte) 0xb8;
+    private static final byte OP_F64_CONVERT_I64_S = (byte) 0xb9;
+    private static final byte OP_F64_CONVERT_I64_U = (byte) 0xba;
+    private static final byte OP_F64_PROMOTE_F32 = (byte) 0xbb;
+    private static final byte OP_I32_REINTERPRET_F32 = (byte) 0xbc;
+    private static final byte OP_I64_REINTERPRET_F64 = (byte) 0xbd;
+    private static final byte OP_F32_REINTERPRET_I32 = (byte) 0xbe;
+    private static final byte OP_F64_REINTERPRET_I64 = (byte) 0xbf;
+    private static final byte OP_I32_EXTEND8_S = (byte) 0xc0;
+    private static final byte OP_I32_EXTEND16_S = (byte) 0xc1;
+    private static final byte OP_I64_EXTEND8_S = (byte) 0xc2;
+    private static final byte OP_I64_EXTEND16_S = (byte) 0xc3;
+    private static final byte OP_I64_EXTEND32_S = (byte) 0xc4;
+    private static final byte OP_REF_NULL = (byte) 0xd0;
+    private static final byte OP_REF_IS_NULL = (byte) 0xd1;
+    private static final byte OP_REF_FUNC = (byte) 0xd2;
+    private static final byte OP_CONT_PREFIX = (byte) 0xfc;
+
+    private static final int OP_CONT_I32_TRUNC_SAT_F32_S = 0;
+    private static final int OP_CONT_I32_TRUNC_SAT_F32_U = 1;
+    private static final int OP_CONT_I32_TRUNC_SAT_F64_S = 2;
+    private static final int OP_CONT_I32_TRUNC_SAT_F64_U = 3;
+    private static final int OP_CONT_I64_TRUNC_SAT_F32_S = 4;
+    private static final int OP_CONT_I64_TRUNC_SAT_F32_U = 5;
+    private static final int OP_CONT_I64_TRUNC_SAT_F64_S = 6;
+    private static final int OP_CONT_I64_TRUNC_SAT_F64_U = 7;
+    private static final int OP_CONT_MEMORY_INIT = 8;
+    private static final int OP_CONT_DATA_DROP = 9;
+    private static final int OP_CONT_MEMORY_COPY = 10;
+    private static final int OP_CONT_MEMORY_FILL = 11;
+    private static final int OP_CONT_TABLE_INIT = 12;
+    private static final int OP_CONT_ELEM_DROP = 13;
+    private static final int OP_CONT_TABLE_COPY = 14;
+    private static final int OP_CONT_TABLE_GROW = 15;
+    private static final int OP_CONT_TABLE_SIZE = 16;
+    private static final int OP_CONT_TABLE_FILL = 17;
 }
