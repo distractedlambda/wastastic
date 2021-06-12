@@ -1,5 +1,8 @@
 package org.wastastic;
 
+import jdk.incubator.foreign.MemoryAccess;
+import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -9,6 +12,7 @@ import static java.lang.Byte.toUnsignedInt;
 import static java.lang.Byte.toUnsignedLong;
 import static java.lang.Double.longBitsToDouble;
 import static java.lang.Float.intBitsToFloat;
+import static jdk.incubator.foreign.MemoryAccess.setByteAtOffset;
 
 public interface ModuleReader {
     byte nextByte() throws IOException;
@@ -294,5 +298,15 @@ public interface ModuleReader {
         }
 
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    default @NotNull MemorySegment nextBytes(long length, @NotNull ResourceScope scope) throws IOException {
+        var segment = MemorySegment.allocateNative(length, 8, scope);
+
+        for (var i = 0L; i != length; i++) {
+            setByteAtOffset(segment, i, nextByte());
+        }
+
+        return segment;
     }
 }

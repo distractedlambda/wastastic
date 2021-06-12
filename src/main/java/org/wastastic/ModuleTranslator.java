@@ -1,6 +1,7 @@
 package org.wastastic;
 
 import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.ConstantDynamic;
@@ -161,7 +162,6 @@ import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_NAME;
 import static org.wastastic.Names.DOUBLE_INTERNAL_NAME;
 import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
-import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.INTEGER_INTERNAL_NAME;
 import static org.wastastic.Names.LONG_INTERNAL_NAME;
@@ -173,6 +173,10 @@ import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.dataFieldName;
 import static org.wastastic.Names.elementFieldName;
 import static org.wastastic.Names.functionMethodHandleFieldName;
+import static org.wastastic.Names.functionMethodName;
+import static org.wastastic.Names.globalFieldName;
+import static org.wastastic.Names.globalGetterMethodName;
+import static org.wastastic.Names.globalSetterMethodName;
 import static org.wastastic.Names.memoryFieldName;
 import static org.wastastic.Names.tableFieldName;
 
@@ -194,6 +198,8 @@ final class ModuleTranslator {
     private final ArrayList<Export> exports = new ArrayList<>();
     private final ArrayList<ElementSegment> elementSegments = new ArrayList<>();
     private final ArrayList<MemorySegment> dataSegments = new ArrayList<>();
+
+    private final ResourceScope dataSegmentsScope = ResourceScope.newImplicitScope();
 
     private final Set<SpecializedLoad> loadOps = new LinkedHashSet<>();
     private final Set<SpecializedStore> storeOps = new LinkedHashSet<>();
@@ -294,6 +300,7 @@ final class ModuleTranslator {
         // TODO: implement global imports
 
         for (var i = 0; i < elementSegments.size(); i++) {
+            // TODO
             new ConstantDynamic("element", "[Ljava/lang/Object;", null, i);
         }
 
@@ -331,10 +338,10 @@ final class ModuleTranslator {
         var type = nextIndexedType();
         var index = importedFunctions.size();
 
-        var handleFieldName = "f-" + index + "-mh";
+        var handleFieldName = functionMethodHandleFieldName(index);
         classWriter.visitField(ACC_PRIVATE | ACC_FINAL, handleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
 
-        var wrapperMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "f-" + index, type.descriptor(), null, null);
+        var wrapperMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
         wrapperMethod.visitCode();
 
         var selfArgIndex = 0;
@@ -363,59 +370,63 @@ final class ModuleTranslator {
 
     private void translateTableImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         var index = importedTables.size();
-        classWriter.visitField(ACC_PRIVATE | ACC_FINAL, "t-" + index, Table.DESCRIPTOR, null, null);
+        classWriter.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
         importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType()));
     }
 
     private void translateMemoryImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
+        var index = importedMemories.size();
+        classWriter.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
         importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType()));
     }
 
     private void translateGlobalImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
-        var index = importedGlobals.size();
-        var valueType = nextValueType();
+        throw new TranslationException("TODO implement global imports");
 
-        var getterFieldName = "g-" + index + "-get-mh";
-        classWriter.visitField(ACC_PRIVATE | ACC_FINAL, getterFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
+        // var index = importedGlobals.size();
+        // var valueType = nextValueType();
 
-        var getterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-get", '(' + GENERATED_INSTANCE_DESCRIPTOR + ')' + valueType.descriptor(), null, null);
-        getterMethod.visitCode();
-        getterMethod.visitVarInsn(ALOAD, 0);
-        getterMethod.visitInsn(DUP);
-        getterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, getterFieldName, METHOD_HANDLE_DESCRIPTOR);
-        getterMethod.visitInsn(SWAP);
-        getterMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", '(' + GENERATED_INSTANCE_DESCRIPTOR + ')' + valueType.descriptor(), false);
-        getterMethod.visitInsn(valueType.returnOpcode());
-        getterMethod.visitMaxs(0, 0);
-        getterMethod.visitEnd();
+        // var getterFieldName = "g-" + index + "-get-mh";
+        // classWriter.visitField(ACC_PRIVATE | ACC_FINAL, getterFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
 
-        var mutability = switch (reader.nextByte()) {
-            case 0x00 -> {
-                yield Mutability.CONST;
-            }
+        // var getterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-get", '(' + GENERATED_INSTANCE_DESCRIPTOR + ')' + valueType.descriptor(), null, null);
+        // getterMethod.visitCode();
+        // getterMethod.visitVarInsn(ALOAD, 0);
+        // getterMethod.visitInsn(DUP);
+        // getterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, getterFieldName, METHOD_HANDLE_DESCRIPTOR);
+        // getterMethod.visitInsn(SWAP);
+        // getterMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", '(' + GENERATED_INSTANCE_DESCRIPTOR + ')' + valueType.descriptor(), false);
+        // getterMethod.visitInsn(valueType.returnOpcode());
+        // getterMethod.visitMaxs(0, 0);
+        // getterMethod.visitEnd();
 
-            case 0x01 -> {
-                var setterFieldName = "g-" + index + "-set-mh";
-                classWriter.visitField(ACC_PRIVATE | ACC_FINAL, setterFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
+        // var mutability = switch (reader.nextByte()) {
+        //     case 0x00 -> {
+        //         yield Mutability.CONST;
+        //     }
 
-                var setterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-set", '(' + valueType.descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V", null, null);
-                setterMethod.visitCode();
-                setterMethod.visitVarInsn(ALOAD, valueType.width());
-                setterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, setterFieldName, METHOD_HANDLE_DESCRIPTOR);
-                setterMethod.visitVarInsn(valueType.localLoadOpcode(), 0);
-                setterMethod.visitVarInsn(ALOAD, valueType.width());
-                setterMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", '(' + valueType.descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V", false);
-                setterMethod.visitInsn(RETURN);
-                setterMethod.visitMaxs(0, 0);
-                setterMethod.visitEnd();
+        //     case 0x01 -> {
+        //         var setterFieldName = "g-" + index + "-set-mh";
+        //         classWriter.visitField(ACC_PRIVATE | ACC_FINAL, setterFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
 
-                yield Mutability.VAR;
-            }
+        //         var setterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-set", '(' + valueType.descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V", null, null);
+        //         setterMethod.visitCode();
+        //         setterMethod.visitVarInsn(ALOAD, valueType.width());
+        //         setterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, setterFieldName, METHOD_HANDLE_DESCRIPTOR);
+        //         setterMethod.visitVarInsn(valueType.localLoadOpcode(), 0);
+        //         setterMethod.visitVarInsn(ALOAD, valueType.width());
+        //         setterMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", '(' + valueType.descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V", false);
+        //         setterMethod.visitInsn(RETURN);
+        //         setterMethod.visitMaxs(0, 0);
+        //         setterMethod.visitEnd();
 
-            default -> throw new TranslationException("Invalid mutability");
-        };
+        //         yield Mutability.VAR;
+        //     }
 
-        importedGlobals.add(new ImportedGlobal(new QualifiedName(moduleName, name), new GlobalType(valueType, mutability)));
+        //     default -> throw new TranslationException("Invalid mutability");
+        // };
+
+        // importedGlobals.add(new ImportedGlobal(new QualifiedName(moduleName, name), new GlobalType(valueType, mutability)));
     }
 
     private void translateFunctionSection() throws IOException {
@@ -431,7 +442,7 @@ final class ModuleTranslator {
         definedTables.ensureCapacity(definedTables.size() + remaining);
         for (; remaining != 0; remaining--) {
             var index = definedTables.size() + importedTables.size();
-            classWriter.visitField(ACC_PRIVATE | ACC_FINAL, "t-" + index, Table.DESCRIPTOR, null, null);
+            classWriter.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
             definedTables.add(nextTableType());
         }
     }
@@ -440,6 +451,8 @@ final class ModuleTranslator {
         var remaining = reader.nextUnsigned32();
         definedMemories.ensureCapacity(definedMemories.size() + remaining);
         for (; remaining != 0; remaining--) {
+            var index = definedMemories.size() + importedMemories.size();
+            classWriter.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
             definedMemories.add(nextMemoryType());
         }
     }
@@ -451,9 +464,9 @@ final class ModuleTranslator {
             var type = nextValueType();
             var index = definedGlobals.size() + importedGlobals.size();
             var access = ACC_PRIVATE;
-            var fieldName = "g-" + index;
+            var fieldName = globalFieldName(index);
 
-            var getterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-get", '(' + GENERATED_INSTANCE_DESCRIPTOR + ')' + type.descriptor(), null, null);
+            var getterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, globalGetterMethodName(index), type.globalGetterDescriptor(), null, null);
             getterMethod.visitCode();
             getterMethod.visitVarInsn(ALOAD, 0);
             getterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, type.descriptor());
@@ -468,7 +481,7 @@ final class ModuleTranslator {
                 }
 
                 case 0x01 -> {
-                    var setterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-set", '(' + type.descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V", null, null);
+                    var setterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, globalSetterMethodName(index), type.globalSetterDescriptor(), null, null);
                     setterMethod.visitCode();
                     setterMethod.visitVarInsn(ALOAD, type.width());
                     setterMethod.visitVarInsn(type.localLoadOpcode(), 0);
@@ -484,9 +497,7 @@ final class ModuleTranslator {
             };
 
             classWriter.visitField(access, fieldName, type.descriptor(), null, null);
-
-            var initialValue = nextConstantExpression();
-            definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), initialValue));
+            definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), nextConstantExpression()));
         }
     }
 
@@ -521,9 +532,7 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid export description");
             };
 
-            var index = reader.nextUnsigned32();
-
-            exports.add(new Export(name, kind, index));
+            exports.add(new Export(name, kind, reader.nextUnsigned32()));
         }
     }
 
@@ -610,7 +619,7 @@ final class ModuleTranslator {
                 var exprCount = reader.nextUnsigned32();
                 values = new Constant[exprCount];
                 for (var i = 0; i < exprCount; i++) {
-                    values[i] = nextFunctionRefConstant();
+                    values[i] = nextFunctionRefConstantExpression();
                 }
             }
 
@@ -623,13 +632,13 @@ final class ModuleTranslator {
                 switch (type) {
                     case FUNCREF -> {
                         for (var i = 0; i < exprCount; i++) {
-                            values[i] = nextFunctionRefConstant();
+                            values[i] = nextFunctionRefConstantExpression();
                         }
                     }
 
                     case EXTERNREF -> {
                         for (var i = 0; i < exprCount; i++) {
-                            values[i] = nextExternRefConstant();
+                            values[i] = nextExternRefConstantExpression();
                         }
                     }
                 }
@@ -644,13 +653,13 @@ final class ModuleTranslator {
                 switch (type) {
                     case FUNCREF -> {
                         for (var i = 0; i < exprCount; i++) {
-                            values[i] = nextFunctionRefConstant();
+                            values[i] = nextFunctionRefConstantExpression();
                         }
                     }
 
                     case EXTERNREF -> {
                         for (var i = 0; i < exprCount; i++) {
-                            values[i] = nextExternRefConstant();
+                            values[i] = nextExternRefConstantExpression();
                         }
                     }
                 }
@@ -663,13 +672,13 @@ final class ModuleTranslator {
                 switch (type) {
                     case FUNCREF -> {
                         for (var i = 0; i < exprCount; i++) {
-                            nextFunctionRefConstant();
+                            nextFunctionRefConstantExpression();
                         }
                     }
 
                     case EXTERNREF -> {
                         for (var i = 0; i < exprCount; i++) {
-                            nextExternRefConstant();
+                            nextExternRefConstantExpression();
                         }
                     }
                 }
@@ -682,7 +691,7 @@ final class ModuleTranslator {
         elementSegments.add(new ElementSegment(values, tableIndex, tableOffset));
     }
 
-    private @NotNull Constant nextExternRefConstant() throws IOException, TranslationException {
+    private @NotNull Constant nextExternRefConstantExpression() throws IOException, TranslationException {
         var value = switch (reader.nextByte()) {
             case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
             case OP_REF_NULL -> NullConstant.INSTANCE;
@@ -696,7 +705,7 @@ final class ModuleTranslator {
         return value;
     }
 
-    private @NotNull Constant nextFunctionRefConstant() throws IOException, TranslationException {
+    private @NotNull Constant nextFunctionRefConstantExpression() throws IOException, TranslationException {
         var value = switch (reader.nextByte()) {
             case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
             case OP_REF_NULL -> NullConstant.INSTANCE;

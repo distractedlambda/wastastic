@@ -32,7 +32,7 @@ final class Names {
     }
 
     static @NotNull String functionMethodHandleFieldName(int index) {
-        return "h" + index;
+        return "fh" + index;
     }
 
     static @NotNull String memoryFieldName(int index) {
@@ -45,6 +45,18 @@ final class Names {
 
     static @NotNull String elementFieldName(int index) {
         return "e" + index;
+    }
+
+    static @NotNull String globalFieldName(int index) {
+        return "g" + index;
+    }
+
+    static @NotNull String globalGetterMethodName(int index) {
+        return "gg" + index;
+    }
+
+    static @NotNull String globalSetterMethodName(int index) {
+        return "gs" + index;
     }
 
     static final String DOUBLE_INTERNAL_NAME = getInternalName(Double.class);

@@ -1,23 +1,26 @@
 package org.wastastic;
 
+import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
 import static java.lang.Integer.toUnsignedLong;
 import static java.util.Objects.requireNonNull;
 
 public final class InputStreamModuleReader implements ModuleReader {
-    private final InputStream stream;
+    private final @NotNull InputStream stream;
 
-    public InputStreamModuleReader(InputStream stream) {
+    public InputStreamModuleReader(@NotNull InputStream stream) {
         this.stream = requireNonNull(stream);
     }
 
-    public InputStream getStream() {
+    public @NotNull InputStream getStream() {
         return stream;
     }
 
@@ -43,5 +46,15 @@ public final class InputStreamModuleReader implements ModuleReader {
         }
 
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    @Override public @NotNull MemorySegment nextBytes(long length, @NotNull ResourceScope scope) throws IOException {
+        if (length > Integer.MAX_VALUE) {
+            throw new UnsupportedOperationException();
+        }
+
+        var segment = MemorySegment.allocateNative(length, 8, scope);
+        segment.copyFrom(MemorySegment.ofArray(stream.readNBytes((int) length)));
+        return segment;
     }
 }

@@ -19,6 +19,8 @@ import static org.objectweb.asm.Opcodes.ISTORE;
 import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.LRETURN;
 import static org.objectweb.asm.Opcodes.LSTORE;
+import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
+import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 
@@ -41,24 +43,12 @@ enum ValueType {
         };
     }
 
-    @NotNull String erasedDescriptor() {
-        return switch (this) {
-            case I32 -> "I";
-            case I64 -> "J";
-            case F32 -> "F";
-            case F64 -> "D";
-            case FUNCREF, EXTERNREF -> OBJECT_INTERNAL_NAME;
-        };
+    @NotNull String globalGetterDescriptor() {
+        return "(" + GENERATED_INSTANCE_INTERNAL_NAME + ")" + descriptor();
     }
 
-    char tupleSuffixChar() {
-        return switch (this) {
-            case I32 -> 'I';
-            case I64 -> 'J';
-            case F32 -> 'F';
-            case F64 -> 'D';
-            case FUNCREF, EXTERNREF -> 'L';
-        };
+    @NotNull String globalSetterDescriptor() {
+        return "(" + descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V";
     }
 
     boolean isDoubleWidth() {
