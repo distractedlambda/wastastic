@@ -47,30 +47,21 @@ final class Names {
         return "e" + index;
     }
 
-    static final String MATH_INTERNAL_NAME = getInternalName(Math.class);
-    static final String FLOAT_INTERNAL_NAME = getInternalName(Float.class);
     static final String DOUBLE_INTERNAL_NAME = getInternalName(Double.class);
-
+    static final String FLOAT_INTERNAL_NAME = getInternalName(Float.class);
+    static final String GENERATED_INSTANCE_INTERNAL_NAME = "org/wastastic/GeneratedModuleInstance";
     static final String INTEGER_INTERNAL_NAME = getInternalName(Integer.class);
-    static final String INTEGER_COMPARE_UNSIGNED_NAME = "compareUnsigned";
-    static final String INTEGER_COMPARE_UNSIGNED_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class);
-    static final String INTEGER_NUMBER_OF_LEADING_ZEROS_NAME = "numberOfLeadingZeros";
-    static final String INTEGER_NUMBER_OF_LEADING_ZEROS_DESCRIPTOR = methodDescriptor(int.class, int.class);
-
     static final String LONG_INTERNAL_NAME = getInternalName(Long.class);
-    static final String LONG_COMPARE_UNSIGNED_NAME = "compareUnsigned";
-    static final String LONG_COMPARE_UNSIGNED_DESCRIPTOR = methodDescriptor(int.class, long.class, long.class);
-
+    static final String MATH_INTERNAL_NAME = getInternalName(Math.class);
+    static final String MEMORY_SEGMENT_DESCRIPTOR = getDescriptor(MemorySegment.class);
+    static final String METHOD_HANDLE_INTERNAL_NAME = getInternalName(MethodHandle.class);
+    static final String OBJECT_INTERNAL_NAME = getInternalName(Object.class);
     static final String VAR_HANDLE_INTERNAL_NAME = getInternalName(VarHandle.class);
+
+    static final String GENERATED_INSTANCE_DESCRIPTOR = "L" + GENERATED_INSTANCE_INTERNAL_NAME + ";";
+    static final String METHOD_HANDLE_DESCRIPTOR = getDescriptor(MethodHandle.class);
+    static final String OBJECT_ARRAY_DESCRIPTOR = getDescriptor(Object[].class);
     static final String VAR_HANDLE_DESCRIPTOR = getDescriptor(VarHandle.class);
 
-    static final String METHOD_HANDLE_INTERNAL_NAME = getInternalName(MethodHandle.class);
-    static final String METHOD_HANDLE_DESCRIPTOR = getDescriptor(MethodHandle.class);
-
-    static final String MEMORY_SEGMENT_DESCRIPTOR = getDescriptor(MemorySegment.class);
-    static final String OBJECT_ARRAY_DESCRIPTOR = getDescriptor(Object[].class);
-
-    static final String GENERATED_INSTANCE_INTERNAL_NAME = "org/wastastic/GeneratedModuleInstance";
-    static final String GENERATED_INSTANCE_DESCRIPTOR = "Lorg/wastastic/GeneratedModuleInstance;";
     static final String GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR = methodDescriptor(void.class, Map.class);
 }

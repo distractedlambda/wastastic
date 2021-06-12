@@ -19,6 +19,8 @@ import static org.objectweb.asm.Opcodes.ISTORE;
 import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.LRETURN;
 import static org.objectweb.asm.Opcodes.LSTORE;
+import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
+import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 
 enum ValueType {
     I32,
@@ -34,8 +36,8 @@ enum ValueType {
             case I64 -> "J";
             case F32 -> "F";
             case F64 -> "D";
-            case FUNCREF -> "Ljava/lang/invoke/MethodHandle;";
-            case EXTERNREF -> "Ljava/lang/Object;";
+            case FUNCREF -> METHOD_HANDLE_INTERNAL_NAME;
+            case EXTERNREF -> OBJECT_INTERNAL_NAME;
         };
     }
 
@@ -45,7 +47,7 @@ enum ValueType {
             case I64 -> "J";
             case F32 -> "F";
             case F64 -> "D";
-            case FUNCREF, EXTERNREF -> "Ljava/lang/Object;";
+            case FUNCREF, EXTERNREF -> OBJECT_INTERNAL_NAME;
         };
     }
 

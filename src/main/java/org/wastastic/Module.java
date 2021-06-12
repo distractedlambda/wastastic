@@ -8,9 +8,9 @@ import java.lang.invoke.VarHandle;
 public sealed interface Module permits ModuleImpl {
     @NotNull MethodHandle instantiationHandle();
 
-    @NotNull MethodHandle exportedFunctionHandle(@NotNull QualifiedName qualifiedName);
+    @NotNull MethodHandle exportedFunctionHandle(@NotNull String name);
 
-    @NotNull VarHandle exportedTableHandle(@NotNull QualifiedName qualifiedName);
+    @NotNull VarHandle exportedTableHandle(@NotNull String name);
 
-    @NotNull VarHandle exportedMemoryHandle(@NotNull QualifiedName qualifiedName);
+    @NotNull VarHandle exportedMemoryHandle(@NotNull String name);
 }

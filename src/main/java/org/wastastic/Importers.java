@@ -7,10 +7,13 @@ import java.lang.invoke.MethodType;
 import java.lang.invoke.WrongMethodTypeException;
 import java.util.Map;
 
+import static org.objectweb.asm.Type.getInternalName;
+import static org.wastastic.Names.methodDescriptor;
+
 final class Importers {
     private Importers() {}
 
-    static final String INTERNAL_NAME = "org/wastatic/ImportHelpers";
+    static final String INTERNAL_NAME = getInternalName(Importers.class);
 
     private static @NotNull Object fetchImport(
         @NotNull Map<QualifiedName, Object> imports,
@@ -28,8 +31,7 @@ final class Importers {
     }
 
     static final String IMPORT_FUNCTION_NAME = "importFunction";
-    static final String IMPORT_FUNCTION_DESCRIPTOR = "(Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;";
-
+    static final String IMPORT_FUNCTION_DESCRIPTOR = methodDescriptor(MethodHandle.class, Map.class, String.class, String.class, MethodType.class);
     static @NotNull MethodHandle importFunction(
         @NotNull Map<QualifiedName, Object> imports,
         @NotNull String moduleName,
@@ -49,8 +51,7 @@ final class Importers {
     }
 
     static final String IMPORT_TABLE_NAME = "importTable";
-    static final String IMPORT_TABLE_DESCRIPTOR = "(Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;)Lorg/wastastic/Table;";
-
+    static final String IMPORT_TABLE_DESCRIPTOR = methodDescriptor(Table.class, Map.class, String.class, String.class);
     static @NotNull Table importTable(
         @NotNull Map<QualifiedName, Object> imports,
         @NotNull String moduleName,
@@ -66,8 +67,7 @@ final class Importers {
     }
 
     static final String IMPORT_MEMORY_NAME = "importMemory";
-    static final String IMPORT_MEMORY_DESCRIPTOR = "(Ljava/util/Map;Ljava/lang/String;Ljava/lang/String;)Lorg/wastastic/Memory;";
-
+    static final String IMPORT_MEMORY_DESCRIPTOR = methodDescriptor(Memory.class, Map.class, String.class, String.class);
     static @NotNull Memory importMemory(
         @NotNull Map<QualifiedName, Object> imports,
         @NotNull String moduleName,

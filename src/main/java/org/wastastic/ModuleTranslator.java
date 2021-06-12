@@ -116,6 +116,12 @@ import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.SWAP;
+import static org.wastastic.Importers.IMPORT_FUNCTION_DESCRIPTOR;
+import static org.wastastic.Importers.IMPORT_FUNCTION_NAME;
+import static org.wastastic.Importers.IMPORT_MEMORY_DESCRIPTOR;
+import static org.wastastic.Importers.IMPORT_MEMORY_NAME;
+import static org.wastastic.Importers.IMPORT_TABLE_DESCRIPTOR;
+import static org.wastastic.Importers.IMPORT_TABLE_NAME;
 import static org.wastastic.InstructionImpls.F32_CONVERT_I64_U_DESCRIPTOR;
 import static org.wastastic.InstructionImpls.F32_CONVERT_I64_U_NAME;
 import static org.wastastic.InstructionImpls.F32_TRUNC_DESCRIPTOR;
@@ -157,11 +163,7 @@ import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
-import static org.wastastic.Names.INTEGER_COMPARE_UNSIGNED_DESCRIPTOR;
-import static org.wastastic.Names.INTEGER_COMPARE_UNSIGNED_NAME;
 import static org.wastastic.Names.INTEGER_INTERNAL_NAME;
-import static org.wastastic.Names.LONG_COMPARE_UNSIGNED_DESCRIPTOR;
-import static org.wastastic.Names.LONG_COMPARE_UNSIGNED_NAME;
 import static org.wastastic.Names.LONG_INTERNAL_NAME;
 import static org.wastastic.Names.MATH_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
@@ -265,7 +267,7 @@ final class ModuleTranslator {
             constructorWriter.visitLdcInsn(importedFunction.qualifiedName().moduleName());
             constructorWriter.visitLdcInsn(importedFunction.qualifiedName().name());
             constructorWriter.visitLdcInsn(importedFunction.type().asmType());
-            constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, Importers.IMPORT_FUNCTION_NAME, Importers.IMPORT_FUNCTION_DESCRIPTOR, false);
+            constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_FUNCTION_NAME, IMPORT_FUNCTION_DESCRIPTOR, false);
             constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(i), METHOD_HANDLE_DESCRIPTOR);
         }
 
@@ -275,7 +277,7 @@ final class ModuleTranslator {
             constructorWriter.visitVarInsn(ALOAD, 1);
             constructorWriter.visitLdcInsn(importedTable.qualifiedName().moduleName());
             constructorWriter.visitLdcInsn(importedTable.qualifiedName().name());
-            constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, Importers.IMPORT_TABLE_NAME, Importers.IMPORT_TABLE_DESCRIPTOR, false);
+            constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_TABLE_NAME, IMPORT_TABLE_DESCRIPTOR, false);
             constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(i), Table.DESCRIPTOR);
         }
 
@@ -285,7 +287,7 @@ final class ModuleTranslator {
             constructorWriter.visitVarInsn(ALOAD, 1);
             constructorWriter.visitLdcInsn(importedMemory.qualifiedName().moduleName());
             constructorWriter.visitLdcInsn(importedMemory.qualifiedName().name());
-            constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, Importers.IMPORT_MEMORY_NAME, Importers.IMPORT_MEMORY_DESCRIPTOR, false);
+            constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_MEMORY_NAME, IMPORT_MEMORY_DESCRIPTOR, false);
             constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(i), Memory.DESCRIPTOR);
         }
 
@@ -1234,7 +1236,7 @@ final class ModuleTranslator {
         var index = reader.nextUnsigned32();
         emitTableFieldLoad(index);
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
-        operandStack.add(indexedTableType(index).elementType().toValueType());
+        operandStack.add(indexedTableType(index).elementType());
     }
 
     private void translateTableSet() throws IOException {
@@ -1471,7 +1473,7 @@ final class ModuleTranslator {
     }
 
     private void translateI32ComparisonU(int opcode) {
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, INTEGER_COMPARE_UNSIGNED_NAME, INTEGER_COMPARE_UNSIGNED_DESCRIPTOR, false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "compareUnsigned", "(II)I", false);
         translateI32ComparisonS(opcode);
     }
 
@@ -1531,7 +1533,7 @@ final class ModuleTranslator {
     private void translateI64ComparisonU(int opcode) {
         popOperandType();
         replaceTopOperandType(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, LONG_COMPARE_UNSIGNED_NAME, LONG_COMPARE_UNSIGNED_DESCRIPTOR, false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "compareUnsigned", "(JJ)I", false);
         translateConditionalBoolean(opcode);
     }
 
@@ -2096,7 +2098,7 @@ final class ModuleTranslator {
     }
 
     private void translateRefNull() throws TranslationException, IOException {
-        operandStack.add(nextReferenceType().toValueType());
+        operandStack.add(nextReferenceType());
         functionWriter.visitInsn(ACONST_NULL);
     }
 
@@ -2360,10 +2362,10 @@ final class ModuleTranslator {
         return new TableType(nextReferenceType(), nextLimits());
     }
 
-    private @NotNull ReferenceType nextReferenceType() throws TranslationException, IOException {
+    private @NotNull ValueType nextReferenceType() throws TranslationException, IOException {
         return switch (reader.nextByte()) {
-            case TYPE_EXTERNREF -> ReferenceType.EXTERNREF;
-            case TYPE_FUNCREF -> ReferenceType.FUNCREF;
+            case TYPE_EXTERNREF -> ValueType.EXTERNREF;
+            case TYPE_FUNCREF -> ValueType.FUNCREF;
             default -> throw new TranslationException("Invalid reference type");
         };
     }

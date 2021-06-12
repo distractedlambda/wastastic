@@ -7,94 +7,80 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Map;
 
-import static java.lang.invoke.MethodHandles.permuteArguments;
 import static java.lang.invoke.MethodType.methodType;
+import static org.wastastic.Names.functionMethodName;
+import static org.wastastic.Names.memoryFieldName;
+import static org.wastastic.Names.tableFieldName;
 
 final class ModuleImpl implements Module {
-    private final @NotNull MethodHandles.Lookup lookup;
-    private final @NotNull Map<QualifiedName, ExportedFunction> exportedFunctions;
-    private final @NotNull Map<QualifiedName, Integer> exportedTableIndices;
-    private final @NotNull Map<QualifiedName, Integer> exportedMemoryIndices;
+    private final @NotNull MethodHandles.Lookup instanceLookup;
+    private final @NotNull Map<String, ExportedFunction> exportedFunctions;
+    private final @NotNull Map<String, Integer> exportedTableIndices;
+    private final @NotNull Map<String, Integer> exportedMemoryIndices;
 
     ModuleImpl(
-        @NotNull MethodHandles.Lookup lookup,
-        @NotNull Map<QualifiedName, ExportedFunction> exportedFunctions,
-        @NotNull Map<QualifiedName, Integer> exportedTableIndices,
-        @NotNull Map<QualifiedName, Integer> exportedMemoryIndices
+        @NotNull MethodHandles.Lookup instanceLookup,
+        @NotNull Map<String, ExportedFunction> exportedFunctions,
+        @NotNull Map<String, Integer> exportedTableIndices,
+        @NotNull Map<String, Integer> exportedMemoryIndices
     ) {
-        this.lookup = lookup;
+        this.instanceLookup = instanceLookup;
         this.exportedFunctions = exportedFunctions;
         this.exportedTableIndices = exportedTableIndices;
         this.exportedMemoryIndices = exportedMemoryIndices;
     }
 
+    private @NotNull Class<?> instanceClass() {
+        return instanceLookup.lookupClass();
+    }
+
     @Override public @NotNull MethodHandle instantiationHandle() {
         try {
-            return lookup.findConstructor(lookup.lookupClass(), methodType(void.class, Map.class));
+            return instanceLookup.findConstructor(instanceClass(), methodType(void.class, Map.class));
         } catch (NoSuchMethodException | IllegalAccessException exception) {
             throw new IllegalStateException(exception);
         }
     }
 
-    @Override public @NotNull MethodHandle exportedFunctionHandle(@NotNull QualifiedName qualifiedName) {
-        var function = exportedFunctions.get(qualifiedName);
+    @Override public @NotNull MethodHandle exportedFunctionHandle(@NotNull String name) {
+        var function = exportedFunctions.get(name);
 
         if (function == null) {
             throw new IllegalArgumentException();
         }
 
-        var directType = function.type().jvmType(lookup.lookupClass());
+        var type = function.type().jvmType(instanceClass());
 
-        MethodHandle directHandle;
         try {
-            directHandle = lookup.findStatic(lookup.lookupClass(), "f-" + function.index(), directType);
+            return instanceLookup.findStatic(instanceClass(), functionMethodName(function.index()), type);
         } catch (NoSuchMethodException | IllegalAccessException exception) {
             throw new IllegalStateException(exception);
         }
-
-        var permutedParameterTypes = new Class<?>[function.type().parameterTypes().size() + 1];
-
-        permutedParameterTypes[0] = lookup.lookupClass();
-
-        for (var i = 0; i < function.type().parameterTypes().size(); i++) {
-            permutedParameterTypes[i + 1] = function.type().parameterTypes().get(i).jvmType();
-        }
-
-        var permutationOrder = new int[permutedParameterTypes.length];
-
-        permutationOrder[0] = function.type().parameterTypes().size();
-
-        for (var i = 0; i < function.type().parameterTypes().size(); i++) {
-            permutationOrder[i + 1] = i;
-        }
-
-        var permutedType = methodType(lookup.lookupClass(), permutedParameterTypes);
-        return permuteArguments(directHandle, permutedType, permutationOrder);
     }
 
-    @Override public @NotNull VarHandle exportedTableHandle(@NotNull QualifiedName qualifiedName) {
-        var index = exportedTableIndices.get(qualifiedName);
+    @Override public @NotNull VarHandle exportedTableHandle(@NotNull String name) {
+        var index = exportedTableIndices.get(name);
 
         if (index == null) {
             throw new IllegalArgumentException();
         }
 
         try {
-            return lookup.findVarHandle(lookup.lookupClass(), "t-" + index, Table.class);
+            return instanceLookup.findVarHandle(instanceClass(), tableFieldName(index), Table.class);
         } catch (NoSuchFieldException | IllegalAccessException exception) {
             throw new IllegalStateException(exception);
         }
     }
 
-    @Override public @NotNull VarHandle exportedMemoryHandle(@NotNull QualifiedName qualifiedName) {
-        var index = exportedMemoryIndices.get(qualifiedName);
+    @Override public @NotNull VarHandle exportedMemoryHandle(@NotNull String name) {
+        var index = exportedMemoryIndices.get(name);
 
         if (index == null) {
             throw new IllegalArgumentException();
         }
 
         try {
-            return lookup.findVarHandle(lookup.lookupClass(), "m-" + index, Memory.class);
+            return instanceLookup.findVarHandle(instanceClass(), memoryFieldName(index), Memory.class);
         } catch (NoSuchFieldException | IllegalAccessException exception) {
             throw new IllegalStateException(exception);
         }
