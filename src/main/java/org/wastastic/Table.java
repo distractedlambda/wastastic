@@ -7,13 +7,16 @@ import java.util.Arrays;
 
 import static java.lang.System.arraycopy;
 import static java.util.Objects.checkFromIndexSize;
+import static org.objectweb.asm.Type.getDescriptor;
+import static org.objectweb.asm.Type.getInternalName;
+import static org.wastastic.Names.methodDescriptor;
 
 public final class Table {
     final int maxSize;
     @Nullable Object @NotNull[] storage;
 
-    static final String INTERNAL_NAME = "org/wastastic/Table";
-    static final String DESCRIPTOR = "Lorg/wastastic/Table;";
+    static final String INTERNAL_NAME = getInternalName(Table.class);
+    static final String DESCRIPTOR = getDescriptor(Table.class);
 
     public Table(int initialSize, int maxSize) {
         if (initialSize < 0) {
@@ -32,20 +35,28 @@ public final class Table {
         this(initialSize, Integer.MAX_VALUE);
     }
 
-    public @Nullable Object get(int index) {
-        return storage[index];
+    static final String GET_METHOD_NAME = "get";
+    static final String GET_METHOD_DESCRIPTOR = methodDescriptor(Object.class, int.class, Table.class);
+    static @Nullable Object get(int index, @NotNull Table self) {
+        return self.storage[index];
     }
 
-    public void set(int index, @Nullable Object value) {
-        storage[index] = value;
+    static final String SET_METHOD_NAME = "set";
+    static final String SET_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, Table.class);
+    static void set(int index, @Nullable Object value, @NotNull Table self) {
+        self.storage[index] = value;
     }
 
-    public int size() {
-        return storage.length;
+    static final String SIZE_METHOD_NAME = "size";
+    static final String SIZE_METHOD_DESCRIPTOR = methodDescriptor(int.class, Table.class);
+    static int size(@NotNull Table self) {
+        return self.storage.length;
     }
 
-    public int grow(@Nullable Object initialValue, int additionalEntries) {
-        var storage = this.storage;
+    static final String GROW_METHOD_NAME = "grow";
+    static final String GROW_METHOD_DESCRIPTOR = methodDescriptor(int.class, Object.class, int.class, Table.class);
+    static int grow(@Nullable Object initialValue, int additionalEntries, @NotNull Table self) {
+        var storage = self.storage;
 
         if (additionalEntries == 0) {
             return storage.length;
@@ -53,7 +64,7 @@ public final class Table {
 
         var newSize = Integer.toUnsignedLong(storage.length) + Integer.toUnsignedLong(additionalEntries);
 
-        if (newSize > maxSize) {
+        if (newSize > self.maxSize) {
             return -1;
         }
 
@@ -66,25 +77,27 @@ public final class Table {
 
         Arrays.fill(newStorage, storage.length, newStorage.length, initialValue);
 
-        this.storage = newStorage;
+        self.storage = newStorage;
         return storage.length;
     }
 
-    public void fill(int startIndex, @Nullable Object fillValue, int count) {
-        var storage = this.storage;
+    static final String FILL_METHOD_NAME = "fill";
+    static final String FILL_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, int.class, Table.class);
+    static void fill(int startIndex, @Nullable Object fillValue, int count, @NotNull Table self) {
+        var storage = self.storage;
         checkFromIndexSize(startIndex, count, storage.length);
         Arrays.fill(storage, startIndex, startIndex + count, fillValue);
     }
 
-    public void copy(int dstIndex, int srcIndex, int count, @NotNull Table src) {
-        arraycopy(src.storage, srcIndex, storage, dstIndex, count);
+    static final String COPY_METHOD_NAME = "copy";
+    static final String COPY_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Table.class, Table.class);
+    static void copy(int dstIndex, int srcIndex, int count, @NotNull Table src, @NotNull Table dst) {
+        arraycopy(src.storage, srcIndex, dst.storage, dstIndex, count);
     }
 
-    public void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) {
-        try {
-            arraycopy(src, srcIndex, self.storage, dstIndex, count);
-        } catch (IndexOutOfBoundsException ignored) {
-            throw new TrapException();
-        }
+    static final String INIT_METHOD_NAME = "init";
+    static final String INIT_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Object[].class, Table.class);
+    static void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) {
+        arraycopy(src, srcIndex, self.storage, dstIndex, count);
     }
 }

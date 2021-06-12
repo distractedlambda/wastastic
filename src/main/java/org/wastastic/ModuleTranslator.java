@@ -29,6 +29,8 @@ import static org.objectweb.asm.Opcodes.D2F;
 import static org.objectweb.asm.Opcodes.D2I;
 import static org.objectweb.asm.Opcodes.D2L;
 import static org.objectweb.asm.Opcodes.DADD;
+import static org.objectweb.asm.Opcodes.DCMPG;
+import static org.objectweb.asm.Opcodes.DCMPL;
 import static org.objectweb.asm.Opcodes.DCONST_0;
 import static org.objectweb.asm.Opcodes.DCONST_1;
 import static org.objectweb.asm.Opcodes.DDIV;
@@ -37,10 +39,13 @@ import static org.objectweb.asm.Opcodes.DNEG;
 import static org.objectweb.asm.Opcodes.DSUB;
 import static org.objectweb.asm.Opcodes.DUP;
 import static org.objectweb.asm.Opcodes.DUP2;
+import static org.objectweb.asm.Opcodes.DUP2_X2;
 import static org.objectweb.asm.Opcodes.F2D;
 import static org.objectweb.asm.Opcodes.F2I;
 import static org.objectweb.asm.Opcodes.F2L;
 import static org.objectweb.asm.Opcodes.FADD;
+import static org.objectweb.asm.Opcodes.FCMPG;
+import static org.objectweb.asm.Opcodes.FCMPL;
 import static org.objectweb.asm.Opcodes.FCONST_0;
 import static org.objectweb.asm.Opcodes.FCONST_1;
 import static org.objectweb.asm.Opcodes.FCONST_2;
@@ -67,10 +72,23 @@ import static org.objectweb.asm.Opcodes.ICONST_4;
 import static org.objectweb.asm.Opcodes.ICONST_5;
 import static org.objectweb.asm.Opcodes.ICONST_M1;
 import static org.objectweb.asm.Opcodes.IFEQ;
+import static org.objectweb.asm.Opcodes.IFGE;
+import static org.objectweb.asm.Opcodes.IFGT;
+import static org.objectweb.asm.Opcodes.IFLE;
+import static org.objectweb.asm.Opcodes.IFLT;
+import static org.objectweb.asm.Opcodes.IFNE;
+import static org.objectweb.asm.Opcodes.IFNULL;
+import static org.objectweb.asm.Opcodes.IF_ICMPEQ;
+import static org.objectweb.asm.Opcodes.IF_ICMPGE;
+import static org.objectweb.asm.Opcodes.IF_ICMPGT;
+import static org.objectweb.asm.Opcodes.IF_ICMPLE;
+import static org.objectweb.asm.Opcodes.IF_ICMPLT;
+import static org.objectweb.asm.Opcodes.IF_ICMPNE;
 import static org.objectweb.asm.Opcodes.IMUL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.IOR;
+import static org.objectweb.asm.Opcodes.IREM;
 import static org.objectweb.asm.Opcodes.ISHL;
 import static org.objectweb.asm.Opcodes.ISHR;
 import static org.objectweb.asm.Opcodes.ISUB;
@@ -81,10 +99,12 @@ import static org.objectweb.asm.Opcodes.L2F;
 import static org.objectweb.asm.Opcodes.L2I;
 import static org.objectweb.asm.Opcodes.LADD;
 import static org.objectweb.asm.Opcodes.LAND;
+import static org.objectweb.asm.Opcodes.LCMP;
 import static org.objectweb.asm.Opcodes.LCONST_0;
 import static org.objectweb.asm.Opcodes.LCONST_1;
 import static org.objectweb.asm.Opcodes.LMUL;
 import static org.objectweb.asm.Opcodes.LOR;
+import static org.objectweb.asm.Opcodes.LREM;
 import static org.objectweb.asm.Opcodes.LSHL;
 import static org.objectweb.asm.Opcodes.LSHR;
 import static org.objectweb.asm.Opcodes.LSUB;
@@ -96,13 +116,60 @@ import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.SWAP;
+import static org.wastastic.InstructionImpls.F32_CONVERT_I64_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.F32_CONVERT_I64_U_NAME;
+import static org.wastastic.InstructionImpls.F32_TRUNC_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.F32_TRUNC_NAME;
+import static org.wastastic.InstructionImpls.F64_CONVERT_I64_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.F64_CONVERT_I64_U_NAME;
+import static org.wastastic.InstructionImpls.F64_TRUNC_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.F64_TRUNC_NAME;
+import static org.wastastic.InstructionImpls.I32_DIV_S_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I32_DIV_S_NAME;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F32_S_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F32_S_NAME;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F32_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F32_U_NAME;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F64_S_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F64_S_NAME;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F64_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I32_TRUNC_F64_U_NAME;
+import static org.wastastic.InstructionImpls.I32_TRUNC_SAT_F32_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I32_TRUNC_SAT_F32_U_NAME;
+import static org.wastastic.InstructionImpls.I32_TRUNC_SAT_F64_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I32_TRUNC_SAT_F64_U_NAME;
+import static org.wastastic.InstructionImpls.I64_DIV_S_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I64_DIV_S_NAME;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F32_S_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F32_S_NAME;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F32_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F32_U_NAME;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F64_S_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F64_S_NAME;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F64_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I64_TRUNC_F64_U_NAME;
+import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F32_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F32_U_NAME;
+import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_DESCRIPTOR;
+import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_NAME;
+import static org.wastastic.Names.DOUBLE_INTERNAL_NAME;
+import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
+import static org.wastastic.Names.INTEGER_COMPARE_UNSIGNED_DESCRIPTOR;
+import static org.wastastic.Names.INTEGER_COMPARE_UNSIGNED_NAME;
+import static org.wastastic.Names.INTEGER_INTERNAL_NAME;
+import static org.wastastic.Names.LONG_COMPARE_UNSIGNED_DESCRIPTOR;
+import static org.wastastic.Names.LONG_COMPARE_UNSIGNED_NAME;
+import static org.wastastic.Names.LONG_INTERNAL_NAME;
+import static org.wastastic.Names.MATH_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
+import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.dataFieldName;
+import static org.wastastic.Names.elementFieldName;
 import static org.wastastic.Names.functionMethodHandleFieldName;
 import static org.wastastic.Names.memoryFieldName;
 import static org.wastastic.Names.tableFieldName;
@@ -1074,13 +1141,22 @@ final class ModuleTranslator {
 
     private void translateSelect() {
         popOperandType();
-        emitHelperCall("select", switch (popOperandType()) {
-            case I32 -> "(III)I";
-            case I64 -> "(IJJ)J";
-            case F32 -> "(IFF)F";
-            case F64 -> "(IDD)D";
-            case FUNCREF, EXTERNREF -> "(ILjava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
-        });
+        var type = popOperandType();
+
+        var pastSwapLabel = new Label();
+        functionWriter.visitJumpInsn(IFNE, pastSwapLabel);
+
+        if (type.isDoubleWidth()) {
+            functionWriter.visitInsn(DUP2_X2);
+            functionWriter.visitInsn(POP2);
+            functionWriter.visitLabel(pastSwapLabel);
+            functionWriter.visitInsn(POP2);
+        }
+        else {
+            functionWriter.visitInsn(SWAP);
+            functionWriter.visitLabel(pastSwapLabel);
+            functionWriter.visitInsn(POP);
+        }
     }
 
     private void translateSelectVec() throws TranslationException, IOException {
@@ -1156,14 +1232,14 @@ final class ModuleTranslator {
 
     private void translateTableGet() throws IOException {
         var index = reader.nextUnsigned32();
-        emitLoadTable(index);
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "get", "(ILorg/wastastic/Table;)Ljava/lang/Object;", false);
+        emitTableFieldLoad(index);
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
         operandStack.add(indexedTableType(index).elementType().toValueType());
     }
 
     private void translateTableSet() throws IOException {
-        emitLoadTable(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "set", "(ILjava/lang/Object;Lorg/wastastic/Table;)V", false);
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
         popOperandType();
     }
 
@@ -1374,342 +1450,367 @@ final class ModuleTranslator {
         }
     }
 
-    private void translateI32Eqz() {
-        emitHelperCall("eqz", "(I)Z");
+    private void translateConditionalBoolean(int opcode) {
+        var trueLabel = new Label();
+        var mergeLabel = new Label();
+        functionWriter.visitJumpInsn(opcode, trueLabel);
+        functionWriter.visitInsn(ICONST_0);
+        functionWriter.visitJumpInsn(GOTO, mergeLabel);
+        functionWriter.visitLabel(trueLabel);
+        functionWriter.visitInsn(ICONST_1);
+        functionWriter.visitLabel(mergeLabel);
     }
 
-    private void translateI32Comparison(@NotNull String name) {
-        emitHelperCall(name, "(II)Z");
+    private void translateI32Eqz() {
+        translateConditionalBoolean(IFEQ);
+    }
+
+    private void translateI32ComparisonS(int opcode) {
         popOperandType();
+        translateConditionalBoolean(opcode);
+    }
+
+    private void translateI32ComparisonU(int opcode) {
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, INTEGER_COMPARE_UNSIGNED_NAME, INTEGER_COMPARE_UNSIGNED_DESCRIPTOR, false);
+        translateI32ComparisonS(opcode);
     }
 
     private void translateI32Eq() {
-        translateI32Comparison("eq");
+        translateI32ComparisonS(IF_ICMPEQ);
     }
 
     private void translateI32Ne() {
-        translateI32Comparison("ne");
+        translateI32ComparisonS(IF_ICMPNE);
     }
 
     private void translateI32LtS() {
-        translateI32Comparison("lts");
+        translateI32ComparisonS(IF_ICMPLT);
     }
 
     private void translateI32LtU() {
-        translateI32Comparison("ltu");
+        translateI32ComparisonU(IFLT);
     }
 
     private void translateI32GtS() {
-        translateI32Comparison("gts");
+        translateI32ComparisonS(IF_ICMPGT);
     }
 
     private void translateI32GtU() {
-        translateI32Comparison("gtu");
+        translateI32ComparisonU(IFGT);
     }
 
     private void translateI32LeS() {
-        translateI32Comparison("les");
+        translateI32ComparisonS(IF_ICMPLE);
     }
 
     private void translateI32LeU() {
-        translateI32Comparison("leu");
+        translateI32ComparisonU(IFLE);
     }
 
     private void translateI32GeS() {
-        translateI32Comparison("ges");
+        translateI32ComparisonS(IF_ICMPGE);
     }
 
     private void translateI32GeU() {
-        translateI32Comparison("geu");
+        translateI32ComparisonU(IFGE);
     }
 
     private void translateI64Eqz() {
-        emitHelperCall("eqz", "(J)Z");
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitInsn(LCMP);
+        translateConditionalBoolean(IFEQ);
     }
 
-    private void translateI64Comparison(@NotNull String name) {
-        emitHelperCall(name, "(JJ)Z");
+    private void translateI64ComparisonS(int opcode) {
         popOperandType();
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitInsn(LCMP);
+        translateConditionalBoolean(opcode);
+    }
+
+    private void translateI64ComparisonU(int opcode) {
+        popOperandType();
+        replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, LONG_COMPARE_UNSIGNED_NAME, LONG_COMPARE_UNSIGNED_DESCRIPTOR, false);
+        translateConditionalBoolean(opcode);
     }
 
     private void translateI64Eq() {
-        translateI64Comparison("eq");
+        translateI64ComparisonS(IFEQ);
     }
 
     private void translateI64Ne() {
-        translateI64Comparison("ne");
+        translateI64ComparisonS(IFNE);
     }
 
     private void translateI64LtS() {
-        translateI64Comparison("lts");
+        translateI64ComparisonS(IFLT);
     }
 
     private void translateI64LtU() {
-        translateI64Comparison("ltu");
+        translateI64ComparisonU(IFLT);
     }
 
     private void translateI64GtS() {
-        translateI64Comparison("gts");
+        translateI64ComparisonS(IFGT);
     }
 
     private void translateI64GtU() {
-        translateI64Comparison("gtu");
+        translateI64ComparisonU(IFGT);
     }
 
     private void translateI64LeS() {
-        translateI64Comparison("les");
+        translateI64ComparisonS(IFLE);
     }
 
     private void translateI64LeU() {
-        translateI64Comparison("leu");
+        translateI64ComparisonU(IFLE);
     }
 
     private void translateI64GeS() {
-        translateI64Comparison("ges");
+        translateI64ComparisonS(IFGE);
     }
 
     private void translateI64GeU() {
-        translateI64Comparison("geu");
+        translateI64ComparisonU(IFGE);
     }
 
-    private void translateF32Comparison(@NotNull String name) {
-        emitHelperCall(name, "(FF)Z");
+    private void translateFpComparison(int cmpOpcode, int branchOpcode) {
         popOperandType();
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitInsn(cmpOpcode);
+        translateConditionalBoolean(branchOpcode);
     }
 
     private void translateF32Eq() {
-        translateF32Comparison("feq");
+        translateFpComparison(FCMPL, IFEQ);
     }
 
     private void translateF32Ne() {
-        translateF32Comparison("fne");
+        translateFpComparison(FCMPL, IFNE);
     }
 
     private void translateF32Lt() {
-        translateF32Comparison("flt");
+        translateFpComparison(FCMPG, IFLT);
     }
 
     private void translateF32Gt() {
-        translateF32Comparison("fgt");
+        translateFpComparison(FCMPL, IFGT);
     }
 
     private void translateF32Le() {
-        translateF32Comparison("fle");
+        translateFpComparison(FCMPG, IFLE);
     }
 
     private void translateF32Ge() {
-        translateF32Comparison("fge");
-    }
-
-    private void translateF64Comparison(@NotNull String name) {
-        emitHelperCall(name, "(DD)Z");
-        popOperandType();
-        replaceTopOperandType(ValueType.I32);
+        translateFpComparison(FCMPL, IFGE);
     }
 
     private void translateF64Eq() {
-        translateF64Comparison("feq");
+        translateFpComparison(DCMPL, IFEQ);
     }
 
     private void translateF64Ne() {
-        translateF64Comparison("fne");
+        translateFpComparison(DCMPL, IFNE);
     }
 
     private void translateF64Lt() {
-        translateF64Comparison("flt");
+        translateFpComparison(DCMPG, IFLT);
     }
 
     private void translateF64Gt() {
-        translateF64Comparison("fgt");
+        translateFpComparison(DCMPL, IFGE);
     }
 
     private void translateF64Le() {
-        translateF64Comparison("fle");
+        translateFpComparison(FCMPG, IFLE);
     }
 
     private void translateF64Ge() {
-        translateF64Comparison("fge");
+        translateFpComparison(DCMPL, IFGE);
     }
 
     private void translateI32Clz() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "numberOfLeadingZeros", "(I)I", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "numberOfLeadingZeros", "(I)I", false);
     }
 
     private void translateI32Ctz() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "numberOfTrailingZeros", "(I)I", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "numberOfTrailingZeros", "(I)I", false);
     }
 
     private void translateI32Popcnt() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "bitCount", "(I)I", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "bitCount", "(I)I", false);
     }
 
     private void translateI32Add() {
-        functionWriter.visitInsn(IADD);
         popOperandType();
+        functionWriter.visitInsn(IADD);
     }
 
     private void translateI32Sub() {
-        functionWriter.visitInsn(ISUB);
         popOperandType();
+        functionWriter.visitInsn(ISUB);
     }
 
     private void translateI32Mul() {
-        functionWriter.visitInsn(IMUL);
         popOperandType();
+        functionWriter.visitInsn(IMUL);
     }
 
     private void translateI32DivS() {
-        emitHelperCall("divS", "(II)I");
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_DIV_S_NAME, I32_DIV_S_DESCRIPTOR, false);
     }
 
     private void translateI32DivU() {
-        emitHelperCall("divU", "(II)I");
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "divideUnsigned", "(II)I", false);
     }
 
     private void translateI32RemS() {
-        emitHelperCall("remS", "(II)I");
         popOperandType();
+        functionWriter.visitInsn(IREM);
     }
 
     private void translateI32RemU() {
-        emitHelperCall("remU", "(II)I");
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "remainderUnsigned", "(II)I", false);
     }
 
     private void translateI32And() {
-        functionWriter.visitInsn(IAND);
         popOperandType();
+        functionWriter.visitInsn(IAND);
     }
 
     private void translateI32Or() {
-        functionWriter.visitInsn(IOR);
         popOperandType();
+        functionWriter.visitInsn(IOR);
     }
 
     private void translateI32Xor() {
-        functionWriter.visitInsn(IXOR);
         popOperandType();
+        functionWriter.visitInsn(IXOR);
     }
 
     private void translateI32Shl() {
-        functionWriter.visitInsn(ISHL);
         popOperandType();
+        functionWriter.visitInsn(ISHL);
     }
 
     private void translateI32ShrS() {
-        functionWriter.visitInsn(ISHR);
         popOperandType();
+        functionWriter.visitInsn(ISHR);
     }
 
     private void translateI32ShrU() {
-        functionWriter.visitInsn(IUSHR);
         popOperandType();
+        functionWriter.visitInsn(IUSHR);
     }
 
     private void translateI32Rotl() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "rotateLeft", "(II)I", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "rotateLeft", "(II)I", false);
     }
 
     private void translateI32Rotr() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "rotateRight", "(II)I", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "rotateRight", "(II)I", false);
     }
 
     private void translateI64Clz() {
-        emitHelperCall("clz", "(J)J");
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfLeadingZeros", "(L)I", false);
+        functionWriter.visitInsn(I2L);
     }
 
     private void translateI64Ctz() {
-        emitHelperCall("ctz", "(J)J");
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfTrailingZeros", "(L)I", false);
+        functionWriter.visitInsn(I2L);
     }
 
     private void translateI64Popcnt() {
-        emitHelperCall("popcnt", "(J)J");
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "bitCount", "(L)I", false);
+        functionWriter.visitInsn(I2L);
     }
 
     private void translateI64Add() {
-        functionWriter.visitInsn(LADD);
         popOperandType();
+        functionWriter.visitInsn(LADD);
     }
 
     private void translateI64Sub() {
-        functionWriter.visitInsn(LSUB);
         popOperandType();
+        functionWriter.visitInsn(LSUB);
     }
 
     private void translateI64Mul() {
-        functionWriter.visitInsn(LMUL);
         popOperandType();
+        functionWriter.visitInsn(LMUL);
     }
 
     private void translateI64DivS() {
-        emitHelperCall("divS", "(JJ)J");
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_DIV_S_NAME, I64_DIV_S_DESCRIPTOR, false);
     }
 
     private void translateI64DivU() {
-        emitHelperCall("divU", "(JJ)J");
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "divideUnsigned", "(JJ)J", false);
     }
 
     private void translateI64RemS() {
-        emitHelperCall("remS", "(JJ)J");
         popOperandType();
+        functionWriter.visitInsn(LREM);
     }
 
     private void translateI64RemU() {
-        emitHelperCall("remU", "(JJ)J");
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "remainderUnsigned", "(JJ)J", false);
     }
 
     private void translateI64And() {
-        functionWriter.visitInsn(LAND);
         popOperandType();
+        functionWriter.visitInsn(LAND);
     }
 
     private void translateI64Or() {
-        functionWriter.visitInsn(LOR);
         popOperandType();
+        functionWriter.visitInsn(LOR);
     }
 
     private void translateI64Xor() {
-        functionWriter.visitInsn(LXOR);
         popOperandType();
+        functionWriter.visitInsn(LXOR);
     }
 
     private void translateI64Shl() {
-        functionWriter.visitInsn(LSHL);
         popOperandType();
+        functionWriter.visitInsn(LSHL);
     }
 
     private void translateI64ShrS() {
-        functionWriter.visitInsn(LSHR);
         popOperandType();
+        functionWriter.visitInsn(LSHR);
     }
 
     private void translateI64ShrU() {
-        functionWriter.visitInsn(LUSHR);
         popOperandType();
+        functionWriter.visitInsn(LUSHR);
     }
 
     private void translateI64Rotl() {
-        emitHelperCall("rotl", "(JJ)J");
         popOperandType();
+        functionWriter.visitInsn(L2I);
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateLeft", "(JI)J", false);
     }
 
     private void translateI64Rotr() {
-        emitHelperCall("rotr", "(JJ)J");
         popOperandType();
+        functionWriter.visitInsn(L2I);
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateRight", "(JI)J", false);
     }
 
     private void translateF32Abs() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(F)F", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "abs", "(F)F", false);
     }
 
     private void translateF32Neg() {
@@ -1717,62 +1818,70 @@ final class ModuleTranslator {
     }
 
     private void translateF32Ceil() {
-        emitHelperCall("fceil", "(F)F");
+        functionWriter.visitInsn(F2D);
+        translateF64Ceil();
+        functionWriter.visitInsn(D2F);
     }
 
     private void translateF32Floor() {
-        emitHelperCall("ffloor", "(F)F");
+        functionWriter.visitInsn(F2D);
+        translateF64Floor();
+        functionWriter.visitInsn(D2F);
     }
 
     private void translateF32Trunc() {
-        emitHelperCall("ftrunc", "(F)F");
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F32_TRUNC_NAME, F32_TRUNC_DESCRIPTOR, false);
     }
 
     private void translateF32Nearest() {
-        emitHelperCall("fnearest", "(F)F");
+        functionWriter.visitInsn(F2D);
+        translateF64Nearest();
+        functionWriter.visitInsn(D2F);
     }
 
     private void translateF32Sqrt() {
-        emitHelperCall("fsqrt", "(F)F");
+        functionWriter.visitInsn(F2D);
+        translateF64Sqrt();
+        functionWriter.visitInsn(D2F);
     }
 
     private void translateF32Add() {
-        functionWriter.visitInsn(FADD);
         popOperandType();
+        functionWriter.visitInsn(FADD);
     }
 
     private void translateF32Sub() {
-        functionWriter.visitInsn(FSUB);
         popOperandType();
+        functionWriter.visitInsn(FSUB);
     }
 
     private void translateF32Mul() {
-        functionWriter.visitInsn(FMUL);
         popOperandType();
+        functionWriter.visitInsn(FMUL);
     }
 
     private void translateF32Div() {
-        functionWriter.visitInsn(FDIV);
         popOperandType();
+        functionWriter.visitInsn(FDIV);
     }
 
     private void translateF32Min() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(FF)F", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(FF)F", false);
     }
 
     private void translateF32Max() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(FF)F", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(FF)F", false);
     }
 
     private void translateF32Copysign() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "copySign", "(FF)F", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(FF)F", false);
     }
 
     private void translateF64Abs() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "abs", "(D)D", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "abs", "(D)D", false);
     }
 
     private void translateF64Neg() {
@@ -1780,183 +1889,185 @@ final class ModuleTranslator {
     }
 
     private void translateF64Ceil() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "ceil", "(D)D", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "ceil", "(D)D", false);
     }
 
     private void translateF64Floor() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "floor", "(D)D", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "floor", "(D)D", false);
     }
 
     private void translateF64Trunc() {
-        emitHelperCall("ftrunc", "(D)D");
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F64_TRUNC_NAME, F64_TRUNC_DESCRIPTOR, false);
     }
 
     private void translateF64Nearest() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "rint", "(D)D", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "rint", "(D)D", false);
     }
 
     private void translateF64Sqrt() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "sqrt", "(D)D", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "sqrt", "(D)D", false);
     }
 
     private void translateF64Add() {
-        functionWriter.visitInsn(DADD);
         popOperandType();
+        functionWriter.visitInsn(DADD);
     }
 
     private void translateF64Sub() {
-        functionWriter.visitInsn(DSUB);
         popOperandType();
+        functionWriter.visitInsn(DSUB);
     }
 
     private void translateF64Mul() {
-        functionWriter.visitInsn(DMUL);
         popOperandType();
+        functionWriter.visitInsn(DMUL);
     }
 
     private void translateF64Div() {
-        functionWriter.visitInsn(DDIV);
         popOperandType();
+        functionWriter.visitInsn(DDIV);
     }
 
     private void translateF64Min() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "min", "(DD)D", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(DD)D", false);
     }
 
     private void translateF64Max() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "max", "(DD)D", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(DD)D", false);
     }
 
     private void translateF64Copysign() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Math", "copySign", "(DD)D", false);
         popOperandType();
+        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(DD)D", false);
     }
 
     private void translateI32WrapI64() {
-        functionWriter.visitInsn(L2I);
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitInsn(L2I);
     }
 
     private void translateI32TruncF32S() {
-        emitHelperCall("i32TruncS", "(F)I");
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_S_NAME, I32_TRUNC_F32_S_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF32U() {
-        emitHelperCall("i32TruncU", "(F)I");
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_U_NAME, I32_TRUNC_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF64S() {
-        emitHelperCall("i32TruncS", "(D)I");
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_S_NAME, I32_TRUNC_F64_S_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF64U() {
-        emitHelperCall("i32TruncU", "(D)I");
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_U_NAME, I32_TRUNC_F64_U_DESCRIPTOR, false);
     }
 
     private void translateI64ExtendI32S() {
-        functionWriter.visitInsn(I2L);
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitInsn(I2L);
     }
 
     private void translateI64ExtendI32U() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "toUnsignedLong", "(I)J", false);
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
     }
 
     private void translateI64TruncF32S() {
-        emitHelperCall("i64TruncS", "(F)I");
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_S_NAME, I64_TRUNC_F32_S_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF32U() {
-        emitHelperCall("i64TruncU", "(F)I");
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_U_NAME, I64_TRUNC_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF64S() {
-        emitHelperCall("i64TruncS", "(D)I");
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_S_NAME, I64_TRUNC_F64_S_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF64U() {
-        emitHelperCall("i64TruncU", "(D)I");
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_U_NAME, I64_TRUNC_F64_U_DESCRIPTOR, false);
     }
 
     private void translateF32ConvertI32S() {
-        functionWriter.visitInsn(I2F);
         replaceTopOperandType(ValueType.F32);
+        functionWriter.visitInsn(I2F);
     }
 
     private void translateF32ConvertI32U() {
-        emitHelperCall("f32ConvertU", "(I)F");
         replaceTopOperandType(ValueType.F32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
+        functionWriter.visitInsn(L2F);
     }
 
     private void translateF32ConvertI64S() {
-        functionWriter.visitInsn(L2F);
         replaceTopOperandType(ValueType.F32);
+        functionWriter.visitInsn(L2F);
     }
 
     private void translateF32ConvertI64U() {
-        emitHelperCall("f32ConvertU", "(J)F");
         replaceTopOperandType(ValueType.F32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F32_CONVERT_I64_U_NAME, F32_CONVERT_I64_U_DESCRIPTOR, false);
     }
 
     private void translateF32DemoteF64() {
-        functionWriter.visitInsn(D2F);
         replaceTopOperandType(ValueType.F32);
+        functionWriter.visitInsn(D2F);
     }
 
     private void translateF64ConvertI32S() {
-        functionWriter.visitInsn(I2D);
         replaceTopOperandType(ValueType.F64);
+        functionWriter.visitInsn(I2D);
     }
 
     private void translateF64ConvertI32U() {
-        emitHelperCall("f64ConvertU", "(I)D");
         replaceTopOperandType(ValueType.F64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
+        functionWriter.visitInsn(L2D);
     }
 
     private void translateF64ConvertI64S() {
-        functionWriter.visitInsn(L2D);
         replaceTopOperandType(ValueType.F64);
+        functionWriter.visitInsn(L2D);
     }
 
     private void translateF64ConvertI64U() {
-        emitHelperCall("f64ConvertU", "(J)D");
         replaceTopOperandType(ValueType.F64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F64_CONVERT_I64_U_NAME, F64_CONVERT_I64_U_DESCRIPTOR, false);
     }
 
     private void translateF64PromoteF32() {
-        functionWriter.visitInsn(F2D);
         replaceTopOperandType(ValueType.F64);
+        functionWriter.visitInsn(F2D);
     }
 
     private void translateI32ReinterpretF32() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Float", "floatToRawIntBits", "(F)I", false);
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "floatToRawIntBits", "(F)I", false);
     }
 
     private void translateI64ReinterpretF64() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "doubleToRawLongBits", "(D)J", false);
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "doubleToRawLongBits", "(D)J", false);
     }
 
     private void translateF32ReinterpretI32() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Float", "intBitsToFloat", "(I)F", false);
         replaceTopOperandType(ValueType.F32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "intBitsToFloat", "(I)F", false);
     }
 
     private void translateF64ReinterpretI64() {
-        functionWriter.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "longBitsToDouble", "(J)D", false);
         replaceTopOperandType(ValueType.F64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "longBitsToDouble", "(J)D", false);
     }
 
     private void translateI32Extend8S() {
@@ -1985,13 +2096,13 @@ final class ModuleTranslator {
     }
 
     private void translateRefNull() throws TranslationException, IOException {
-        functionWriter.visitInsn(ACONST_NULL);
         operandStack.add(nextReferenceType().toValueType());
+        functionWriter.visitInsn(ACONST_NULL);
     }
 
     private void translateRefIsNull() {
-        emitHelperCall("refIsNull", "(Ljava/lang/Object;)Z");
         popOperandType();
+        translateConditionalBoolean(IFNULL);
     }
 
     private void translateRefFunc() throws IOException {
@@ -2036,43 +2147,43 @@ final class ModuleTranslator {
     }
 
     private void translateI32TruncSatF32S() {
-        functionWriter.visitInsn(F2I);
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitInsn(F2I);
     }
 
     private void translateI32TruncSatF32U() {
-        emitHelperCall("i32TruncSatU", "(F)I");
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F32_U_NAME, I32_TRUNC_SAT_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI32TruncSatF64S() {
-        functionWriter.visitInsn(D2I);
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitInsn(D2I);
     }
 
     private void translateI32TruncSatF64U() {
-        emitHelperCall("i32TruncSatU", "(D)I");
         replaceTopOperandType(ValueType.I32);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F64_U_NAME, I32_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncSatF32S() {
-        functionWriter.visitInsn(F2L);
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitInsn(F2L);
     }
 
     private void translateI64TruncSatF32U() {
-        emitHelperCall("i64TruncSatU", "(F)J");
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F32_U_NAME, I64_TRUNC_SAT_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncSatF64S() {
-        functionWriter.visitInsn(D2L);
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitInsn(D2L);
     }
 
     private void translateI64TruncSatF64U() {
-        emitHelperCall("i64TruncSatU", "(D)J");
         replaceTopOperandType(ValueType.I64);
+        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F64_U_NAME, I64_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
     private void emitDataFieldLoad(int index) {
@@ -2118,14 +2229,20 @@ final class ModuleTranslator {
         popOperandType();
     }
 
-    private void translateTableInit() throws IOException {
-        var elemIndex = reader.nextUnsigned32();
-        var tableIndex = reader.nextUnsigned32();
+    private void emitElementFieldLoad(int index) {
         emitSelfLoad();
-        functionWriter.visitInsn(DUP);
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "e-" + elemIndex, "[Ljava/lang/Object;");
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "t-" + tableIndex, "Lorg/wastastic/Table;");
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "init", "(III[Ljava/lang/Object;Lorg/wastastic/Table;)V", false);
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
+    }
+
+    private void emitTableFieldLoad(int index) {
+        emitSelfLoad();
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(index), Table.DESCRIPTOR);
+    }
+
+    private void translateTableInit() throws IOException {
+        emitElementFieldLoad(reader.nextUnsigned32());
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_METHOD_NAME, Table.INIT_METHOD_DESCRIPTOR, false);
         popOperandType();
         popOperandType();
         popOperandType();
@@ -2139,30 +2256,30 @@ final class ModuleTranslator {
     }
 
     private void translateTableCopy() throws IOException {
-        emitLoadTable(reader.nextUnsigned32());
-        emitLoadTable(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "copy", "(IIILorg/wastastic/Table;Lorg/wastastic/Table;)V", false);
+        emitTableFieldLoad(reader.nextUnsigned32());
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_METHOD_NAME, Table.COPY_METHOD_DESCRIPTOR, false);
         popOperandType();
         popOperandType();
         popOperandType();
     }
 
     private void translateTableGrow() throws IOException {
-        emitLoadTable(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "grow", "(Ljava/lang/Object;ILorg/wastastic/Table;)I", false);
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
         popOperandType();
         replaceTopOperandType(ValueType.I32);
     }
 
     private void translateTableSize() throws IOException {
-        emitLoadTable(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "size", "(Lorg/wastastic/Table;)I", false);
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SIZE_METHOD_NAME, Table.SIZE_METHOD_DESCRIPTOR, false);
         operandStack.add(ValueType.I32);
     }
 
     private void translateTableFill() throws IOException {
-        emitLoadTable(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "fill", "(ILjava/lang/Object;ILorg/wastastic/Table;)V", false);
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_METHOD_NAME, Table.FILL_METHOD_DESCRIPTOR, false);
         popOperandType();
         popOperandType();
         popOperandType();
@@ -2294,16 +2411,16 @@ final class ModuleTranslator {
         };
     }
 
+    private @NotNull LabelScope popLabelScope() {
+        return labelStack.remove(labelStack.size() - 1);
+    }
+
     private @NotNull ValueType popOperandType() {
         return operandStack.remove(operandStack.size() - 1);
     }
 
     private void replaceTopOperandType(@NotNull ValueType replacement) {
         operandStack.set(operandStack.size() - 1, replacement);
-    }
-
-    private @NotNull LabelScope popLabelScope() {
-        return labelStack.remove(labelStack.size() - 1);
     }
 
     private static final byte SECTION_CUSTOM = 0;
