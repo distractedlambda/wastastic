@@ -65,12 +65,12 @@ final class Names {
     static final String INTEGER_INTERNAL_NAME = getInternalName(Integer.class);
     static final String LONG_INTERNAL_NAME = getInternalName(Long.class);
     static final String MATH_INTERNAL_NAME = getInternalName(Math.class);
-    static final String MEMORY_SEGMENT_DESCRIPTOR = getDescriptor(MemorySegment.class);
     static final String METHOD_HANDLE_INTERNAL_NAME = getInternalName(MethodHandle.class);
     static final String OBJECT_INTERNAL_NAME = getInternalName(Object.class);
     static final String VAR_HANDLE_INTERNAL_NAME = getInternalName(VarHandle.class);
 
     static final String GENERATED_INSTANCE_DESCRIPTOR = "L" + GENERATED_INSTANCE_INTERNAL_NAME + ";";
+    static final String MEMORY_SEGMENT_DESCRIPTOR = getDescriptor(MemorySegment.class);
     static final String METHOD_HANDLE_DESCRIPTOR = getDescriptor(MethodHandle.class);
     static final String OBJECT_ARRAY_DESCRIPTOR = getDescriptor(Object[].class);
     static final String VAR_HANDLE_DESCRIPTOR = getDescriptor(VarHandle.class);

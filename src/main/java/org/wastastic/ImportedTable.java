@@ -10,7 +10,7 @@ final class ImportedTable extends Import {
         this.type = type;
     }
 
-    @NotNull TableType getType() {
+    @NotNull TableType type() {
         return type;
     }
 }

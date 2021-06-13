@@ -119,6 +119,8 @@ import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.SWAP;
+import static org.wastastic.Empties.EMPTY_DATA_NAME;
+import static org.wastastic.Empties.EMPTY_ELEMENTS_NAME;
 import static org.wastastic.Importers.IMPORT_FUNCTION_DESCRIPTOR;
 import static org.wastastic.Importers.IMPORT_FUNCTION_NAME;
 import static org.wastastic.Importers.IMPORT_MEMORY_DESCRIPTOR;
@@ -719,7 +721,8 @@ final class ModuleTranslator {
         functionWriter.visitEnd();
     }
 
-    private void translateDataSection() {
+    private void translateDataSection() throws IOException {
+        var dataCount = reader.nextUnsigned32();
         // TODO
     }
 
@@ -1049,7 +1052,6 @@ final class ModuleTranslator {
 
     private void translateCall() throws IOException {
         var index = reader.nextUnsigned32();
-        var name = "f-" + index;
 
         FunctionType type;
         if (index < importedFunctions.size()) {
@@ -1060,42 +1062,38 @@ final class ModuleTranslator {
         }
 
         emitSelfLoad();
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, name, type.descriptor(), false);
-        operandStack.subList(operandStack.size() - type.returnTypes().size(), operandStack.size()).clear();
+        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodName(index), type.descriptor(), false);
+        removeLast(operandStack, type.parameterTypes().size());
         operandStack.addAll(type.returnTypes());
     }
 
     private void translateCallIndirect() throws IOException {
         var type = nextIndexedType();
-        var tableIndex = reader.nextUnsigned32();
-        emitLoadTable(tableIndex);
-        functionWriter.visitMethodInsn(INVOKESTATIC, "org/wastastic/Table", "get", "(ILorg/wastastic/Table;)Ljava/lang/Object", false);
-        functionWriter.visitInsn(DUP);
-        functionWriter.visitLdcInsn(Type.getMethodType(type.descriptor()));
+
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
 
         var calleeLocalIndex = firstScratchLocalIndex;
         functionWriter.visitVarInsn(ASTORE, calleeLocalIndex);
 
         var nextLocalIndex = calleeLocalIndex + 1;
-        var returnTypes = type.returnTypes();
-        for (var i = returnTypes.size() - 1; i >= 0; i--) {
-            var returnType = returnTypes.get(i);
-            functionWriter.visitVarInsn(returnType.localStoreOpcode(), nextLocalIndex);
-            nextLocalIndex += returnType.width();
+        for (var i = type.parameterTypes().size() - 1; i >= 0; i--) {
+            var parameterType = type.parameterTypes().get(i);
+            functionWriter.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
+            nextLocalIndex += parameterType.width();
         }
 
         functionWriter.visitVarInsn(ALOAD, calleeLocalIndex);
 
-        for (var returnType : returnTypes) {
-            nextLocalIndex -= returnType.width();
-            functionWriter.visitVarInsn(returnType.localLoadOpcode(), nextLocalIndex);
+        for (var parameterType : type.parameterTypes()) {
+            nextLocalIndex -= parameterType.width();
+            functionWriter.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
         emitSelfLoad();
-
-        functionWriter.visitMethodInsn(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeExact", type.descriptor(), false);
-        operandStack.subList(operandStack.size() - type.parameterTypes().size() - 1, operandStack.size()).clear();
-        operandStack.addAll(returnTypes);
+        functionWriter.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
+        removeLast(operandStack, type.parameterTypes().size());
+        operandStack.addAll(type.returnTypes());
     }
 
     private void translateDrop() {
@@ -1160,7 +1158,7 @@ final class ModuleTranslator {
         }
 
         emitSelfLoad();
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, "g-" + globalIndex + "-get", "(Lorg/wastastic/Module;)" + type.descriptor(), false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalGetterMethodName(globalIndex), type.globalGetterDescriptor(), false);
         operandStack.add(type);
     }
 
@@ -1176,44 +1174,39 @@ final class ModuleTranslator {
         }
 
         emitSelfLoad();
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, "g-" + globalIndex + "-set", "(" + type.descriptor() + "Lorg/wastastic/Module;" + ")V", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalSetterMethodName(globalIndex), type.globalSetterDescriptor(), false);
         removeLast(operandStack);
-    }
-
-    private void emitLoadTable(int index) {
-        emitSelfLoad();
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "t-" + index, "Lorg/wastastic/Table;");
-    }
-
-    private @NotNull TableType indexedTableType(int index) {
-        if (index < importedTables.size()) {
-            return importedTables.get(index).getType();
-        } else {
-            return definedTables.get(index - importedTables.size());
-        }
     }
 
     private void translateTableGet() throws IOException {
         var index = reader.nextUnsigned32();
+
+        ValueType elementType;
+        if (index < importedTables.size()) {
+            elementType = importedTables.get(index).type().elementType();
+        } else {
+            elementType = definedTables.get(index - importedTables.size()).elementType();
+        }
+
+        operandStack.add(elementType);
         emitTableFieldLoad(index);
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
-        operandStack.add(indexedTableType(index).elementType());
     }
 
     private void translateTableSet() throws IOException {
+        removeLast(operandStack);
         emitTableFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
-        removeLast(operandStack);
     }
 
     private void translateLoad(@NotNull SpecializedLoad.Op op) throws IOException {
         reader.nextUnsigned32(); // expected alignment (ignored)
         var offset = reader.nextUnsigned32();
         var specializedOp = new SpecializedLoad(op, 0, offset);
+        replaceLast(operandStack, specializedOp.returnType());
         loadOps.add(specializedOp);
         emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
-        replaceLast(operandStack, specializedOp.returnType());
     }
 
     private void translateI32Load() throws IOException {
@@ -1273,14 +1266,14 @@ final class ModuleTranslator {
     }
 
     private void translateStore(@NotNull SpecializedStore.Op op) throws IOException {
+        removeLast(operandStack); // stored value arg
+        removeLast(operandStack); // address arg
         reader.nextUnsigned32(); // expected alignment (ignored)
         var offset = reader.nextUnsigned32();
         var specializedOp = new SpecializedStore(op, 0, offset);
         storeOps.add(specializedOp);
         emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
-        removeLast(operandStack); // stored value arg
-        removeLast(operandStack); // address arg
     }
 
     private void translateI32Store() throws IOException {
@@ -1320,19 +1313,15 @@ final class ModuleTranslator {
     }
 
     private void translateMemorySize() throws IOException {
+        operandStack.add(ValueType.I32);
         emitMemoryFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.SIZE_METHOD_NAME, Memory.SIZE_METHOD_DESCRIPTOR, false);
-        operandStack.add(ValueType.I32);
     }
 
     private void translateMemoryGrow() throws IOException {
+        operandStack.add(ValueType.I32);
         emitMemoryFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.GROW_METHOD_NAME, Memory.GROW_METHOD_DESCRIPTOR, false);
-        operandStack.add(ValueType.I32);
-    }
-
-    private void emitSelfLoad() {
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
     }
 
     private void translateI32Const() throws IOException {
@@ -2070,15 +2059,14 @@ final class ModuleTranslator {
 
     private void translateRefFunc() throws IOException {
         var index = reader.nextUnsigned32();
-        var name = "f-" + index;
 
         if (index < importedFunctions.size()) {
             emitSelfLoad();
-            functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, name + "-mh", METHOD_HANDLE_DESCRIPTOR);
+            functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(index), METHOD_HANDLE_DESCRIPTOR);
         }
         else {
             var type = definedFunctions.get(index - importedFunctions.size());
-            var handle = new Handle(H_INVOKESPECIAL, GENERATED_INSTANCE_INTERNAL_NAME, name, type.descriptor(), false);
+            var handle = new Handle(H_INVOKESPECIAL, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodName(index), type.descriptor(), false);
             functionWriter.visitLdcInsn(handle);
         }
 
@@ -2149,104 +2137,74 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F64_U_NAME, I64_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
-    private void emitDataFieldLoad(int index) {
-        emitSelfLoad();
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
-    }
-
     private void translateMemoryInit() throws IOException {
+        removeLast(operandStack, 3);
         emitDataFieldLoad(reader.nextUnsigned32());
         emitMemoryFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_METHOD_NAME, Memory.INIT_METHOD_DESCRIPTOR, false);
-        removeLast(operandStack);
-        removeLast(operandStack);
-        removeLast(operandStack);
     }
 
     private void translateDataDrop() throws IOException {
         var index = reader.nextUnsigned32();
         emitSelfLoad();
-        functionWriter.visitFieldInsn(GETSTATIC, "org/wastastic/Module", "EMPTY_DATA", "Ljdk/incubator/foreign/MemorySegment;");
-        functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "d-" + index, "Ljdk/incubator/foreign/MemorySegment;");
+        functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_DATA_NAME, MEMORY_SEGMENT_DESCRIPTOR);
+        functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
 
     private void translateMemoryCopy() throws IOException {
+        removeLast(operandStack, 3);
         emitMemoryFieldLoad(reader.nextUnsigned32());
         emitMemoryFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.COPY_METHOD_NAME, Memory.COPY_METHOD_DESCRIPTOR, false);
-        removeLast(operandStack);
-        removeLast(operandStack);
-        removeLast(operandStack);
-    }
-
-    private void emitMemoryFieldLoad(int index) {
-        emitSelfLoad();
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(index), Memory.DESCRIPTOR);
     }
 
     private void translateMemoryFill() throws IOException {
+        removeLast(operandStack, 3);
         emitMemoryFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.FILL_METHOD_NAME, Memory.FILL_METHOD_DESCRIPTOR, false);
-        removeLast(operandStack);
-        removeLast(operandStack);
-        removeLast(operandStack);
-    }
-
-    private void emitElementFieldLoad(int index) {
-        emitSelfLoad();
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
-    }
-
-    private void emitTableFieldLoad(int index) {
-        emitSelfLoad();
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(index), Table.DESCRIPTOR);
     }
 
     private void translateTableInit() throws IOException {
+        removeLast(operandStack, 3);
         emitElementFieldLoad(reader.nextUnsigned32());
         emitTableFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_METHOD_NAME, Table.INIT_METHOD_DESCRIPTOR, false);
-        removeLast(operandStack);
-        removeLast(operandStack);
-        removeLast(operandStack);
     }
 
     private void translateElemDrop() throws IOException {
         var index = reader.nextUnsigned32();
         emitSelfLoad();
-        functionWriter.visitFieldInsn(GETSTATIC, "org/wastastic/Module", "EMPTY_ELEMENT", "[Ljava/lang/Object;");
-        functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "e-" + index, "[Ljava/lang/Object;");
+        functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_ELEMENTS_NAME, OBJECT_ARRAY_DESCRIPTOR);
+        functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
 
     private void translateTableCopy() throws IOException {
+        removeLast(operandStack, 3);
         emitTableFieldLoad(reader.nextUnsigned32());
         emitTableFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_METHOD_NAME, Table.COPY_METHOD_DESCRIPTOR, false);
-        removeLast(operandStack);
-        removeLast(operandStack);
-        removeLast(operandStack);
     }
 
     private void translateTableGrow() throws IOException {
-        emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
         removeLast(operandStack);
         replaceLast(operandStack, ValueType.I32);
+        emitTableFieldLoad(reader.nextUnsigned32());
+        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableSize() throws IOException {
+        operandStack.add(ValueType.I32);
         emitTableFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SIZE_METHOD_NAME, Table.SIZE_METHOD_DESCRIPTOR, false);
-        operandStack.add(ValueType.I32);
     }
 
     private void translateTableFill() throws IOException {
+        removeLast(operandStack, 3);
         emitTableFieldLoad(reader.nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_METHOD_NAME, Table.FILL_METHOD_DESCRIPTOR, false);
-        removeLast(operandStack);
-        removeLast(operandStack);
-        removeLast(operandStack);
     }
+
+    //==================================================================================================================
 
     private void emitBranch(LabelScope target) {
         var nextLocalIndex = firstScratchLocalIndex;
@@ -2273,6 +2231,32 @@ final class ModuleTranslator {
 
         functionWriter.visitJumpInsn(GOTO, target.targetLabel());
     }
+
+    private void emitDataFieldLoad(int index) {
+        emitSelfLoad();
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
+    }
+
+    private void emitElementFieldLoad(int index) {
+        emitSelfLoad();
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
+    }
+
+    private void emitMemoryFieldLoad(int index) {
+        emitSelfLoad();
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(index), Memory.DESCRIPTOR);
+    }
+
+    private void emitSelfLoad() {
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+    }
+
+    private void emitTableFieldLoad(int index) {
+        emitSelfLoad();
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(index), Table.DESCRIPTOR);
+    }
+
+    //==================================================================================================================
 
     private @NotNull FunctionType nextBlockType() throws IOException, TranslationException {
         var code = reader.nextSigned33();
@@ -2415,6 +2399,8 @@ final class ModuleTranslator {
             default -> throw new TranslationException("Invalid value type");
         };
     }
+
+    //==================================================================================================================
 
     private static final byte SECTION_CUSTOM = 0;
     private static final byte SECTION_TYPE = 1;
