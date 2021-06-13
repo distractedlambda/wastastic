@@ -1,6 +1,5 @@
 package org.wastastic;
 
-import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;

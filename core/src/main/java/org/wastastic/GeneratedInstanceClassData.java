@@ -35,7 +35,7 @@ record GeneratedInstanceClassData(
         var resolvedValues = new Object[constantValues.length];
         for (var i = 0; i < resolvedValues.length; i++) {
             if (constantValues[i] instanceof FunctionRefConstant functionRefConstant) {
-                resolvedValues[i] = lookup.findStatic(lookup.lookupClass(), functionMethodName(index), classData.functionTypes[functionRefConstant.index()].jvmType(lookup.lookupClass()));
+                resolvedValues[i] = lookup.findStatic(lookup.lookupClass(), functionMethodName(index), classData.functionTypes[functionRefConstant.index()].jvmType());
             }
             else if (constantValues[i] != NullConstant.INSTANCE) {
                 throw new ClassCastException();

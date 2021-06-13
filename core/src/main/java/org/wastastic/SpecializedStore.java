@@ -6,6 +6,7 @@ import org.objectweb.asm.ClassWriter;
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ALOAD;
+import static org.objectweb.asm.Opcodes.CHECKCAST;
 import static org.objectweb.asm.Opcodes.DLOAD;
 import static org.objectweb.asm.Opcodes.FLOAD;
 import static org.objectweb.asm.Opcodes.GETFIELD;
@@ -18,9 +19,9 @@ import static org.objectweb.asm.Opcodes.LADD;
 import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.RETURN;
-import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
+import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_INTERNAL_NAME;
 
@@ -47,7 +48,7 @@ record SpecializedStore(@NotNull Op op, int memoryIndex, int offset) {
         Op(@NotNull String name, char argumentType, char storedType) {
             this.name = name;
             this.vhSetDescriptor = "(" + MEMORY_SEGMENT_DESCRIPTOR + "J" + storedType + ")V";
-            this.methodDescriptor = "(I" + argumentType + GENERATED_INSTANCE_DESCRIPTOR + ")V";
+            this.methodDescriptor = "(I" + argumentType + MODULE_INSTANCE_DESCRIPTOR + ")V";
 
             this.vhName = switch (storedType) {
                 case 'B' -> "VH_BYTE";
@@ -90,6 +91,7 @@ record SpecializedStore(@NotNull Op op, int memoryIndex, int offset) {
         writer.visitFieldInsn(GETSTATIC, Memory.INTERNAL_NAME, op.vhName, VAR_HANDLE_DESCRIPTOR);
 
         writer.visitVarInsn(ALOAD, op.moduleArgumentFieldIndex);
+        writer.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         writer.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, "m" + memoryIndex, Memory.DESCRIPTOR);
         writer.visitFieldInsn(GETFIELD, Memory.INTERNAL_NAME, "segment", MEMORY_SEGMENT_DESCRIPTOR);
 

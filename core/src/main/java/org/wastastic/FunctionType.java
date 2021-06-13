@@ -9,7 +9,7 @@ import java.util.List;
 import static java.lang.invoke.MethodType.methodType;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Type.getMethodType;
-import static org.wastastic.Names.GENERATED_INSTANCE_DESCRIPTOR;
+import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 
 final class FunctionType {
     private final @NotNull List<ValueType> parameterTypes;
@@ -39,7 +39,7 @@ final class FunctionType {
             builder.append(parameterType.descriptor());
         }
 
-        builder.append(GENERATED_INSTANCE_DESCRIPTOR);
+        builder.append(MODULE_INSTANCE_DESCRIPTOR);
         builder.append(')');
 
         if (returnTypes.isEmpty()) {
@@ -71,14 +71,14 @@ final class FunctionType {
         }
     }
 
-    @NotNull MethodType jvmType(Class<?> moduleInstanceType) {
+    @NotNull MethodType jvmType() {
         var jvmParameterTypes = new Class<?>[parameterTypes().size() + 1];
 
         for (var i = 0; i < parameterTypes.size(); i++) {
             jvmParameterTypes[i] = parameterTypes.get(i).jvmType();
         }
 
-        jvmParameterTypes[parameterTypes.size()] = moduleInstanceType;
+        jvmParameterTypes[parameterTypes.size()] = ModuleInstance.class;
 
         return methodType(returnTypes.get(0).jvmType(), jvmParameterTypes);
     }

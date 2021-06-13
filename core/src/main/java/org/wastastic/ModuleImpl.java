@@ -49,7 +49,7 @@ final class ModuleImpl implements Module {
             throw new IllegalArgumentException();
         }
 
-        var type = function.type().jvmType(instanceClass());
+        var type = function.type().jvmType();
 
         try {
             return instanceLookup.findStatic(instanceClass(), functionMethodName(function.index()), type);

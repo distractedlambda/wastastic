@@ -27,6 +27,7 @@ import static org.objectweb.asm.Opcodes.ALOAD;
 import static org.objectweb.asm.Opcodes.ASTORE;
 import static org.objectweb.asm.Opcodes.ATHROW;
 import static org.objectweb.asm.Opcodes.BIPUSH;
+import static org.objectweb.asm.Opcodes.CHECKCAST;
 import static org.objectweb.asm.Opcodes.D2F;
 import static org.objectweb.asm.Opcodes.D2I;
 import static org.objectweb.asm.Opcodes.D2L;
@@ -120,6 +121,7 @@ import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.SWAP;
+import static org.objectweb.asm.Opcodes.V17;
 import static org.wastastic.Empties.EMPTY_DATA_NAME;
 import static org.wastastic.Empties.EMPTY_ELEMENTS_NAME;
 import static org.wastastic.Importers.IMPORT_FUNCTION_DESCRIPTOR;
@@ -176,7 +178,9 @@ import static org.wastastic.Names.MATH_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
+import static org.wastastic.Names.MODULE_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
+import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 import static org.wastastic.Names.dataFieldName;
 import static org.wastastic.Names.elementFieldName;
 import static org.wastastic.Names.functionMethodHandleFieldName;
@@ -226,6 +230,8 @@ final class ModuleTranslator {
     }
 
     @NotNull ModuleImpl translate() throws TranslationException, IOException {
+        classWriter.visit(V17, 0, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
+
         if (reader.nextByte() != 0x00 ||
             reader.nextByte() != 0x61 ||
             reader.nextByte() != 0x73 ||
@@ -274,6 +280,8 @@ final class ModuleTranslator {
 
         var constructorWriter = classWriter.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, new String[]{ModuleInstantiationException.INTERNAL_NAME});
         constructorWriter.visitCode();
+        constructorWriter.visitVarInsn(ALOAD, 0);
+        constructorWriter.visitMethodInsn(INVOKESPECIAL, OBJECT_INTERNAL_NAME, "<init>", "()V", false);
 
         for (var i = 0; i < importedFunctions.size(); i++) {
             var importedFunction = importedFunctions.get(i);
@@ -322,6 +330,7 @@ final class ModuleTranslator {
             var memoryIndex = importedMemories.size() + i;
             constructorWriter.visitVarInsn(ALOAD, 0);
             constructorWriter.visitTypeInsn(NEW, Memory.INTERNAL_NAME);
+            constructorWriter.visitInsn(DUP);
             constructorWriter.visitLdcInsn(memoryType.limits().unsignedMinimum());
             constructorWriter.visitLdcInsn(memoryType.limits().unsignedMaximum());
             constructorWriter.visitMethodInsn(INVOKESPECIAL, Memory.INTERNAL_NAME, "<init>", "(II)V", false);
@@ -625,6 +634,7 @@ final class ModuleTranslator {
             var getterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, globalGetterMethodName(index), type.globalGetterDescriptor(), null, null);
             getterMethod.visitCode();
             getterMethod.visitVarInsn(ALOAD, 0);
+            getterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
             getterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, type.descriptor());
             getterMethod.visitInsn(type.returnOpcode());
             getterMethod.visitMaxs(0, 0);
@@ -640,6 +650,7 @@ final class ModuleTranslator {
                     var setterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, globalSetterMethodName(index), type.globalSetterDescriptor(), null, null);
                     setterMethod.visitCode();
                     setterMethod.visitVarInsn(ALOAD, type.width());
+                    setterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
                     setterMethod.visitVarInsn(type.localLoadOpcode(), 0);
                     setterMethod.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, type.descriptor());
                     setterMethod.visitInsn(RETURN);
@@ -1113,7 +1124,8 @@ final class ModuleTranslator {
 
     private void translateUnreachable() {
         functionWriter.visitTypeInsn(NEW, UnreachableException.INTERNAL_NAME);
-        functionWriter.visitMethodInsn(INVOKESPECIAL, UnreachableException.INTERNAL_NAME, "<init>", "()", false);
+        functionWriter.visitInsn(DUP);
+        functionWriter.visitMethodInsn(INVOKESPECIAL, UnreachableException.INTERNAL_NAME, "<init>", "()V", false);
         functionWriter.visitInsn(ATHROW);
     }
 
@@ -1538,6 +1550,8 @@ final class ModuleTranslator {
                 }
             }
         }
+
+        operandStack.add(ValueType.I32);
     }
 
     private void translateI64Const() throws IOException {
