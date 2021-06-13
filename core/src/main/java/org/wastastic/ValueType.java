@@ -44,7 +44,7 @@ enum ValueType {
     }
 
     @NotNull String globalGetterDescriptor() {
-        return "(" + GENERATED_INSTANCE_INTERNAL_NAME + ")" + descriptor();
+        return "(" + GENERATED_INSTANCE_DESCRIPTOR + ")" + descriptor();
     }
 
     @NotNull String globalSetterDescriptor() {

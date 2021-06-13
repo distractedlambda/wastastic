@@ -7,7 +7,6 @@ repositories {
 }
 
 dependencies {
-    compileOnly 'org.jetbrains:annotations:21.0.1'
     implementation project(':core')
 }
 
@@ -17,4 +16,8 @@ java {
     }
 
     modularity.inferModulePath = true
+}
+
+compileJava {
+    options.compilerArgs << "--enable-preview"
 }

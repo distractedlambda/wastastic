@@ -2594,14 +2594,15 @@ final class ModuleTranslator {
     }
 
     private @NotNull ValueType nextValueType() throws IOException, TranslationException {
-        return switch (reader.nextByte()) {
+        var code = reader.nextByte();
+        return switch (code) {
             case TYPE_EXTERNREF -> ValueType.EXTERNREF;
             case TYPE_FUNCREF -> ValueType.FUNCREF;
             case TYPE_F64 -> ValueType.F64;
             case TYPE_F32 -> ValueType.F32;
             case TYPE_I64 -> ValueType.I64;
             case TYPE_I32 -> ValueType.I32;
-            default -> throw new TranslationException("Invalid value type");
+            default -> throw new TranslationException("Invalid value type: " + Integer.toHexString(Byte.toUnsignedInt(code)));
         };
     }
 
