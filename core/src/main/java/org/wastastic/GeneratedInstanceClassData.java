@@ -3,8 +3,6 @@ package org.wastastic;
 import jdk.incubator.foreign.MemorySegment;
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Handle;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
 
 import java.lang.constant.ConstantDescs;
 import java.lang.invoke.MethodHandles;

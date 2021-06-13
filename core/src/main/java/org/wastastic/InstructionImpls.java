@@ -1,8 +1,5 @@
 package org.wastastic;
 
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodType;
-
 import static org.objectweb.asm.Type.getInternalName;
 import static org.wastastic.Names.methodDescriptor;
 

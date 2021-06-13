@@ -1,0 +1,26 @@
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly 'org.jetbrains:annotations:21.0.1'
+    implementation 'org.ow2.asm:asm:9.1'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+
+    modularity.inferModulePath = true
+}
+
+compileJava {
+    options.compilerArgs
+        << "--enable-preview"
+        << "--add-modules=jdk.incubator.foreign"
+}

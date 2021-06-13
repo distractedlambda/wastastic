@@ -7,7 +7,6 @@ import org.jetbrains.annotations.NotNull;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
 import static java.lang.Integer.toUnsignedLong;

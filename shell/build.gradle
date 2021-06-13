@@ -1,0 +1,20 @@
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly 'org.jetbrains:annotations:21.0.1'
+    implementation project(':core')
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+
+    modularity.inferModulePath = true
+}
