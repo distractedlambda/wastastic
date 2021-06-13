@@ -89,6 +89,12 @@ public final class Memory {
         dstSlice.copyFrom(srcSlice);
     }
 
+    static final String INIT_FROM_ACTIVE_NAME = "initFromActive";
+    static final String INIT_FROM_ACTIVE_DESCRIPTOR = methodDescriptor(void.class, MemorySegment.class, int.class, Memory.class);
+    static void initFromActive(@NotNull MemorySegment data, int dstAddress, @NotNull Memory self) {
+        self.segment.asSlice(Integer.toUnsignedLong(dstAddress)).copyFrom(data);
+    }
+
     static final String FILL_METHOD_NAME = "fill";
     static final String FILL_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, byte.class, int.class, Memory.class);
     static void fill(int dstAddress, byte fillValue, int size, @NotNull Memory self) {

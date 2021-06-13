@@ -8,12 +8,13 @@ import org.objectweb.asm.ConstantDynamic;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Type;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -58,7 +59,6 @@ import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
 import static org.objectweb.asm.Opcodes.GOTO;
 import static org.objectweb.asm.Opcodes.H_INVOKESPECIAL;
-import static org.objectweb.asm.Opcodes.H_INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.I2B;
 import static org.objectweb.asm.Opcodes.I2D;
 import static org.objectweb.asm.Opcodes.I2F;
@@ -225,7 +225,7 @@ final class ModuleTranslator {
         this.reader = reader;
     }
 
-    void translate() throws TranslationException, IOException {
+    @NotNull ModuleImpl translate() throws TranslationException, IOException {
         if (reader.nextByte() != 0x00 ||
             reader.nextByte() != 0x61 ||
             reader.nextByte() != 0x73 ||
@@ -368,9 +368,48 @@ final class ModuleTranslator {
             constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, globalFieldName(globalIndex), global.type().valueType().descriptor());
         }
 
+        var nextElementSegmentBootstrapIndex = 0;
+        var constantWhatevers = new ArrayList<Constant[]>();
+
         for (var i = 0; i < elementSegments.size(); i++) {
-            // TODO
-            new ConstantDynamic("element", "[Ljava/lang/Object;", null, i);
+            var element = elementSegments.get(i);
+
+            if (element.mode() == ElementSegment.Mode.DECLARATIVE) {
+                continue;
+            }
+
+            constantWhatevers.add(element.values());
+
+            var fieldName = elementFieldName(i);
+            constructorWriter.visitVarInsn(ALOAD, 0);
+            constructorWriter.visitLdcInsn(new ConstantDynamic(fieldName, OBJECT_ARRAY_DESCRIPTOR, GeneratedInstanceClassData.ELEMENT_BOOTSTRAP, nextElementSegmentBootstrapIndex++));
+
+            if (element.mode() == ElementSegment.Mode.ACTIVE) {
+                constructorWriter.visitInsn(DUP);
+                constructorWriter.visitLdcInsn(element.tableOffset());
+                constructorWriter.visitVarInsn(ALOAD, 0);
+                constructorWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(element.tableIndex()), Table.DESCRIPTOR);
+                constructorWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_FROM_ACTIVE_NAME, Table.INIT_FROM_ACTIVE_DESCRIPTOR, false);
+            }
+
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, OBJECT_ARRAY_DESCRIPTOR);
+        }
+
+        for (var i = 0; i < dataSegments.size(); i++) {
+            var data = dataSegments.get(i);
+            var fieldName = dataFieldName(i);
+            constructorWriter.visitVarInsn(ALOAD, 0);
+            constructorWriter.visitLdcInsn(new ConstantDynamic(fieldName, MEMORY_SEGMENT_DESCRIPTOR, GeneratedInstanceClassData.DATA_BOOTSTRAP, i));
+
+            if (data.mode() == DataSegment.Mode.ACTIVE) {
+                constructorWriter.visitInsn(DUP);
+                constructorWriter.visitLdcInsn(data.memoryOffset());
+                constructorWriter.visitVarInsn(ALOAD, 0);
+                constructorWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(data.memoryIndex()), Memory.DESCRIPTOR);
+                constructorWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_FROM_ACTIVE_NAME, Memory.INIT_FROM_ACTIVE_DESCRIPTOR, false);
+            }
+
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, MEMORY_SEGMENT_DESCRIPTOR);
         }
 
         constructorWriter.visitInsn(RETURN);
@@ -384,6 +423,46 @@ final class ModuleTranslator {
         for (var storeOp : storeOps) {
             storeOp.writeMethod(classWriter);
         }
+
+        var dataMemorySegments = new MemorySegment[dataSegments.size()];
+        for (var i = 0; i < dataSegments.size(); i++) {
+            dataMemorySegments[i] = dataSegments.get(i).contents();
+        }
+
+        var functionTypes = new FunctionType[importedFunctions.size() + definedFunctions.size()];
+        for (var i = 0; i < importedFunctions.size(); i++) {
+            functionTypes[i] = importedFunctions.get(i).type();
+        }
+
+        for (var i = 0; i < definedFunctions.size(); i++) {
+            functionTypes[importedFunctions.size() + i] = definedFunctions.get(i);
+        }
+
+        var classData = new GeneratedInstanceClassData(functionTypes, dataMemorySegments, constantWhatevers.toArray(Constant[][]::new));
+
+        MethodHandles.Lookup lookup;
+        try {
+            lookup = MethodHandles.lookup().defineHiddenClassWithClassData(classWriter.toByteArray(), classData, false);
+        } catch (Throwable e) {
+            throw new TranslationException(e);
+        }
+
+        var exportedFunctions = new LinkedHashMap<String, ExportedFunction>();
+        var exportedTableIndices = new LinkedHashMap<String, Integer>();
+        var exportedMemoryIndices = new LinkedHashMap<String, Integer>();
+
+        for (var export : exports) {
+            // FIXME: deal with inconsistency in imported method handles v.s. handles to wrapper methods
+            switch (export.kind()) {
+                case TABLE -> exportedTableIndices.put(export.name(), export.index());
+                case FUNCTION -> exportedFunctions.put(export.name(), new ExportedFunction(export.index(), functionTypes[export.index()]));
+                case MEMORY -> exportedMemoryIndices.put(export.name(), export.index());
+            }
+        }
+
+        // FIXME: implement start method
+
+        return new ModuleImpl(lookup, exportedFunctions, exportedTableIndices, exportedMemoryIndices);
     }
 
     private void translateTypeSection() throws IOException, TranslationException {

@@ -96,4 +96,10 @@ public final class Table {
     static void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) {
         arraycopy(src, srcIndex, self.storage, dstIndex, count);
     }
+
+    static final String INIT_FROM_ACTIVE_NAME = "initFromActive";
+    static final String INIT_FROM_ACTIVE_DESCRIPTOR = methodDescriptor(void.class, Object[].class, int.class, Table.class);
+    static void initFromActive(@Nullable Object @NotNull[] element, int offset, @NotNull Table self) {
+        arraycopy(element, 0, self.storage, offset, element.length);
+    }
 }
