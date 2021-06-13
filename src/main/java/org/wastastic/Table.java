@@ -19,11 +19,7 @@ public final class Table {
     static final String DESCRIPTOR = getDescriptor(Table.class);
 
     public Table(int initialSize, int maxSize) {
-        if (initialSize < 0) {
-            throw new IllegalArgumentException();
-        }
-
-        if (maxSize < initialSize) {
+        if (Integer.compareUnsigned(initialSize, maxSize) > 0) {
             throw new IllegalArgumentException();
         }
 
@@ -32,7 +28,7 @@ public final class Table {
     }
 
     public Table(int initialSize) {
-        this(initialSize, Integer.MAX_VALUE);
+        this(initialSize, -1);
     }
 
     static final String GET_METHOD_NAME = "get";
@@ -64,7 +60,7 @@ public final class Table {
 
         var newSize = Integer.toUnsignedLong(storage.length) + Integer.toUnsignedLong(additionalEntries);
 
-        if (newSize > self.maxSize) {
+        if (newSize > Integer.toUnsignedLong(self.maxSize)) {
             return -1;
         }
 

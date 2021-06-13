@@ -6,7 +6,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.lang.invoke.VarHandle;
 
-import static java.lang.Integer.toUnsignedLong;
+import static java.lang.Integer.compareUnsigned;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static jdk.incubator.foreign.ResourceScope.newImplicitScope;
 import static org.objectweb.asm.Type.getDescriptor;
@@ -15,7 +15,6 @@ import static org.wastastic.Names.methodDescriptor;
 
 public final class Memory {
     private static final long PAGE_SIZE = 65536;
-    private static final int MAX_MAX_PAGE_COUNT = (int) (toUnsignedLong(-1) / PAGE_SIZE);
 
     static final String INTERNAL_NAME = getInternalName(Memory.class);
     static final String DESCRIPTOR = getDescriptor(Memory.class);
@@ -34,11 +33,7 @@ public final class Memory {
     @NotNull MemorySegment segment;
 
     public Memory(int minPageCount, int maxPageCount) {
-        if (minPageCount > maxPageCount) {
-            throw new IllegalArgumentException();
-        }
-
-        if (maxPageCount > MAX_MAX_PAGE_COUNT) {
+        if (compareUnsigned(minPageCount, maxPageCount) > 0) {
             throw new IllegalArgumentException();
         }
 
@@ -47,7 +42,7 @@ public final class Memory {
     }
 
     public Memory(int minPageCount) {
-        this(minPageCount, MAX_MAX_PAGE_COUNT);
+        this(minPageCount, -1);
     }
 
     static final String SIZE_METHOD_NAME = "size";
@@ -68,7 +63,7 @@ public final class Memory {
 
         var newPageCount = currentPageCount + Integer.toUnsignedLong(additionalPages);
 
-        if (newPageCount > self.maxPageCount) {
+        if (newPageCount > Integer.toUnsignedLong(self.maxPageCount)) {
             return -1;
         }
 
