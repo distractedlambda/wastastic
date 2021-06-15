@@ -6,45 +6,50 @@ import org.objectweb.asm.Label;
 
 import java.util.List;
 
+import static org.objectweb.asm.Opcodes.RETURN;
+import static org.wastastic.Lists.single;
+
 final class ControlScope {
-    private final @NotNull Label targetLabel;
-    private final @NotNull List<ValueType> parameterTypes;
-    private final int operandStackSize;
-    private @Nullable Label endLabel;
+    private final @NotNull Label branchTargetLabel;
+    private final @NotNull List<ValueType> branchTargetParameterTypes;
+    private final int baseOperandStackSize;
+    private final boolean isLoop;
+
+    private boolean isBranchTargetUsed = false;
+
     private @Nullable Label elseLabel;
     private @Nullable List<ValueType> elseParameterTypes;
-    private boolean terminated;
 
     ControlScope(
-        @NotNull Label targetLabel,
-        @NotNull List<ValueType> parameterTypes,
-        int operandStackSize,
-        @Nullable Label endLabel,
+        @NotNull Label branchTargetLabel,
+        @NotNull List<ValueType> branchTargetParameterTypes,
+        int baseOperandStackSize,
+        boolean isLoop,
         @Nullable Label elseLabel,
         @Nullable List<ValueType> elseParameterTypes
     ) {
-        this.targetLabel = targetLabel;
-        this.parameterTypes = parameterTypes;
-        this.operandStackSize = operandStackSize;
-        this.endLabel = endLabel;
+        this.branchTargetLabel = branchTargetLabel;
+        this.branchTargetParameterTypes = branchTargetParameterTypes;
+        this.baseOperandStackSize = baseOperandStackSize;
+        this.isLoop = isLoop;
         this.elseLabel = elseLabel;
         this.elseParameterTypes = elseParameterTypes;
     }
 
-    @NotNull Label targetLabel() {
-        return targetLabel;
+    @NotNull Label branchTargetLabel() {
+        return branchTargetLabel;
     }
 
-    @NotNull List<ValueType> parameterTypes() {
-        return parameterTypes;
+    @NotNull List<ValueType> branchTargetParameterTypes() {
+        return branchTargetParameterTypes;
     }
 
-    int operandStackSize() {
-        return operandStackSize;
+    int baseOperandStackSize() {
+        return baseOperandStackSize;
     }
 
-    @Nullable Label endLabel() {
-        return endLabel;
+    boolean isLoop() {
+        return isLoop;
     }
 
     @Nullable Label elseLabel() {
@@ -55,11 +60,25 @@ final class ControlScope {
         return elseParameterTypes;
     }
 
-    boolean isTerminated() {
-        return terminated;
+    boolean isBranchTargetUsed() {
+        return isBranchTargetUsed;
     }
 
-    void markTerminated() {
-        terminated = true;
+    void markBranchTargetUsed() {
+        isBranchTargetUsed = true;
+    }
+
+    void dropElse() {
+        elseLabel = null;
+        elseParameterTypes = null;
+    }
+
+    int returnOpcode() {
+        if (branchTargetParameterTypes.size() != 0) {
+            return single(branchTargetParameterTypes).returnOpcode();
+        }
+        else {
+            return RETURN;
+        }
     }
 }

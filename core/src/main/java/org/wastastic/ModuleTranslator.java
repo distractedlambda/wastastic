@@ -176,8 +176,11 @@ import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F32_U_DESCRIPTOR;
 import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F32_U_NAME;
 import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_DESCRIPTOR;
 import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_NAME;
+import static org.wastastic.Lists.first;
+import static org.wastastic.Lists.last;
 import static org.wastastic.Lists.removeLast;
 import static org.wastastic.Lists.replaceLast;
+import static org.wastastic.Lists.single;
 import static org.wastastic.Names.DOUBLE_INTERNAL_NAME;
 import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
@@ -228,11 +231,12 @@ final class ModuleTranslator {
     private final Set<SpecializedLoad> loadOps = new LinkedHashSet<>();
     private final Set<SpecializedStore> storeOps = new LinkedHashSet<>();
 
+    private boolean atUnreachablePoint;
     private int selfArgumentLocalIndex;
     private int firstScratchLocalIndex;
     private final ArrayList<Local> locals = new ArrayList<>();
     private final ArrayList<ValueType> operandStack = new ArrayList<>();
-    private final ArrayList<ControlScope> labelStack = new ArrayList<>();
+    private final ArrayList<ControlScope> controlStack = new ArrayList<>();
 
     private int startFunctionIndex = -1;
 
@@ -859,9 +863,10 @@ final class ModuleTranslator {
     }
 
     private void translateFunction() throws IOException, TranslationException {
+        atUnreachablePoint = false;
         locals.clear();
         operandStack.clear();
-        labelStack.clear();
+        controlStack.clear();
 
         var index = nextFunctionIndex++;
         var type = definedFunctions.get(index);
@@ -884,20 +889,25 @@ final class ModuleTranslator {
             var fieldType = nextValueType();
             for (; fieldsRemaining != 0; fieldsRemaining--) {
                 locals.add(new Local(fieldType, nextLocalIndex));
+                functionWriter.visitInsn(fieldType.zeroConstantOpcode());
+                functionWriter.visitVarInsn(fieldType.localStoreOpcode(), nextLocalIndex);
                 nextLocalIndex += fieldType.width();
             }
         }
 
         firstScratchLocalIndex = nextLocalIndex;
 
-        var returnLabel = new Label();
-        labelStack.add(new ControlScope(returnLabel, type.returnTypes(), 0, returnLabel, null, null));
+        // FIXME: detect attempt to directly branch to here?
+        controlStack.add(new ControlScope(new Label(), type.returnTypes(), 0, false, null, null));
 
-        while (!labelStack.isEmpty()) {
+        while (!controlStack.isEmpty()) {
             translateInstruction();
         }
 
-        functionWriter.visitInsn(type.returnOpcode());
+        if (!atUnreachablePoint) {
+            functionWriter.visitInsn(type.returnOpcode());
+        }
+
         functionWriter.visitMaxs(0, 0);
         functionWriter.visitEnd();
     }
@@ -1139,6 +1149,7 @@ final class ModuleTranslator {
         functionWriter.visitInsn(DUP);
         functionWriter.visitMethodInsn(INVOKESPECIAL, UnreachableException.INTERNAL_NAME, "<init>", "()V", false);
         functionWriter.visitInsn(ATHROW);
+        atUnreachablePoint = true;
     }
 
     private void translateNop() {
@@ -1148,11 +1159,11 @@ final class ModuleTranslator {
     private void translateBlock() throws TranslationException, IOException {
         var type = nextBlockType();
         var endLabel = new Label();
-        labelStack.add(new ControlScope(
+        controlStack.add(new ControlScope(
             endLabel,
             type.returnTypes(),
             operandStack.size() - type.parameterTypes().size(),
-            endLabel,
+            false,
             null,
             null
         ));
@@ -1162,11 +1173,11 @@ final class ModuleTranslator {
         var type = nextBlockType();
         var startLabel = new Label();
         functionWriter.visitLabel(startLabel);
-        labelStack.add(new ControlScope(
+        controlStack.add(new ControlScope(
             startLabel,
             type.parameterTypes(),
             operandStack.size() - type.parameterTypes().size(),
-            null,
+            true,
             null,
             null
         ));
@@ -1177,11 +1188,11 @@ final class ModuleTranslator {
         var endLabel = new Label();
         var elseLabel = new Label();
 
-        labelStack.add(new ControlScope(
+        controlStack.add(new ControlScope(
             endLabel,
             type.returnTypes(),
             operandStack.size() - type.parameterTypes().size() - 1,
-            endLabel,
+            false,
             elseLabel,
             type.parameterTypes()
         ));
@@ -1191,56 +1202,56 @@ final class ModuleTranslator {
     }
 
     private void translateElse() {
-        var scope = removeLast(labelStack);
-        functionWriter.visitJumpInsn(GOTO, scope.targetLabel());
+        atUnreachablePoint = false; // FIXME: track whether if was reachable?
+
+        var scope = last(controlStack);
+        functionWriter.visitJumpInsn(GOTO, scope.branchTargetLabel());
         functionWriter.visitLabel(scope.elseLabel());
 
-        operandStack.subList(scope.operandStackSize(), operandStack.size()).clear();
+        operandStack.subList(scope.baseOperandStackSize(), operandStack.size()).clear();
         operandStack.addAll(scope.elseParameterTypes());
 
-        labelStack.add(new ControlScope(
-            scope.targetLabel(),
-            scope.parameterTypes(),
-            scope.operandStackSize(),
-            scope.endLabel(),
-            null,
-            null
-        ));
+        scope.dropElse();
     }
 
     private void translateEnd() {
-        var scope = removeLast(labelStack);
+        var scope = removeLast(controlStack);
 
         if (scope.elseLabel() != null) {
             functionWriter.visitLabel(scope.elseLabel());
         }
 
-        if (scope.endLabel() != null) {
-            functionWriter.visitLabel(scope.endLabel());
+        if (!scope.isLoop()) {
+            functionWriter.visitLabel(scope.branchTargetLabel());
+
+            if (scope.isBranchTargetUsed()) {
+                atUnreachablePoint = false;
+            }
         }
     }
 
     private void translateBr() throws IOException {
-        emitBranch(nextBranchTarget());
+        emitBranch(nextUnsigned32());
+        atUnreachablePoint = true;
     }
 
     private void translateBrIf() throws IOException {
         var pastBranchLabel = new Label();
         functionWriter.visitJumpInsn(IFEQ, pastBranchLabel);
         removeLast(operandStack);
-        emitBranch(nextBranchTarget());
+        emitBranch(nextUnsigned32());
         functionWriter.visitLabel(pastBranchLabel);
     }
 
     private void translateBrTable() throws IOException {
         var indexedTargetCount = nextUnsigned32();
-        var indexedTargets = new ControlScope[indexedTargetCount];
+        var indexedTargets = new int[indexedTargetCount];
 
         for (var i = 0; i < indexedTargetCount; i++) {
-            indexedTargets[i] = nextBranchTarget();
+            indexedTargets[i] = nextUnsigned32();
         }
 
-        var defaultTarget = nextBranchTarget();
+        var defaultTarget = nextUnsigned32();
 
         var indexedAdapterLabels = new Label[indexedTargetCount];
         for (var i = 0; i < indexedTargetCount; i++) {
@@ -1259,10 +1270,13 @@ final class ModuleTranslator {
 
         functionWriter.visitLabel(defaultAdapterLabel);
         emitBranch(defaultTarget);
+
+        atUnreachablePoint = true;
     }
 
     private void translateReturn() {
-        emitBranch(labelStack.get(0));
+        functionWriter.visitInsn(first(controlStack).returnOpcode());
+        atUnreachablePoint = true;
     }
 
     private void translateCall() throws IOException {
@@ -2429,16 +2443,24 @@ final class ModuleTranslator {
 
     //==================================================================================================================
 
-    private void emitBranch(ControlScope target) {
+    private void emitBranch(int index) {
+        if (index == controlStack.size() - 1) {
+            translateReturn();
+        }
+
+        var target = controlStack.get(controlStack.size() - 1 - index);
+
+        target.markBranchTargetUsed();
+
         var nextLocalIndex = firstScratchLocalIndex;
 
-        for (var i = target.parameterTypes().size() - 1; i >= 0; i--) {
-            var parameterType = target.parameterTypes().get(i);
+        for (var i = target.branchTargetParameterTypes().size() - 1; i >= 0; i--) {
+            var parameterType = target.branchTargetParameterTypes().get(i);
             functionWriter.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
             nextLocalIndex += parameterType.width();
         }
 
-        for (var i = operandStack.size() - target.parameterTypes().size() - 1; i >= target.operandStackSize(); i--) {
+        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStackSize(); i--) {
             if (operandStack.get(i).isDoubleWidth()) {
                 functionWriter.visitInsn(POP2);
             }
@@ -2447,12 +2469,12 @@ final class ModuleTranslator {
             }
         }
 
-        for (var parameterType : target.parameterTypes()) {
+        for (var parameterType : target.branchTargetParameterTypes()) {
             nextLocalIndex -= parameterType.width();
             functionWriter.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
-        functionWriter.visitJumpInsn(GOTO, target.targetLabel());
+        functionWriter.visitJumpInsn(GOTO, target.branchTargetLabel());
     }
 
     private void emitDataFieldLoad(int index) {
@@ -2499,10 +2521,6 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid block type");
             };
         }
-    }
-
-    private @NotNull ControlScope nextBranchTarget() throws IOException {
-        return labelStack.get(labelStack.size() - 1 - nextUnsigned32());
     }
 
     private byte nextByte() throws IOException {
