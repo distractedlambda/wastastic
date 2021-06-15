@@ -96,7 +96,7 @@ public interface ModuleReader {
         var total = 0;
 
         total |= (b = nextByte()) & 0x7f;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xffffffffffffff80L;
             }
@@ -104,7 +104,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7f) << 7;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xffffffffffffc000L;
             }
@@ -112,7 +112,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7f) << 14;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xffffffffffe00000L;
             }
@@ -120,7 +120,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7f) << 21;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xfffffffff0000000L;
             }
@@ -139,7 +139,7 @@ public interface ModuleReader {
         var total = 0L;
 
         total |= (b = nextByte()) & 0x7f;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xffffffffffffff80L;
             }
@@ -147,7 +147,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7f) << 7;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xffffffffffffc000L;
             }
@@ -155,7 +155,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7f) << 14;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xffffffffffe00000L;
             }
@@ -163,7 +163,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7f) << 21;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xfffffffff0000000L;
             }
@@ -171,7 +171,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 28;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xfffffff800000000L;
             }
@@ -179,7 +179,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 35;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xfffffc0000000000L;
             }
@@ -187,7 +187,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 42;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xfffe000000000000L;
             }
@@ -195,7 +195,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 49;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0xff00000000000000L;
             }
@@ -203,7 +203,7 @@ public interface ModuleReader {
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 56;
-        if (b > 0) {
+        if (b >= 0) {
             if (b > 63) {
                 total |= 0x8000000000000000L;
             }
@@ -219,47 +219,47 @@ public interface ModuleReader {
         var total = 0L;
 
         total |= (b = nextByte()) & 0x7f;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7f) << 7;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7f) << 14;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7f) << 21;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 28;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 35;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 42;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 49;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 
         total |= ((b = nextByte()) & 0x7fL) << 56;
-        if (b > 0) {
+        if (b >= 0) {
             return total;
         }
 

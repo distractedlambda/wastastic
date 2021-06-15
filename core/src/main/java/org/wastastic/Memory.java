@@ -45,6 +45,102 @@ public final class Memory {
         this(minPageCount, -1);
     }
 
+    public long byteSize() {
+        return segment.byteSize();
+    }
+
+    public byte getByte(int address) {
+        return (byte) VH_BYTE.get(segment, Integer.toUnsignedLong(address));
+    }
+
+    public short getShort(int address) {
+        return (short) VH_SHORT.get(segment, Integer.toUnsignedLong(address));
+    }
+
+    public int getInt(int address) {
+        return (int) VH_INT.get(segment, Integer.toUnsignedLong(address));
+    }
+
+    public long getLong(int address) {
+        return (long) VH_LONG.get(segment, Integer.toUnsignedLong(address));
+    }
+
+    public float getFloat(int address) {
+        return (float) VH_FLOAT.get(segment, Integer.toUnsignedLong(address));
+    }
+
+    public double getDouble(int address) {
+        return (double) VH_DOUBLE.get(segment, Integer.toUnsignedLong(address));
+    }
+
+    public byte @NotNull[] getBytes(int address, byte @NotNull[] destination, int start, int length) {
+        MemorySegment
+            .ofArray(destination)
+            .asSlice(start)
+            .copyFrom(segment.asSlice(Integer.toUnsignedLong(address), length));
+
+        return destination;
+    }
+
+    public byte @NotNull[] getBytes(int address, byte @NotNull[] destination, int start) {
+        MemorySegment
+            .ofArray(destination)
+            .asSlice(start)
+            .copyFrom(segment.asSlice(Integer.toUnsignedLong(address), destination.length - start));
+
+        return destination;
+    }
+
+    public byte @NotNull[] getBytes(int address, byte @NotNull[] destination) {
+        MemorySegment
+            .ofArray(destination)
+            .copyFrom(segment.asSlice(Integer.toUnsignedLong(address), destination.length));
+
+        return destination;
+    }
+
+    public void setByte(int address, byte value) {
+        VH_BYTE.set(segment, Integer.toUnsignedLong(address), value);
+    }
+
+    public void setShort(int address, short value) {
+        VH_SHORT.set(segment, Integer.toUnsignedLong(address), value);
+    }
+
+    public void setInt(int address, int value) {
+        VH_INT.set(segment, Integer.toUnsignedLong(address), value);
+    }
+
+    public void setLong(int address, long value) {
+        VH_LONG.set(segment, Integer.toUnsignedLong(address), value);
+    }
+
+    public void setFloat(int address, float value) {
+        VH_FLOAT.set(segment, Integer.toUnsignedLong(address), value);
+    }
+
+    public void setDouble(int address, double value) {
+        VH_DOUBLE.set(segment, Integer.toUnsignedLong(address), value);
+    }
+
+    public void setBytes(int address, byte @NotNull[] bytes, int start, int length) {
+        segment
+            .asSlice(Integer.toUnsignedLong(address))
+            .copyFrom(MemorySegment.ofArray(bytes).asSlice(start, length));
+    }
+
+    public void setBytes(int address, byte @NotNull[] bytes, int start) {
+        segment
+            .asSlice(Integer.toUnsignedLong(address))
+            .copyFrom(MemorySegment.ofArray(bytes).asSlice(start));
+    }
+
+    public void setBytes(int address, byte @NotNull[] bytes) {
+        segment
+            .asSlice(Integer.toUnsignedLong(address))
+            .copyFrom(MemorySegment.ofArray(bytes));
+    }
+
     static final String SIZE_METHOD_NAME = "size";
     static final String SIZE_METHOD_DESCRIPTOR = methodDescriptor(int.class, Memory.class);
     static int size(@NotNull Memory self) {

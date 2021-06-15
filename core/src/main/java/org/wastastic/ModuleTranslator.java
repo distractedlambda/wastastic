@@ -221,7 +221,7 @@ final class ModuleTranslator {
     private int firstScratchLocalIndex;
     private final ArrayList<Local> locals = new ArrayList<>();
     private final ArrayList<ValueType> operandStack = new ArrayList<>();
-    private final ArrayList<LabelScope> labelStack = new ArrayList<>();
+    private final ArrayList<ControlScope> labelStack = new ArrayList<>();
 
     private int startFunctionIndex = -1;
 
@@ -879,7 +879,7 @@ final class ModuleTranslator {
         firstScratchLocalIndex = nextLocalIndex;
 
         var returnLabel = new Label();
-        labelStack.add(new LabelScope(returnLabel, type.returnTypes(), 0, returnLabel, null, null));
+        labelStack.add(new ControlScope(returnLabel, type.returnTypes(), 0, returnLabel, null, null));
 
         while (!labelStack.isEmpty()) {
             translateInstruction();
@@ -1136,7 +1136,7 @@ final class ModuleTranslator {
     private void translateBlock() throws TranslationException, IOException {
         var type = nextBlockType();
         var endLabel = new Label();
-        labelStack.add(new LabelScope(
+        labelStack.add(new ControlScope(
             endLabel,
             type.returnTypes(),
             operandStack.size() - type.parameterTypes().size(),
@@ -1150,7 +1150,7 @@ final class ModuleTranslator {
         var type = nextBlockType();
         var startLabel = new Label();
         functionWriter.visitLabel(startLabel);
-        labelStack.add(new LabelScope(
+        labelStack.add(new ControlScope(
             startLabel,
             type.parameterTypes(),
             operandStack.size() - type.parameterTypes().size(),
@@ -1165,7 +1165,7 @@ final class ModuleTranslator {
         var endLabel = new Label();
         var elseLabel = new Label();
 
-        labelStack.add(new LabelScope(
+        labelStack.add(new ControlScope(
             endLabel,
             type.returnTypes(),
             operandStack.size() - type.parameterTypes().size() - 1,
@@ -1186,7 +1186,7 @@ final class ModuleTranslator {
         operandStack.subList(scope.operandStackSize(), operandStack.size()).clear();
         operandStack.addAll(scope.elseParameterTypes());
 
-        labelStack.add(new LabelScope(
+        labelStack.add(new ControlScope(
             scope.targetLabel(),
             scope.parameterTypes(),
             scope.operandStackSize(),
@@ -1222,7 +1222,7 @@ final class ModuleTranslator {
 
     private void translateBrTable() throws IOException {
         var indexedTargetCount = reader.nextUnsigned32();
-        var indexedTargets = new LabelScope[indexedTargetCount];
+        var indexedTargets = new ControlScope[indexedTargetCount];
 
         for (var i = 0; i < indexedTargetCount; i++) {
             indexedTargets[i] = nextBranchTarget();
@@ -1261,7 +1261,7 @@ final class ModuleTranslator {
             type = importedFunctions.get(index).type();
         }
         else {
-            type = definedFunctions.get(importedFunctions.size() - index);
+            type = definedFunctions.get(index - importedFunctions.size());
         }
 
         emitSelfLoad();
@@ -1574,6 +1574,8 @@ final class ModuleTranslator {
         else {
             functionWriter.visitLdcInsn(value);
         }
+
+        operandStack.add(ValueType.I64);
     }
 
     private void translateF32Const() throws IOException {
@@ -1591,6 +1593,8 @@ final class ModuleTranslator {
         else {
             functionWriter.visitLdcInsn(value);
         }
+
+        operandStack.add(ValueType.F32);
     }
 
     private void translateF64Const() throws IOException {
@@ -1605,6 +1609,8 @@ final class ModuleTranslator {
         else {
             functionWriter.visitLdcInsn(value);
         }
+
+        operandStack.add(ValueType.F64);
     }
 
     private void translateConditionalBoolean(int opcode) {
@@ -2411,7 +2417,7 @@ final class ModuleTranslator {
 
     //==================================================================================================================
 
-    private void emitBranch(LabelScope target) {
+    private void emitBranch(ControlScope target) {
         var nextLocalIndex = firstScratchLocalIndex;
 
         for (var i = target.parameterTypes().size() - 1; i >= 0; i--) {
@@ -2454,6 +2460,7 @@ final class ModuleTranslator {
 
     private void emitSelfLoad() {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
     }
 
     private void emitTableFieldLoad(int index) {
@@ -2482,7 +2489,7 @@ final class ModuleTranslator {
         }
     }
 
-    private @NotNull LabelScope nextBranchTarget() throws IOException {
+    private @NotNull ControlScope nextBranchTarget() throws IOException {
         return labelStack.get(labelStack.size() - 1 - reader.nextUnsigned32());
     }
 
