@@ -1221,12 +1221,9 @@ final class ModuleTranslator {
             functionWriter.visitLabel(scope.elseLabel());
         }
 
-        if (!scope.isLoop()) {
+        if (!scope.isLoop() && scope.isBranchTargetUsed()) {
             functionWriter.visitLabel(scope.branchTargetLabel());
-
-            if (scope.isBranchTargetUsed()) {
-                atUnreachablePoint = false;
-            }
+            atUnreachablePoint = false;
         }
     }
 
