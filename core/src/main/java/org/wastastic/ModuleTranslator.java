@@ -325,6 +325,7 @@ final class ModuleTranslator {
             var tableIndex = importedTables.size() + i;
             constructorWriter.visitVarInsn(ALOAD, 0);
             constructorWriter.visitTypeInsn(NEW, Table.INTERNAL_NAME);
+            constructorWriter.visitInsn(DUP);
             constructorWriter.visitLdcInsn(tableType.limits().unsignedMinimum());
             constructorWriter.visitLdcInsn(tableType.limits().unsignedMaximum());
             constructorWriter.visitMethodInsn(INVOKESPECIAL, Table.INTERNAL_NAME, "<init>", "(II)V", false);

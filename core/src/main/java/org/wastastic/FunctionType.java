@@ -80,6 +80,6 @@ final class FunctionType {
 
         jvmParameterTypes[parameterTypes.size()] = ModuleInstance.class;
 
-        return methodType(returnTypes.get(0).jvmType(), jvmParameterTypes);
+        return methodType(!returnTypes.isEmpty() ? returnTypes.get(0).jvmType() : void.class, jvmParameterTypes);
     }
 }
