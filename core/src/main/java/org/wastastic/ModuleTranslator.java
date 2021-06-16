@@ -3,6 +3,7 @@ package org.wastastic;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.ConstantDynamic;
 import org.objectweb.asm.Handle;
@@ -36,7 +37,6 @@ import static org.objectweb.asm.Opcodes.ACONST_NULL;
 import static org.objectweb.asm.Opcodes.ALOAD;
 import static org.objectweb.asm.Opcodes.ASTORE;
 import static org.objectweb.asm.Opcodes.ATHROW;
-import static org.objectweb.asm.Opcodes.BIPUSH;
 import static org.objectweb.asm.Opcodes.CHECKCAST;
 import static org.objectweb.asm.Opcodes.D2F;
 import static org.objectweb.asm.Opcodes.D2I;
@@ -44,8 +44,6 @@ import static org.objectweb.asm.Opcodes.D2L;
 import static org.objectweb.asm.Opcodes.DADD;
 import static org.objectweb.asm.Opcodes.DCMPG;
 import static org.objectweb.asm.Opcodes.DCMPL;
-import static org.objectweb.asm.Opcodes.DCONST_0;
-import static org.objectweb.asm.Opcodes.DCONST_1;
 import static org.objectweb.asm.Opcodes.DDIV;
 import static org.objectweb.asm.Opcodes.DMUL;
 import static org.objectweb.asm.Opcodes.DNEG;
@@ -59,9 +57,6 @@ import static org.objectweb.asm.Opcodes.F2L;
 import static org.objectweb.asm.Opcodes.FADD;
 import static org.objectweb.asm.Opcodes.FCMPG;
 import static org.objectweb.asm.Opcodes.FCMPL;
-import static org.objectweb.asm.Opcodes.FCONST_0;
-import static org.objectweb.asm.Opcodes.FCONST_1;
-import static org.objectweb.asm.Opcodes.FCONST_2;
 import static org.objectweb.asm.Opcodes.FDIV;
 import static org.objectweb.asm.Opcodes.FMUL;
 import static org.objectweb.asm.Opcodes.FNEG;
@@ -79,11 +74,6 @@ import static org.objectweb.asm.Opcodes.IADD;
 import static org.objectweb.asm.Opcodes.IAND;
 import static org.objectweb.asm.Opcodes.ICONST_0;
 import static org.objectweb.asm.Opcodes.ICONST_1;
-import static org.objectweb.asm.Opcodes.ICONST_2;
-import static org.objectweb.asm.Opcodes.ICONST_3;
-import static org.objectweb.asm.Opcodes.ICONST_4;
-import static org.objectweb.asm.Opcodes.ICONST_5;
-import static org.objectweb.asm.Opcodes.ICONST_M1;
 import static org.objectweb.asm.Opcodes.IFEQ;
 import static org.objectweb.asm.Opcodes.IFGE;
 import static org.objectweb.asm.Opcodes.IFGT;
@@ -114,8 +104,6 @@ import static org.objectweb.asm.Opcodes.L2I;
 import static org.objectweb.asm.Opcodes.LADD;
 import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LCMP;
-import static org.objectweb.asm.Opcodes.LCONST_0;
-import static org.objectweb.asm.Opcodes.LCONST_1;
 import static org.objectweb.asm.Opcodes.LMUL;
 import static org.objectweb.asm.Opcodes.LOR;
 import static org.objectweb.asm.Opcodes.LREM;
@@ -129,7 +117,6 @@ import static org.objectweb.asm.Opcodes.POP;
 import static org.objectweb.asm.Opcodes.POP2;
 import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
-import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.SWAP;
 import static org.objectweb.asm.Opcodes.V17;
 import static org.wastastic.CodegenUtils.pushF32Constant;
@@ -184,7 +171,6 @@ import static org.wastastic.Lists.first;
 import static org.wastastic.Lists.last;
 import static org.wastastic.Lists.removeLast;
 import static org.wastastic.Lists.replaceLast;
-import static org.wastastic.Lists.single;
 import static org.wastastic.Names.DOUBLE_INTERNAL_NAME;
 import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
@@ -213,6 +199,7 @@ final class ModuleTranslator {
     private final @NotNull ByteBuffer inputBuffer;
 
     private final ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+    private final ClassVisitor classVisitor = classWriter;
     private MethodVisitor functionWriter;
 
     private final ArrayList<FunctionType> types = new ArrayList<>();
@@ -250,7 +237,7 @@ final class ModuleTranslator {
     }
 
     @NotNull ModuleImpl translate() throws TranslationException, IOException {
-        classWriter.visit(V17, 0, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
+        classVisitor.visit(V17, 0, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
 
         if (nextByte() != 0x00 ||
             nextByte() != 0x61 ||
@@ -298,7 +285,7 @@ final class ModuleTranslator {
             }
         }
 
-        var constructorWriter = classWriter.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, new String[]{ModuleInstantiationException.INTERNAL_NAME});
+        var constructorWriter = classVisitor.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, new String[]{ModuleInstantiationException.INTERNAL_NAME});
         constructorWriter.visitCode();
         constructorWriter.visitVarInsn(ALOAD, 0);
         constructorWriter.visitMethodInsn(INVOKESPECIAL, OBJECT_INTERNAL_NAME, "<init>", "()V", false);
@@ -447,11 +434,11 @@ final class ModuleTranslator {
         constructorWriter.visitEnd();
 
         for (var loadOp : loadOps) {
-            loadOp.writeMethod(classWriter);
+            loadOp.writeMethod(classVisitor);
         }
 
         for (var storeOp : storeOps) {
-            storeOp.writeMethod(classWriter);
+            storeOp.writeMethod(classVisitor);
         }
 
         var dataMemorySegments = new MemorySegment[dataSegments.size()];
@@ -525,9 +512,9 @@ final class ModuleTranslator {
         var index = nextFunctionIndex++;
 
         var handleFieldName = functionMethodHandleFieldName(index);
-        classWriter.visitField(ACC_PRIVATE | ACC_FINAL, handleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
+        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, handleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
 
-        var wrapperMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
+        var wrapperMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
         wrapperMethod.visitCode();
 
         var selfArgIndex = 0;
@@ -556,13 +543,13 @@ final class ModuleTranslator {
 
     private void translateTableImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         var index = importedTables.size();
-        classWriter.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
+        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
         importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType()));
     }
 
     private void translateMemoryImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         var index = importedMemories.size();
-        classWriter.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
+        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
         importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType()));
     }
 
@@ -628,7 +615,7 @@ final class ModuleTranslator {
         definedTables.ensureCapacity(definedTables.size() + remaining);
         for (; remaining != 0; remaining--) {
             var index = definedTables.size() + importedTables.size();
-            classWriter.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
             definedTables.add(nextTableType());
         }
     }
@@ -638,7 +625,7 @@ final class ModuleTranslator {
         definedMemories.ensureCapacity(definedMemories.size() + remaining);
         for (; remaining != 0; remaining--) {
             var index = definedMemories.size() + importedMemories.size();
-            classWriter.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
             definedMemories.add(nextMemoryType());
         }
     }
@@ -652,7 +639,7 @@ final class ModuleTranslator {
             var access = ACC_PRIVATE;
             var fieldName = globalFieldName(index);
 
-            var getterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, globalGetterMethodName(index), type.globalGetterDescriptor(), null, null);
+            var getterMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, globalGetterMethodName(index), type.globalGetterDescriptor(), null, null);
             getterMethod.visitCode();
             getterMethod.visitVarInsn(ALOAD, 0);
             getterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
@@ -668,7 +655,7 @@ final class ModuleTranslator {
                 }
 
                 case 0x01 -> {
-                    var setterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, globalSetterMethodName(index), type.globalSetterDescriptor(), null, null);
+                    var setterMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, globalSetterMethodName(index), type.globalSetterDescriptor(), null, null);
                     setterMethod.visitCode();
                     setterMethod.visitVarInsn(ALOAD, type.width());
                     setterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
@@ -684,7 +671,7 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid mutability");
             };
 
-            classWriter.visitField(access, fieldName, type.descriptor(), null, null);
+            classVisitor.visitField(access, fieldName, type.descriptor(), null, null);
             definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), nextConstantExpression()));
         }
     }
@@ -853,7 +840,7 @@ final class ModuleTranslator {
 
         if (mode != ElementSegment.Mode.DECLARATIVE) {
             var index = elementSegments.size();
-            classWriter.visitField(ACC_PRIVATE, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR, null, null);
         }
 
         elementSegments.add(new ElementSegment(values, mode, tableIndex, tableOffset));
@@ -876,7 +863,7 @@ final class ModuleTranslator {
         var index = nextFunctionIndex++;
         var type = definedFunctions.get(index);
 
-        functionWriter = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
+        functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
         functionWriter.visitCode();
 
         var nextLocalIndex = 0;
@@ -922,7 +909,7 @@ final class ModuleTranslator {
         dataSegments.ensureCapacity(dataSegments.size() + dataCount);
         for (; dataCount != 0; dataCount--) {
             var index = dataSegments.size();
-            classWriter.visitField(ACC_PRIVATE, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR, null, null);
 
             DataSegment.Mode mode;
             int memoryIndex, memoryOffset;

@@ -1,6 +1,7 @@
 package org.wastastic;
 
 import org.jetbrains.annotations.NotNull;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
@@ -98,8 +99,8 @@ record SpecializedLoad(@NotNull Op op, int memoryIndex, int offset) {
         return op.returnValueType;
     }
 
-    void writeMethod(@NotNull ClassWriter classWriter) {
-        var writer = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, methodName(), op.methodDescriptor, null, null);
+    void writeMethod(@NotNull ClassVisitor classVisitor) {
+        var writer = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, methodName(), op.methodDescriptor, null, null);
         writer.visitCode();
 
         writer.visitFieldInsn(GETSTATIC, Memory.INTERNAL_NAME, op.vhName, VAR_HANDLE_DESCRIPTOR);
