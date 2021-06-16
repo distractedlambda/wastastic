@@ -11,15 +11,16 @@ import static org.objectweb.asm.Opcodes.DLOAD;
 import static org.objectweb.asm.Opcodes.FLOAD;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
-import static org.objectweb.asm.Opcodes.I2L;
 import static org.objectweb.asm.Opcodes.ILOAD;
+import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.L2I;
 import static org.objectweb.asm.Opcodes.LADD;
-import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.RETURN;
+import static org.wastastic.CodegenUtils.pushI64Constant;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
+import static org.wastastic.Names.INTEGER_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_DESCRIPTOR;
@@ -96,12 +97,10 @@ record SpecializedStore(@NotNull Op op, int memoryIndex, int offset) {
         writer.visitFieldInsn(GETFIELD, Memory.INTERNAL_NAME, "segment", MEMORY_SEGMENT_DESCRIPTOR);
 
         writer.visitVarInsn(ILOAD, 0);
-        writer.visitInsn(I2L);
-        writer.visitLdcInsn(0xFFFF_FFFFL);
-        writer.visitInsn(LAND);
+        writer.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
 
         if (offset != 0) {
-            writer.visitLdcInsn(Integer.toUnsignedLong(offset));
+            pushI64Constant(writer, Integer.toUnsignedLong(offset));
             writer.visitInsn(LADD);
         }
 

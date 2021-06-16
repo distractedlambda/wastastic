@@ -12,16 +12,19 @@ import static org.objectweb.asm.Opcodes.FRETURN;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
 import static org.objectweb.asm.Opcodes.I2L;
-import static org.objectweb.asm.Opcodes.IAND;
 import static org.objectweb.asm.Opcodes.ILOAD;
+import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.IRETURN;
 import static org.objectweb.asm.Opcodes.LADD;
-import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LRETURN;
+import static org.wastastic.CodegenUtils.pushI64Constant;
+import static org.wastastic.Names.BYTE_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
+import static org.wastastic.Names.INTEGER_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
+import static org.wastastic.Names.SHORT_INTERNAL_NAME;
 import static org.wastastic.Names.VAR_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.VAR_HANDLE_INTERNAL_NAME;
 
@@ -107,12 +110,10 @@ record SpecializedLoad(@NotNull Op op, int memoryIndex, int offset) {
         writer.visitFieldInsn(GETFIELD, Memory.INTERNAL_NAME, Memory.SEGMENT_FIELD_NAME, Memory.SEGMENT_FIELD_DESCRIPTOR);
 
         writer.visitVarInsn(ILOAD, 0);
-        writer.visitInsn(I2L);
-        writer.visitLdcInsn(0xFFFF_FFFFL);
-        writer.visitInsn(LAND);
+        writer.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
 
         if (offset != 0) {
-            writer.visitLdcInsn(Integer.toUnsignedLong(offset));
+            pushI64Constant(writer, Integer.toUnsignedLong(offset));
             writer.visitInsn(LADD);
         }
 
@@ -120,25 +121,19 @@ record SpecializedLoad(@NotNull Op op, int memoryIndex, int offset) {
 
         switch (op) {
             case U8_AS_I32 -> {
-                writer.visitLdcInsn(0xFF);
-                writer.visitInsn(IAND);
+                writer.visitMethodInsn(INVOKESTATIC, BYTE_INTERNAL_NAME, "toUnsignedInt", "(B)I", false);
             }
 
             case U16_AS_I32 -> {
-                writer.visitLdcInsn(0xFFFF);
-                writer.visitInsn(IAND);
+                writer.visitMethodInsn(INVOKESTATIC, SHORT_INTERNAL_NAME, "toUnsignedInt", "(S)I", false);
             }
 
             case U8_AS_I64 -> {
-                writer.visitLdcInsn(0xFF);
-                writer.visitInsn(IAND);
-                writer.visitInsn(I2L);
+                writer.visitMethodInsn(INVOKESTATIC, BYTE_INTERNAL_NAME, "toUnsignedLong", "(B)J", false);
             }
 
             case U16_AS_I64 -> {
-                writer.visitLdcInsn(0xFFFF);
-                writer.visitInsn(IAND);
-                writer.visitInsn(I2L);
+                writer.visitMethodInsn(INVOKESTATIC, SHORT_INTERNAL_NAME, "toUnsignedLong", "(S)J", false);
             }
 
             case I8_AS_I64, I16_AS_I64, I32_AS_I64 -> {
@@ -146,9 +141,7 @@ record SpecializedLoad(@NotNull Op op, int memoryIndex, int offset) {
             }
 
             case U32_AS_I64 -> {
-                writer.visitInsn(I2L);
-                writer.visitLdcInsn(0xFFFF_FFFFL);
-                writer.visitInsn(LAND);
+                writer.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
             }
         }
 

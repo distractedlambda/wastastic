@@ -132,6 +132,10 @@ import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.SWAP;
 import static org.objectweb.asm.Opcodes.V17;
+import static org.wastastic.CodegenUtils.pushF32Constant;
+import static org.wastastic.CodegenUtils.pushF64Constant;
+import static org.wastastic.CodegenUtils.pushI32Constant;
+import static org.wastastic.CodegenUtils.pushI64Constant;
 import static org.wastastic.Empties.EMPTY_DATA_NAME;
 import static org.wastastic.Empties.EMPTY_ELEMENTS_NAME;
 import static org.wastastic.Importers.IMPORT_FUNCTION_DESCRIPTOR;
@@ -1552,88 +1556,22 @@ final class ModuleTranslator {
     }
 
     private void translateI32Const() throws IOException {
-        var value = nextSigned32();
-
-        switch (value) {
-            case -1 -> functionWriter.visitInsn(ICONST_M1);
-            case 0 -> functionWriter.visitInsn(ICONST_0);
-            case 1 -> functionWriter.visitInsn(ICONST_1);
-            case 2 -> functionWriter.visitInsn(ICONST_2);
-            case 3 -> functionWriter.visitInsn(ICONST_3);
-            case 4 -> functionWriter.visitInsn(ICONST_4);
-            case 5 -> functionWriter.visitInsn(ICONST_5);
-            default -> {
-                if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
-                    functionWriter.visitIntInsn(BIPUSH, value);
-                }
-                else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
-                    functionWriter.visitIntInsn(SIPUSH, value);
-                }
-                else {
-                    functionWriter.visitLdcInsn(value);
-                }
-            }
-        }
-
+        pushI32Constant(functionWriter, nextSigned32());
         operandStack.add(ValueType.I32);
     }
 
     private void translateI64Const() throws IOException {
-        var value = nextSigned64();
-
-        if (value == 0) {
-            functionWriter.visitInsn(LCONST_0);
-        }
-        else if (value == 1) {
-            functionWriter.visitInsn(LCONST_1);
-        }
-        else if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
-            functionWriter.visitIntInsn(BIPUSH, (int) value);
-            functionWriter.visitInsn(I2L);
-        }
-        else if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
-            functionWriter.visitIntInsn(SIPUSH, (int) value);
-            functionWriter.visitInsn(I2L);
-        }
-        else {
-            functionWriter.visitLdcInsn(value);
-        }
-
+        pushI64Constant(functionWriter, nextSigned64());
         operandStack.add(ValueType.I64);
     }
 
     private void translateF32Const() throws IOException {
-        var value = nextFloat32();
-
-        if (value == 0) {
-            functionWriter.visitInsn(FCONST_0);
-        }
-        else if (value == 1) {
-            functionWriter.visitInsn(FCONST_1);
-        }
-        else if (value == 2) {
-            functionWriter.visitInsn(FCONST_2);
-        }
-        else {
-            functionWriter.visitLdcInsn(value);
-        }
-
+        pushF32Constant(functionWriter, nextFloat32());
         operandStack.add(ValueType.F32);
     }
 
     private void translateF64Const() throws IOException {
-        var value = nextFloat64();
-
-        if (value == 0) {
-            functionWriter.visitInsn(DCONST_0);
-        }
-        else if (value == 1) {
-            functionWriter.visitInsn(DCONST_1);
-        }
-        else {
-            functionWriter.visitLdcInsn(value);
-        }
-
+        pushF64Constant(functionWriter, nextFloat64());
         operandStack.add(ValueType.F64);
     }
 

@@ -59,6 +59,7 @@ final class Names {
         return "gs" + index;
     }
 
+    static final String BYTE_INTERNAL_NAME = getInternalName(Byte.class);
     static final String DOUBLE_INTERNAL_NAME = getInternalName(Double.class);
     static final String FLOAT_INTERNAL_NAME = getInternalName(Float.class);
     static final String GENERATED_INSTANCE_INTERNAL_NAME = "org/wastastic/GeneratedModuleInstance";
@@ -68,6 +69,7 @@ final class Names {
     static final String METHOD_HANDLE_INTERNAL_NAME = getInternalName(MethodHandle.class);
     static final String MODULE_INSTANCE_INTERNAL_NAME = getInternalName(ModuleInstance.class);
     static final String OBJECT_INTERNAL_NAME = getInternalName(Object.class);
+    static final String SHORT_INTERNAL_NAME = getInternalName(Short.class);
     static final String VAR_HANDLE_INTERNAL_NAME = getInternalName(VarHandle.class);
 
     static final String MEMORY_SEGMENT_DESCRIPTOR = getDescriptor(MemorySegment.class);
