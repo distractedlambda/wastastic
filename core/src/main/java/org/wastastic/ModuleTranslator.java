@@ -512,7 +512,7 @@ final class ModuleTranslator {
         var index = nextFunctionIndex++;
 
         var handleFieldName = functionMethodHandleFieldName(index);
-        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, handleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
+        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, handleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null).visitEnd();
 
         var wrapperMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
         wrapperMethod.visitCode();
@@ -543,13 +543,13 @@ final class ModuleTranslator {
 
     private void translateTableImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         var index = importedTables.size();
-        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
+        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null).visitEnd();
         importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType()));
     }
 
     private void translateMemoryImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         var index = importedMemories.size();
-        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
+        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null).visitEnd();
         importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType()));
     }
 
@@ -615,7 +615,7 @@ final class ModuleTranslator {
         definedTables.ensureCapacity(definedTables.size() + remaining);
         for (; remaining != 0; remaining--) {
             var index = definedTables.size() + importedTables.size();
-            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null).visitEnd();
             definedTables.add(nextTableType());
         }
     }
@@ -625,7 +625,7 @@ final class ModuleTranslator {
         definedMemories.ensureCapacity(definedMemories.size() + remaining);
         for (; remaining != 0; remaining--) {
             var index = definedMemories.size() + importedMemories.size();
-            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null).visitEnd();
             definedMemories.add(nextMemoryType());
         }
     }
@@ -671,7 +671,7 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid mutability");
             };
 
-            classVisitor.visitField(access, fieldName, type.descriptor(), null, null);
+            classVisitor.visitField(access, fieldName, type.descriptor(), null, null).visitEnd();
             definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), nextConstantExpression()));
         }
     }
@@ -840,7 +840,7 @@ final class ModuleTranslator {
 
         if (mode != ElementSegment.Mode.DECLARATIVE) {
             var index = elementSegments.size();
-            classVisitor.visitField(ACC_PRIVATE, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR, null, null).visitEnd();
         }
 
         elementSegments.add(new ElementSegment(values, mode, tableIndex, tableOffset));
@@ -909,7 +909,7 @@ final class ModuleTranslator {
         dataSegments.ensureCapacity(dataSegments.size() + dataCount);
         for (; dataCount != 0; dataCount--) {
             var index = dataSegments.size();
-            classVisitor.visitField(ACC_PRIVATE, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR, null, null);
+            classVisitor.visitField(ACC_PRIVATE, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR, null, null).visitEnd();
 
             DataSegment.Mode mode;
             int memoryIndex, memoryOffset;
@@ -1290,6 +1290,7 @@ final class ModuleTranslator {
 
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
+        functionWriter.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
 
         var calleeLocalIndex = firstScratchLocalIndex;
         functionWriter.visitVarInsn(ASTORE, calleeLocalIndex);
@@ -1310,7 +1311,7 @@ final class ModuleTranslator {
 
         emitSelfLoad();
         functionWriter.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
-        removeLast(operandStack, type.parameterTypes().size());
+        removeLast(operandStack, type.parameterTypes().size() + 1);
         operandStack.addAll(type.returnTypes());
     }
 
@@ -2383,7 +2384,7 @@ final class ModuleTranslator {
             nextLocalIndex += parameterType.width();
         }
 
-        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStackSize(); i--) {
+        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i > target.baseOperandStackSize(); i--) {
             if (operandStack.get(i).isDoubleWidth()) {
                 functionWriter.visitInsn(POP2);
             }
