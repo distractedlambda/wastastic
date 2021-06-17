@@ -11,25 +11,11 @@ import static org.objectweb.asm.Opcodes.RETURN;
 import static org.objectweb.asm.Type.getMethodType;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 
-final class FunctionType {
-    private final @NotNull List<ValueType> parameterTypes;
-    private final @NotNull List<ValueType> returnTypes;
-
-    FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) throws TranslationException {
+record FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) {
+    FunctionType {
         if (returnTypes.size() > 1) {
-            throw new TranslationException("TODO implement multiple return values");
+            throw new IllegalArgumentException();
         }
-
-        this.parameterTypes = parameterTypes;
-        this.returnTypes = returnTypes;
-    }
-
-    @NotNull List<ValueType> parameterTypes() {
-        return parameterTypes;
-    }
-
-    @NotNull List<ValueType> returnTypes() {
-        return returnTypes;
     }
 
     @NotNull String descriptor() {

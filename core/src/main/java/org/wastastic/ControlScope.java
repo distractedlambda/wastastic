@@ -18,7 +18,7 @@ final class ControlScope {
     private boolean isBranchTargetUsed = false;
 
     private @Nullable Label elseLabel;
-    private @Nullable List<ValueType> elseParameterTypes;
+    private @Nullable List<ValueType> elseOperandStack;
 
     ControlScope(
         @NotNull Label branchTargetLabel,
@@ -26,14 +26,14 @@ final class ControlScope {
         int baseOperandStackSize,
         boolean isLoop,
         @Nullable Label elseLabel,
-        @Nullable List<ValueType> elseParameterTypes
+        @Nullable List<ValueType> elseOperandStack
     ) {
         this.branchTargetLabel = branchTargetLabel;
         this.branchTargetParameterTypes = branchTargetParameterTypes;
         this.baseOperandStackSize = baseOperandStackSize;
         this.isLoop = isLoop;
         this.elseLabel = elseLabel;
-        this.elseParameterTypes = elseParameterTypes;
+        this.elseOperandStack = elseOperandStack;
     }
 
     @NotNull Label branchTargetLabel() {
@@ -56,8 +56,8 @@ final class ControlScope {
         return elseLabel;
     }
 
-    @Nullable List<ValueType> elseParameterTypes() {
-        return elseParameterTypes;
+    @Nullable List<ValueType> elseOperandStack() {
+        return elseOperandStack;
     }
 
     boolean isBranchTargetUsed() {
@@ -70,7 +70,7 @@ final class ControlScope {
 
     void dropElse() {
         elseLabel = null;
-        elseParameterTypes = null;
+        elseOperandStack = null;
     }
 
     int returnOpcode() {
