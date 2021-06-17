@@ -1176,6 +1176,8 @@ final class ModuleTranslator {
     }
 
     private void translateIf() throws TranslationException, IOException {
+        removeLast(operandStack);
+
         var type = nextBlockType();
         var endLabel = new Label();
         var elseLabel = new Label();
@@ -1183,14 +1185,13 @@ final class ModuleTranslator {
         controlStack.add(new ControlScope(
             endLabel,
             type.returnTypes(),
-            operandStack.size() - type.parameterTypes().size() - 1,
+            operandStack.size() - type.parameterTypes().size(),
             false,
             elseLabel,
             type.parameterTypes()
         ));
 
         functionWriter.visitJumpInsn(IFEQ, elseLabel);
-        removeLast(operandStack);
     }
 
     private void translateElse() {
@@ -1413,7 +1414,7 @@ final class ModuleTranslator {
     }
 
     private void translateTableSet() throws IOException {
-        removeLast(operandStack);
+        removeLast(operandStack, 2);
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
     }
@@ -1485,8 +1486,7 @@ final class ModuleTranslator {
     }
 
     private void translateStore(@NotNull SpecializedStore.Op op) throws IOException {
-        removeLast(operandStack); // stored value arg
-        removeLast(operandStack); // address arg
+        removeLast(operandStack, 2); // stored value arg and address arg
         nextUnsigned32(); // expected alignment (ignored)
         var offset = nextUnsigned32();
         var specializedOp = new SpecializedStore(op, 0, offset);
@@ -2214,7 +2214,7 @@ final class ModuleTranslator {
     }
 
     private void translateRefIsNull() {
-        removeLast(operandStack);
+        replaceLast(operandStack, ValueType.I32);
         translateConditionalBoolean(IFNULL);
     }
 
@@ -2391,6 +2391,7 @@ final class ModuleTranslator {
             else {
                 functionWriter.visitInsn(POP);
             }
+        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStackSize(); i--) {
         }
 
         for (var parameterType : target.branchTargetParameterTypes()) {
