@@ -61,6 +61,7 @@ import static org.objectweb.asm.Opcodes.FDIV;
 import static org.objectweb.asm.Opcodes.FMUL;
 import static org.objectweb.asm.Opcodes.FNEG;
 import static org.objectweb.asm.Opcodes.FSUB;
+import static org.objectweb.asm.Opcodes.F_NEW;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
 import static org.objectweb.asm.Opcodes.GOTO;
@@ -198,7 +199,7 @@ final class ModuleTranslator {
     private final @NotNull ReadableByteChannel inputChannel;
     private final @NotNull ByteBuffer inputBuffer;
 
-    private final ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+    private final ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_MAXS);
     private final ClassVisitor classVisitor = classWriter;
     private MethodVisitor functionWriter;
 
@@ -225,6 +226,7 @@ final class ModuleTranslator {
     private boolean atUnreachablePoint;
     private int selfArgumentLocalIndex;
     private int firstScratchLocalIndex;
+    private Object[] localFrameEntries;
     private final ArrayList<Local> locals = new ArrayList<>();
     private final ArrayList<ValueType> operandStack = new ArrayList<>();
     private final ArrayList<ControlScope> controlStack = new ArrayList<>();
@@ -855,6 +857,8 @@ final class ModuleTranslator {
     }
 
     private void translateFunction() throws IOException, TranslationException {
+        var localFrameEntriesList = new ArrayList<>();
+
         atUnreachablePoint = false;
         locals.clear();
         operandStack.clear();
@@ -870,10 +874,12 @@ final class ModuleTranslator {
 
         for (var parameterType : type.parameterTypes()) {
             locals.add(new Local(parameterType, nextLocalIndex));
+            localFrameEntriesList.add(parameterType.asmLocalType());
             nextLocalIndex += parameterType.width();
         }
 
         selfArgumentLocalIndex = nextLocalIndex;
+        localFrameEntriesList.add(MODULE_INSTANCE_INTERNAL_NAME);
         nextLocalIndex += 1;
 
         for (var fieldVectorsRemaining = nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
@@ -883,6 +889,7 @@ final class ModuleTranslator {
                 locals.add(new Local(fieldType, nextLocalIndex));
                 functionWriter.visitInsn(fieldType.zeroConstantOpcode());
                 functionWriter.visitVarInsn(fieldType.localStoreOpcode(), nextLocalIndex);
+                localFrameEntriesList.add(fieldType.asmLocalType());
                 nextLocalIndex += fieldType.width();
             }
         }
@@ -891,6 +898,8 @@ final class ModuleTranslator {
 
         // FIXME: detect attempt to directly branch to here?
         controlStack.add(new ControlScope(new Label(), type.returnTypes(), 0, false, null, null));
+
+        localFrameEntries = localFrameEntriesList.toArray();
 
         while (!controlStack.isEmpty()) {
             translateInstruction();
@@ -1165,6 +1174,7 @@ final class ModuleTranslator {
         var type = nextBlockType();
         var startLabel = new Label();
         functionWriter.visitLabel(startLabel);
+        emitFrame();
         controlStack.add(new ControlScope(
             startLabel,
             type.parameterTypes(),
@@ -1205,18 +1215,27 @@ final class ModuleTranslator {
         operandStack.addAll(scope.elseParameterTypes());
 
         scope.dropElse();
+        emitFrame();
     }
 
     private void translateEnd() {
         var scope = removeLast(controlStack);
+        var labelVisited = false;
 
         if (scope.elseLabel() != null) {
             functionWriter.visitLabel(scope.elseLabel());
+            labelVisited = true;
         }
 
         if (!scope.isLoop() && scope.isBranchTargetUsed()) {
             functionWriter.visitLabel(scope.branchTargetLabel());
             atUnreachablePoint = false;
+            labelVisited = true;
+        }
+
+        if (labelVisited) {
+            atUnreachablePoint = false;
+            emitFrame(); // FIXME: detect duplicate frames
         }
     }
 
@@ -1231,6 +1250,7 @@ final class ModuleTranslator {
         removeLast(operandStack);
         emitBranch(nextUnsigned32());
         functionWriter.visitLabel(pastBranchLabel);
+        emitFrame();
     }
 
     private void translateBrTable() throws IOException {
@@ -1255,10 +1275,12 @@ final class ModuleTranslator {
 
         for (var i = 0; i < indexedTargetCount; i++) {
             functionWriter.visitLabel(indexedAdapterLabels[i]);
+            emitFrame();
             emitBranch(indexedTargets[i]);
         }
 
         functionWriter.visitLabel(defaultAdapterLabel);
+        emitFrame();
         emitBranch(defaultTarget);
 
         atUnreachablePoint = true;
@@ -1322,7 +1344,7 @@ final class ModuleTranslator {
 
     private void translateSelect() {
         removeLast(operandStack);
-        var type = removeLast(operandStack);
+        var type = last(operandStack);
 
         var pastSwapLabel = new Label();
         functionWriter.visitJumpInsn(IFNE, pastSwapLabel);
@@ -1331,13 +1353,17 @@ final class ModuleTranslator {
             functionWriter.visitInsn(DUP2_X2);
             functionWriter.visitInsn(POP2);
             functionWriter.visitLabel(pastSwapLabel);
+            emitFrame();
             functionWriter.visitInsn(POP2);
         }
         else {
             functionWriter.visitInsn(SWAP);
             functionWriter.visitLabel(pastSwapLabel);
+            emitFrame();
             functionWriter.visitInsn(POP);
         }
+
+        removeLast(operandStack);
     }
 
     private void translateSelectVec() throws TranslationException, IOException {
@@ -1566,20 +1592,27 @@ final class ModuleTranslator {
     private void translateConditionalBoolean(int opcode) {
         var trueLabel = new Label();
         var mergeLabel = new Label();
+
         functionWriter.visitJumpInsn(opcode, trueLabel);
         functionWriter.visitInsn(ICONST_0);
         functionWriter.visitJumpInsn(GOTO, mergeLabel);
+
         functionWriter.visitLabel(trueLabel);
+        emitFrame();
         functionWriter.visitInsn(ICONST_1);
+
         functionWriter.visitLabel(mergeLabel);
+        operandStack.add(ValueType.I32);
+        emitFrame();
     }
 
     private void translateI32Eqz() {
+        removeLast(operandStack);
         translateConditionalBoolean(IFEQ);
     }
 
     private void translateI32ComparisonS(int opcode) {
-        removeLast(operandStack);
+        removeLast(operandStack, 2);
         translateConditionalBoolean(opcode);
     }
 
@@ -1629,21 +1662,19 @@ final class ModuleTranslator {
     }
 
     private void translateI64Eqz() {
-        replaceLast(operandStack, ValueType.I32);
+        removeLast(operandStack);
         functionWriter.visitInsn(LCMP);
         translateConditionalBoolean(IFEQ);
     }
 
     private void translateI64ComparisonS(int opcode) {
-        removeLast(operandStack);
-        replaceLast(operandStack, ValueType.I32);
+        removeLast(operandStack, 2);
         functionWriter.visitInsn(LCMP);
         translateConditionalBoolean(opcode);
     }
 
     private void translateI64ComparisonU(int opcode) {
-        removeLast(operandStack);
-        replaceLast(operandStack, ValueType.I32);
+        removeLast(operandStack, 2);
         functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "compareUnsigned", "(JJ)I", false);
         translateConditionalBoolean(opcode);
     }
@@ -1689,8 +1720,7 @@ final class ModuleTranslator {
     }
 
     private void translateFpComparison(int cmpOpcode, int branchOpcode) {
-        removeLast(operandStack);
-        replaceLast(operandStack, ValueType.I32);
+        removeLast(operandStack, 2);
         functionWriter.visitInsn(cmpOpcode);
         translateConditionalBoolean(branchOpcode);
     }
@@ -2214,7 +2244,7 @@ final class ModuleTranslator {
     }
 
     private void translateRefIsNull() {
-        replaceLast(operandStack, ValueType.I32);
+        removeLast(operandStack);
         translateConditionalBoolean(IFNULL);
     }
 
@@ -2384,14 +2414,13 @@ final class ModuleTranslator {
             nextLocalIndex += parameterType.width();
         }
 
-        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i > target.baseOperandStackSize(); i--) {
+        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStackSize(); i--) {
             if (operandStack.get(i).isDoubleWidth()) {
                 functionWriter.visitInsn(POP2);
             }
             else {
                 functionWriter.visitInsn(POP);
             }
-        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStackSize(); i--) {
         }
 
         for (var parameterType : target.branchTargetParameterTypes()) {
@@ -2410,6 +2439,16 @@ final class ModuleTranslator {
     private void emitElementFieldLoad(int index) {
         emitSelfLoad();
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
+    }
+
+    private void emitFrame() {
+        var stackEntries = new Object[operandStack.size()];
+
+        for (var i = 0; i < stackEntries.length; i++) {
+            stackEntries[i] = operandStack.get(i).asmLocalType();
+        }
+
+        functionWriter.visitFrame(F_NEW, localFrameEntries.length, localFrameEntries, stackEntries.length, stackEntries);
     }
 
     private void emitMemoryFieldLoad(int index) {
