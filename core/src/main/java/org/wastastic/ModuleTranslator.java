@@ -9,7 +9,6 @@ import org.objectweb.asm.ConstantDynamic;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.tree.analysis.Value;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -64,7 +63,6 @@ import static org.objectweb.asm.Opcodes.FDIV;
 import static org.objectweb.asm.Opcodes.FMUL;
 import static org.objectweb.asm.Opcodes.FNEG;
 import static org.objectweb.asm.Opcodes.FSUB;
-import static org.objectweb.asm.Opcodes.F_NEW;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
 import static org.objectweb.asm.Opcodes.GOTO;
@@ -229,10 +227,8 @@ final class ModuleTranslator {
     private boolean atUnreachablePoint;
     private int selfArgumentLocalIndex;
     private int firstScratchLocalIndex;
-    private Object[] localFrameEntries;
     private final ArrayList<Local> locals = new ArrayList<>();
-    private final ArrayList<ValueType> operandStack = new ArrayList<>();
-    private final ArrayList<ControlScope> controlStack = new ArrayList<>();
+    private final ArrayList<Object> stack = new ArrayList<>();
 
     private int startFunctionIndex = -1;
 
@@ -864,13 +860,9 @@ final class ModuleTranslator {
     }
 
     private void translateFunction() throws IOException, TranslationException {
-        System.out.println("\nFunction!");
-        var localFrameEntriesList = new ArrayList<>();
-
         atUnreachablePoint = false;
         locals.clear();
-        operandStack.clear();
-        controlStack.clear();
+        stack.clear();
 
         var index = nextFunctionIndex++;
         var type = definedFunctions.get(index);
@@ -882,12 +874,10 @@ final class ModuleTranslator {
 
         for (var parameterType : type.parameterTypes()) {
             locals.add(new Local(parameterType, nextLocalIndex));
-            localFrameEntriesList.add(parameterType.asmLocalType());
             nextLocalIndex += parameterType.width();
         }
 
         selfArgumentLocalIndex = nextLocalIndex;
-        localFrameEntriesList.add(MODULE_INSTANCE_INTERNAL_NAME);
         nextLocalIndex += 1;
 
         for (var fieldVectorsRemaining = nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
@@ -897,7 +887,6 @@ final class ModuleTranslator {
                 locals.add(new Local(fieldType, nextLocalIndex));
                 functionWriter.visitInsn(fieldType.zeroConstantOpcode());
                 functionWriter.visitVarInsn(fieldType.localStoreOpcode(), nextLocalIndex);
-                localFrameEntriesList.add(fieldType.asmLocalType());
                 nextLocalIndex += fieldType.width();
             }
         }
@@ -905,11 +894,9 @@ final class ModuleTranslator {
         firstScratchLocalIndex = nextLocalIndex;
 
         // FIXME: detect attempt to directly branch to here?
-        controlStack.add(new ControlScope(new Label(), type.returnTypes(), List.of(), type.returnTypes(), false, null, null));
+        stack.add(new BlockScope(new Label(), type));
 
-        localFrameEntries = localFrameEntriesList.toArray();
-
-        while (!controlStack.isEmpty()) {
+        while (!stack.isEmpty()) {
             translateInstruction();
         }
 
@@ -965,7 +952,7 @@ final class ModuleTranslator {
 
     private void translateInstruction() throws IOException, TranslationException {
         var opcode = nextByte();
-        System.out.println("0x" + Integer.toHexString(Byte.toUnsignedInt(opcode)));
+        // System.out.println("0x" + Integer.toHexString(Byte.toUnsignedInt(opcode)));
         switch (opcode) {
             case OP_UNREACHABLE -> translateUnreachable();
             case OP_NOP -> translateNop();
@@ -1151,7 +1138,7 @@ final class ModuleTranslator {
             case OP_REF_IS_NULL -> translateRefIsNull();
             case OP_REF_FUNC -> translateRefFunc();
             case OP_CONT_PREFIX -> translateCont();
-            default -> throw new TranslationException("Invalid opcode");
+            default -> throw new TranslationException("Invalid opcode: 0x" + Integer.toHexString(Byte.toUnsignedInt(opcode)));
         }
     }
 
@@ -1169,102 +1156,99 @@ final class ModuleTranslator {
 
     private void translateBlock() throws TranslationException, IOException {
         var type = nextBlockType();
-        System.out.println(type);
         checkTopOperands(type.parameterTypes());
-        var endLabel = new Label();
-        controlStack.add(new ControlScope(
-            endLabel,
-            type.returnTypes(),
-            List.copyOf(operandStack.subList(0, operandStack.size() - type.parameterTypes().size())),
-            type.returnTypes(),
-            false,
-            null,
-            null
-        ));
+        stack.add(stack.size() - type.parameterTypes().size(), new BlockScope(new Label(), type));
     }
 
     private void translateLoop() throws TranslationException, IOException {
-        var type = nextBlockType();
-        System.out.println(type);
-        checkTopOperands(type.parameterTypes());
         var startLabel = new Label();
+        var type = nextBlockType();
+        checkTopOperands(type.parameterTypes());
+        stack.add(stack.size() - type.parameterTypes().size(), new LoopScope(startLabel, type));
         functionWriter.visitLabel(startLabel);
-        emitFrame();
-        controlStack.add(new ControlScope(
-            startLabel,
-            type.parameterTypes(),
-            List.copyOf(operandStack.subList(0, operandStack.size() - type.parameterTypes().size())),
-            type.returnTypes(),
-            true,
-            null,
-            null
-        ));
     }
 
     private void translateIf() throws TranslationException, IOException {
         popOperand(ValueType.I32);
 
-        var type = nextBlockType();
-        System.out.println(type);
-        checkTopOperands(type.parameterTypes());
-        var endLabel = new Label();
         var elseLabel = new Label();
-
-        controlStack.add(new ControlScope(
-            endLabel,
-            type.returnTypes(),
-            List.copyOf(operandStack.subList(0, operandStack.size() - type.parameterTypes().size())),
-            type.returnTypes(),
-            false,
-            elseLabel,
-            List.copyOf(operandStack)
-        ));
+        var endLabel = new Label();
+        var type = nextBlockType();
+        checkTopOperands(type.parameterTypes());
+        stack.add(stack.size() - type.parameterTypes().size(), new IfScope(elseLabel, endLabel, type));
 
         functionWriter.visitJumpInsn(IFEQ, elseLabel);
     }
 
     private void translateElse() throws TranslationException {
-        atUnreachablePoint = false; // FIXME: track whether if was reachable?
+        atUnreachablePoint = false;
 
-        var scope = last(controlStack);
+        IfScope scope;
 
-        checkTopOperands(scope.branchTargetParameterTypes());
+        while (true) {
+            if (stack.isEmpty()) {
+                throw new TranslationException("Missing IfScope on stack");
+            }
 
-        functionWriter.visitJumpInsn(GOTO, scope.branchTargetLabel());
+            var last = removeLast(stack);
+
+            if (last instanceof ValueType) {
+                continue;
+            }
+
+            if (last instanceof IfScope ifScope) {
+                scope = ifScope;
+                break;
+            }
+
+            throw new TranslationException("Unexpected stack entry: " + last);
+        }
+
+        stack.add(new BlockScope(scope.endLabel(), scope.type()));
+        stack.addAll(scope.type().parameterTypes());
+
+        functionWriter.visitJumpInsn(GOTO, scope.endLabel());
         functionWriter.visitLabel(scope.elseLabel());
-
-        operandStack.clear();
-        operandStack.addAll(scope.elseOperandStack());
-
-        scope.dropElse();
-        emitFrame();
     }
 
     private void translateEnd() throws TranslationException {
-        var scope = removeLast(controlStack);
-        var labelVisited = false;
+        Scope scope;
+        var scopeIndex = stack.size();
 
-        if (!scope.isLoop() && !atUnreachablePoint) {
-            checkTopOperands(scope.branchTargetParameterTypes());
+        while (true) {
+            if (--scopeIndex == -1) {
+                throw new TranslationException("Missing scope on stack");
+            }
+
+            var entry = stack.get(scopeIndex);
+
+            if (entry instanceof ValueType) {
+                continue;
+            }
+
+            if (entry instanceof Scope s) {
+                scope = s;
+                break;
+            }
+
+            throw new TranslationException("Unexpected stack entry: " + entry);
         }
 
-        operandStack.clear();
-        operandStack.addAll(scope.baseOperandStack());
-        operandStack.addAll(scope.returnTypes());
-
-        if (scope.elseLabel() != null) {
-            functionWriter.visitLabel(scope.elseLabel());
-            labelVisited = true;
+        if (!atUnreachablePoint) {
+            var actualReturnTypes = stack.subList(scopeIndex + 1, stack.size());
+            if (!actualReturnTypes.equals(scope.type().returnTypes())) {
+                throw new TranslationException("Invalid stack at end of scope: expected " + scope.type().returnTypes() + " at top of stack, found " + actualReturnTypes);
+            }
         }
 
-        if (!scope.isLoop() && scope.isBranchTargetUsed()) {
-            functionWriter.visitLabel(scope.branchTargetLabel());
-            labelVisited = true;
-        }
+        stack.subList(scopeIndex, stack.size()).clear();
 
-        if (labelVisited) {
-            atUnreachablePoint = false;
-            emitFrame(); // FIXME: detect duplicate frames
+        if (scope instanceof IfScope ifScope) {
+            functionWriter.visitLabel(ifScope.elseLabel());
+            functionWriter.visitLabel(ifScope.endLabel());
+        }
+        else if (scope instanceof BlockScope blockScope) {
+            functionWriter.visitLabel(blockScope.endLabel());
         }
     }
 
@@ -1279,7 +1263,6 @@ final class ModuleTranslator {
         popOperand(ValueType.I32);
         emitBranch(nextUnsigned32());
         functionWriter.visitLabel(pastBranchLabel);
-        emitFrame();
     }
 
     private void translateBrTable() throws IOException, TranslationException {
@@ -1304,20 +1287,19 @@ final class ModuleTranslator {
 
         for (var i = 0; i < indexedTargetCount; i++) {
             functionWriter.visitLabel(indexedAdapterLabels[i]);
-            emitFrame();
             emitBranch(indexedTargets[i]);
         }
 
         functionWriter.visitLabel(defaultAdapterLabel);
-        emitFrame();
         emitBranch(defaultTarget);
 
         atUnreachablePoint = true;
     }
 
     private void translateReturn() throws TranslationException {
-        checkTopOperands(first(controlStack).branchTargetParameterTypes());
-        functionWriter.visitInsn(first(controlStack).returnOpcode());
+        var functionScope = (BlockScope) first(stack);
+        checkTopOperands(functionScope.type().returnTypes());
+        functionWriter.visitInsn(functionScope.type().returnOpcode());
         atUnreachablePoint = true;
     }
 
@@ -1333,15 +1315,20 @@ final class ModuleTranslator {
         }
 
         checkTopOperands(type.parameterTypes());
+        removeLast(stack, type.parameterTypes().size());
+        stack.addAll(type.returnTypes());
 
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodName(index), type.descriptor(), false);
-        removeLast(operandStack, type.parameterTypes().size());
-        operandStack.addAll(type.returnTypes());
     }
 
     private void translateCallIndirect() throws IOException, TranslationException {
         var type = nextIndexedType();
+
+        popOperand(ValueType.I32);
+        checkTopOperands(type.parameterTypes());
+        removeLast(stack, type.parameterTypes().size());
+        stack.addAll(type.returnTypes());
 
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
@@ -1352,6 +1339,7 @@ final class ModuleTranslator {
 
         var nextLocalIndex = calleeLocalIndex + 1;
         for (var i = type.parameterTypes().size() - 1; i >= 0; i--) {
+            // FIXME: is this okay?
             var parameterType = type.parameterTypes().get(i);
             functionWriter.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
             nextLocalIndex += parameterType.width();
@@ -1364,13 +1352,8 @@ final class ModuleTranslator {
             functionWriter.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
-
-        popOperand(ValueType.I32);
-        checkTopOperands(type.parameterTypes());
-        removeLast(operandStack, type.parameterTypes().size());
-        operandStack.addAll(type.returnTypes());
     }
 
     private void translateDrop() throws TranslationException {
@@ -1379,7 +1362,8 @@ final class ModuleTranslator {
 
     private void translateSelect() throws TranslationException {
         popOperand(ValueType.I32);
-        var type = last(operandStack);
+        var type = popAnyOperand();
+        checkTopOperand(type);
 
         var pastSwapLabel = new Label();
         functionWriter.visitJumpInsn(IFNE, pastSwapLabel);
@@ -1388,18 +1372,13 @@ final class ModuleTranslator {
             functionWriter.visitInsn(DUP2_X2);
             functionWriter.visitInsn(POP2);
             functionWriter.visitLabel(pastSwapLabel);
-            emitFrame();
             functionWriter.visitInsn(POP2);
         }
         else {
             functionWriter.visitInsn(SWAP);
             functionWriter.visitLabel(pastSwapLabel);
-            emitFrame();
             functionWriter.visitInsn(POP);
         }
-
-        removeLast(operandStack);
-        checkTopOperand(type);
     }
 
     private void translateSelectVec() throws TranslationException, IOException {
@@ -1413,7 +1392,7 @@ final class ModuleTranslator {
     private void translateLocalGet() throws IOException {
         var local = nextIndexedLocal();
         functionWriter.visitVarInsn(local.type().localLoadOpcode(), local.index());
-        operandStack.add(local.type());
+        stack.add(local.type());
     }
 
     private void translateLocalSet() throws IOException, TranslationException {
@@ -1440,9 +1419,9 @@ final class ModuleTranslator {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
         }
 
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalGetterMethodName(globalIndex), type.globalGetterDescriptor(), false);
-        operandStack.add(type);
+        stack.add(type);
     }
 
     private void translateGlobalSet() throws IOException, TranslationException {
@@ -1458,7 +1437,7 @@ final class ModuleTranslator {
 
         popOperand(type);
 
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalSetterMethodName(globalIndex), type.globalSetterDescriptor(), false);
     }
 
@@ -1473,13 +1452,13 @@ final class ModuleTranslator {
             elementType = definedTables.get(index - importedTables.size()).elementType();
         }
 
-        operandStack.add(elementType);
+        stack.add(elementType);
         emitTableFieldLoad(index);
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableSet() throws IOException {
-        removeLast(operandStack, 2);
+        removeLast(stack, 2); // FIXME: check the types here
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
     }
@@ -1489,9 +1468,9 @@ final class ModuleTranslator {
         var offset = nextUnsigned32();
         var specializedOp = new SpecializedLoad(op, 0, offset);
         popOperand(ValueType.I32);
-        operandStack.add(specializedOp.returnType());
+        stack.add(specializedOp.returnType());
         loadOps.add(specializedOp);
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
     }
 
@@ -1558,7 +1537,7 @@ final class ModuleTranslator {
         var offset = nextUnsigned32();
         var specializedOp = new SpecializedStore(op, 0, offset);
         storeOps.add(specializedOp);
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
     }
 
@@ -1599,7 +1578,7 @@ final class ModuleTranslator {
     }
 
     private void translateMemorySize() throws IOException {
-        operandStack.add(ValueType.I32);
+        stack.add(ValueType.I32);
         emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.SIZE_METHOD_NAME, Memory.SIZE_METHOD_DESCRIPTOR, false);
     }
@@ -1612,22 +1591,22 @@ final class ModuleTranslator {
 
     private void translateI32Const() throws IOException {
         pushI32Constant(functionWriter, nextSigned32());
-        operandStack.add(ValueType.I32);
+        stack.add(ValueType.I32);
     }
 
     private void translateI64Const() throws IOException {
         pushI64Constant(functionWriter, nextSigned64());
-        operandStack.add(ValueType.I64);
+        stack.add(ValueType.I64);
     }
 
     private void translateF32Const() throws IOException {
         pushF32Constant(functionWriter, nextFloat32());
-        operandStack.add(ValueType.F32);
+        stack.add(ValueType.F32);
     }
 
     private void translateF64Const() throws IOException {
         pushF64Constant(functionWriter, nextFloat64());
-        operandStack.add(ValueType.F64);
+        stack.add(ValueType.F64);
     }
 
     private void translateConditionalBoolean(int opcode) {
@@ -1639,12 +1618,10 @@ final class ModuleTranslator {
         functionWriter.visitJumpInsn(GOTO, mergeLabel);
 
         functionWriter.visitLabel(trueLabel);
-        emitFrame();
         functionWriter.visitInsn(ICONST_1);
 
         functionWriter.visitLabel(mergeLabel);
-        operandStack.add(ValueType.I32);
-        emitFrame();
+        stack.add(ValueType.I32);
     }
 
     private void translateI32Eqz() throws TranslationException {
@@ -1764,7 +1741,7 @@ final class ModuleTranslator {
     }
 
     private void translateFpComparison(int cmpOpcode, int branchOpcode) {
-        removeLast(operandStack, 2);
+        removeLast(stack, 2);
         functionWriter.visitInsn(cmpOpcode);
         translateConditionalBoolean(branchOpcode);
     }
@@ -1917,7 +1894,7 @@ final class ModuleTranslator {
     }
 
     private void translateI32Rotr() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "rotateRight", "(II)I", false);
     }
 
@@ -1937,78 +1914,78 @@ final class ModuleTranslator {
     }
 
     private void translateI64Add() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LADD);
     }
 
     private void translateI64Sub() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LSUB);
     }
 
     private void translateI64Mul() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LMUL);
     }
 
     private void translateI64DivS() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_DIV_S_NAME, I64_DIV_S_DESCRIPTOR, false);
     }
 
     private void translateI64DivU() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "divideUnsigned", "(JJ)J", false);
     }
 
     private void translateI64RemS() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LREM);
     }
 
     private void translateI64RemU() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "remainderUnsigned", "(JJ)J", false);
     }
 
     private void translateI64And() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LAND);
     }
 
     private void translateI64Or() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LOR);
     }
 
     private void translateI64Xor() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LXOR);
     }
 
     private void translateI64Shl() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LSHL);
     }
 
     private void translateI64ShrS() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LSHR);
     }
 
     private void translateI64ShrU() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(LUSHR);
     }
 
     private void translateI64Rotl() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(L2I);
         functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateLeft", "(JI)J", false);
     }
 
     private void translateI64Rotr() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(L2I);
         functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateRight", "(JI)J", false);
     }
@@ -2050,37 +2027,37 @@ final class ModuleTranslator {
     }
 
     private void translateF32Add() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(FADD);
     }
 
     private void translateF32Sub() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(FSUB);
     }
 
     private void translateF32Mul() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(FMUL);
     }
 
     private void translateF32Div() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(FDIV);
     }
 
     private void translateF32Min() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(FF)F", false);
     }
 
     private void translateF32Max() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(FF)F", false);
     }
 
     private void translateF32Copysign() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(FF)F", false);
     }
 
@@ -2113,165 +2090,165 @@ final class ModuleTranslator {
     }
 
     private void translateF64Add() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(DADD);
     }
 
     private void translateF64Sub() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(DSUB);
     }
 
     private void translateF64Mul() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(DMUL);
     }
 
     private void translateF64Div() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitInsn(DDIV);
     }
 
     private void translateF64Min() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(DD)D", false);
     }
 
     private void translateF64Max() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(DD)D", false);
     }
 
     private void translateF64Copysign() {
-        removeLast(operandStack);
+        removeLast(stack);
         functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(DD)D", false);
     }
 
     private void translateI32WrapI64() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitInsn(L2I);
     }
 
     private void translateI32TruncF32S() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_S_NAME, I32_TRUNC_F32_S_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF32U() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_U_NAME, I32_TRUNC_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF64S() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_S_NAME, I32_TRUNC_F64_S_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF64U() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_U_NAME, I32_TRUNC_F64_U_DESCRIPTOR, false);
     }
 
     private void translateI64ExtendI32S() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitInsn(I2L);
     }
 
     private void translateI64ExtendI32U() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
     }
 
     private void translateI64TruncF32S() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_S_NAME, I64_TRUNC_F32_S_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF32U() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_U_NAME, I64_TRUNC_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF64S() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_S_NAME, I64_TRUNC_F64_S_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF64U() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_U_NAME, I64_TRUNC_F64_U_DESCRIPTOR, false);
     }
 
     private void translateF32ConvertI32S() {
-        replaceLast(operandStack, ValueType.F32);
+        replaceLast(stack, ValueType.F32);
         functionWriter.visitInsn(I2F);
     }
 
     private void translateF32ConvertI32U() {
-        replaceLast(operandStack, ValueType.F32);
+        replaceLast(stack, ValueType.F32);
         functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
         functionWriter.visitInsn(L2F);
     }
 
     private void translateF32ConvertI64S() {
-        replaceLast(operandStack, ValueType.F32);
+        replaceLast(stack, ValueType.F32);
         functionWriter.visitInsn(L2F);
     }
 
     private void translateF32ConvertI64U() {
-        replaceLast(operandStack, ValueType.F32);
+        replaceLast(stack, ValueType.F32);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F32_CONVERT_I64_U_NAME, F32_CONVERT_I64_U_DESCRIPTOR, false);
     }
 
     private void translateF32DemoteF64() {
-        replaceLast(operandStack, ValueType.F32);
+        replaceLast(stack, ValueType.F32);
         functionWriter.visitInsn(D2F);
     }
 
     private void translateF64ConvertI32S() {
-        replaceLast(operandStack, ValueType.F64);
+        replaceLast(stack, ValueType.F64);
         functionWriter.visitInsn(I2D);
     }
 
     private void translateF64ConvertI32U() {
-        replaceLast(operandStack, ValueType.F64);
+        replaceLast(stack, ValueType.F64);
         functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
         functionWriter.visitInsn(L2D);
     }
 
     private void translateF64ConvertI64S() {
-        replaceLast(operandStack, ValueType.F64);
+        replaceLast(stack, ValueType.F64);
         functionWriter.visitInsn(L2D);
     }
 
     private void translateF64ConvertI64U() {
-        replaceLast(operandStack, ValueType.F64);
+        replaceLast(stack, ValueType.F64);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F64_CONVERT_I64_U_NAME, F64_CONVERT_I64_U_DESCRIPTOR, false);
     }
 
     private void translateF64PromoteF32() {
-        replaceLast(operandStack, ValueType.F64);
+        replaceLast(stack, ValueType.F64);
         functionWriter.visitInsn(F2D);
     }
 
     private void translateI32ReinterpretF32() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "floatToRawIntBits", "(F)I", false);
     }
 
     private void translateI64ReinterpretF64() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "doubleToRawLongBits", "(D)J", false);
     }
 
     private void translateF32ReinterpretI32() {
-        replaceLast(operandStack, ValueType.F32);
+        replaceLast(stack, ValueType.F32);
         functionWriter.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "intBitsToFloat", "(I)F", false);
     }
 
     private void translateF64ReinterpretI64() throws TranslationException {
         popOperand(ValueType.I64);
-        operandStack.add(ValueType.F64);
+        stack.add(ValueType.F64);
         functionWriter.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "longBitsToDouble", "(J)D", false);
     }
 
@@ -2306,12 +2283,12 @@ final class ModuleTranslator {
     }
 
     private void translateRefNull() throws TranslationException, IOException {
-        operandStack.add(nextReferenceType());
+        stack.add(nextReferenceType());
         functionWriter.visitInsn(ACONST_NULL);
     }
 
     private void translateRefIsNull() {
-        removeLast(operandStack);
+        removeLast(stack);
         translateConditionalBoolean(IFNULL);
     }
 
@@ -2319,7 +2296,8 @@ final class ModuleTranslator {
         var index = nextUnsigned32();
 
         if (index < importedFunctions.size()) {
-            emitSelfLoad();
+            functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+            functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
             functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(index), METHOD_HANDLE_DESCRIPTOR);
         }
         else {
@@ -2328,7 +2306,7 @@ final class ModuleTranslator {
             functionWriter.visitLdcInsn(handle);
         }
 
-        operandStack.add(ValueType.FUNCREF);
+        stack.add(ValueType.FUNCREF);
     }
 
     private void translateCont() throws IOException, TranslationException {
@@ -2356,47 +2334,47 @@ final class ModuleTranslator {
     }
 
     private void translateI32TruncSatF32S() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitInsn(F2I);
     }
 
     private void translateI32TruncSatF32U() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F32_U_NAME, I32_TRUNC_SAT_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI32TruncSatF64S() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitInsn(D2I);
     }
 
     private void translateI32TruncSatF64U() {
-        replaceLast(operandStack, ValueType.I32);
+        replaceLast(stack, ValueType.I32);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F64_U_NAME, I32_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncSatF32S() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitInsn(F2L);
     }
 
     private void translateI64TruncSatF32U() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F32_U_NAME, I64_TRUNC_SAT_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncSatF64S() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitInsn(D2L);
     }
 
     private void translateI64TruncSatF64U() {
-        replaceLast(operandStack, ValueType.I64);
+        replaceLast(stack, ValueType.I64);
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F64_U_NAME, I64_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
     private void translateMemoryInit() throws IOException {
-        removeLast(operandStack, 3);
+        removeLast(stack, 3);
         emitDataFieldLoad(nextUnsigned32());
         emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_METHOD_NAME, Memory.INIT_METHOD_DESCRIPTOR, false);
@@ -2404,26 +2382,27 @@ final class ModuleTranslator {
 
     private void translateDataDrop() throws IOException {
         var index = nextUnsigned32();
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_DATA_NAME, MEMORY_SEGMENT_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
 
     private void translateMemoryCopy() throws IOException {
-        removeLast(operandStack, 3);
+        removeLast(stack, 3);
         emitMemoryFieldLoad(nextUnsigned32());
         emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.COPY_METHOD_NAME, Memory.COPY_METHOD_DESCRIPTOR, false);
     }
 
     private void translateMemoryFill() throws IOException {
-        removeLast(operandStack, 3);
+        removeLast(stack, 3);
         emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.FILL_METHOD_NAME, Memory.FILL_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableInit() throws IOException {
-        removeLast(operandStack, 3);
+        removeLast(stack, 3);
         emitElementFieldLoad(nextUnsigned32());
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_METHOD_NAME, Table.INIT_METHOD_DESCRIPTOR, false);
@@ -2431,33 +2410,34 @@ final class ModuleTranslator {
 
     private void translateElemDrop() throws IOException {
         var index = nextUnsigned32();
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_ELEMENTS_NAME, OBJECT_ARRAY_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
 
     private void translateTableCopy() throws IOException {
-        removeLast(operandStack, 3);
+        removeLast(stack, 3);
         emitTableFieldLoad(nextUnsigned32());
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_METHOD_NAME, Table.COPY_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableGrow() throws IOException {
-        removeLast(operandStack);
-        replaceLast(operandStack, ValueType.I32);
+        removeLast(stack);
+        replaceLast(stack, ValueType.I32);
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableSize() throws IOException {
-        operandStack.add(ValueType.I32);
+        stack.add(ValueType.I32);
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SIZE_METHOD_NAME, Table.SIZE_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableFill() throws IOException {
-        removeLast(operandStack, 3);
+        removeLast(stack, 3);
         emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_METHOD_NAME, Table.FILL_METHOD_DESCRIPTOR, false);
     }
@@ -2465,30 +2445,30 @@ final class ModuleTranslator {
     //==================================================================================================================
 
     private void checkHasOperand() throws TranslationException {
-        if (operandStack.isEmpty()) {
+        if (stack.isEmpty()) {
             throw new TranslationException("Operand stack underflow");
         }
     }
 
     private void checkTopOperand(@NotNull ValueType requiredType) throws TranslationException {
         checkHasOperand();
-        if (last(operandStack) != requiredType) {
-            throw new TranslationException("Wrong type at top of operand stack: expected " + requiredType + ", found " + last(operandStack));
+        if (last(stack) != requiredType) {
+            throw new TranslationException("Wrong type at top of operand stack: expected " + requiredType + ", found " + last(stack));
         }
     }
 
     private @NotNull ValueType popOperand(@NotNull ValueType requiredType) throws TranslationException {
         checkTopOperand(requiredType);
-        return removeLast(operandStack);
+        return (ValueType) removeLast(stack);
     }
 
     private @NotNull ValueType popAnyOperand() throws TranslationException {
         checkHasOperand();
-        return removeLast(operandStack);
+        return (ValueType) removeLast(stack);
     }
 
     private void checkTopOperands(@NotNull List<ValueType> requiredTypes) throws TranslationException {
-        var topTypes = operandStack.subList(Integer.max(operandStack.size() - requiredTypes.size(), 0), operandStack.size());
+        var topTypes = stack.subList(Integer.max(stack.size() - requiredTypes.size(), 0), stack.size());
         if (!topTypes.equals(requiredTypes)) {
             throw new TranslationException("Wrong operand types at top of stack: expected " + requiredTypes + ", found " + topTypes);
         }
@@ -2497,73 +2477,95 @@ final class ModuleTranslator {
     //==================================================================================================================
 
     private void emitBranch(int index) throws TranslationException {
-        if (index == controlStack.size() - 1) {
-            translateReturn();
+        var scopeIndex = stack.size();
+        var scopesRemaining = index;
+
+        while (scopesRemaining != -1) {
+            if (--scopeIndex == -1) {
+                throw new TranslationException("Label index out of bounds");
+            }
+
+            var entry = stack.get(scopeIndex);
+
+            if (entry instanceof ValueType) {
+                continue;
+            }
+
+            if (entry instanceof Scope) {
+                scopesRemaining--;
+            }
         }
 
-        var target = controlStack.get(controlStack.size() - 1 - index);
+        var scope = (Scope) stack.get(scopeIndex);
 
-        target.markBranchTargetUsed();
+        Label targetLabel;
+        List<ValueType> labelParameterTypes;
 
-        checkTopOperands(target.branchTargetParameterTypes());
+        if (scope instanceof BlockScope blockScope) {
+            targetLabel = blockScope.endLabel();
+            labelParameterTypes = blockScope.type().returnTypes();
+        }
+        else if (scope instanceof IfScope ifScope) {
+            targetLabel = ifScope.endLabel();
+            labelParameterTypes = ifScope.type().returnTypes();
+        }
+        else if (scope instanceof LoopScope loopScope) {
+            targetLabel = loopScope.startLabel();
+            labelParameterTypes = scope.type().parameterTypes();
+        }
+        else {
+            throw new ClassCastException();
+        }
+
+        checkTopOperands(labelParameterTypes);
 
         var nextLocalIndex = firstScratchLocalIndex;
 
-        for (var i = target.branchTargetParameterTypes().size() - 1; i >= 0; i--) {
-            var parameterType = target.branchTargetParameterTypes().get(i);
+        for (var i = labelParameterTypes.size() - 1; i >= 0; i--) {
+            var parameterType = labelParameterTypes.get(i);
             functionWriter.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
             nextLocalIndex += parameterType.width();
         }
 
-        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStack().size(); i--) {
-            if (operandStack.get(i).isDoubleWidth()) {
-                functionWriter.visitInsn(POP2);
+        for (var i = stack.size() - labelParameterTypes.size() - 1; i >= 0; i--) {
+            if (stack.get(i).equals(scope)) {
+                break;
             }
-            else {
-                functionWriter.visitInsn(POP);
+
+            if (stack.get(i) instanceof ValueType valueType) {
+                functionWriter.visitInsn(valueType.isDoubleWidth() ? POP2 : POP);
             }
         }
 
-        for (var parameterType : target.branchTargetParameterTypes()) {
+        for (var parameterType : labelParameterTypes) {
             nextLocalIndex -= parameterType.width();
             functionWriter.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
-        functionWriter.visitJumpInsn(GOTO, target.branchTargetLabel());
+        functionWriter.visitJumpInsn(GOTO, targetLabel);
     }
 
     private void emitDataFieldLoad(int index) {
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
 
     private void emitElementFieldLoad(int index) {
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
 
-    private void emitFrame() {
-        // var stackEntries = new Object[operandStack.size()];
-
-        // for (var i = 0; i < stackEntries.length; i++) {
-        //     stackEntries[i] = operandStack.get(i).asmLocalType();
-        // }
-
-        // functionWriter.visitFrame(F_NEW, localFrameEntries.length, localFrameEntries, stackEntries.length, stackEntries);
-    }
-
     private void emitMemoryFieldLoad(int index) {
-        emitSelfLoad();
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(index), Memory.DESCRIPTOR);
     }
 
-    private void emitSelfLoad() {
+    private void emitTableFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
-    }
-
-    private void emitTableFieldLoad(int index) {
-        emitSelfLoad();
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(index), Table.DESCRIPTOR);
     }
 
