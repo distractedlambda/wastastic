@@ -12,7 +12,8 @@ import static org.wastastic.Lists.single;
 final class ControlScope {
     private final @NotNull Label branchTargetLabel;
     private final @NotNull List<ValueType> branchTargetParameterTypes;
-    private final int baseOperandStackSize;
+    private final @NotNull List<ValueType> baseOperandStack;
+    private final @NotNull List<ValueType> returnTypes;
     private final boolean isLoop;
 
     private boolean isBranchTargetUsed = false;
@@ -23,17 +24,23 @@ final class ControlScope {
     ControlScope(
         @NotNull Label branchTargetLabel,
         @NotNull List<ValueType> branchTargetParameterTypes,
-        int baseOperandStackSize,
+        @NotNull List<ValueType> baseOperandStack,
+        @NotNull List<ValueType> returnTypes,
         boolean isLoop,
         @Nullable Label elseLabel,
         @Nullable List<ValueType> elseOperandStack
     ) {
         this.branchTargetLabel = branchTargetLabel;
         this.branchTargetParameterTypes = branchTargetParameterTypes;
-        this.baseOperandStackSize = baseOperandStackSize;
+        this.baseOperandStack = baseOperandStack;
+        this.returnTypes = returnTypes;
         this.isLoop = isLoop;
         this.elseLabel = elseLabel;
         this.elseOperandStack = elseOperandStack;
+    }
+
+    @NotNull List<ValueType> returnTypes() {
+        return returnTypes;
     }
 
     @NotNull Label branchTargetLabel() {
@@ -44,8 +51,8 @@ final class ControlScope {
         return branchTargetParameterTypes;
     }
 
-    int baseOperandStackSize() {
-        return baseOperandStackSize;
+    @NotNull List<ValueType> baseOperandStack() {
+        return baseOperandStack;
     }
 
     boolean isLoop() {

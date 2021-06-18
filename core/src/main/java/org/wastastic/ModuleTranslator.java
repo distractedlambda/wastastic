@@ -905,7 +905,7 @@ final class ModuleTranslator {
         firstScratchLocalIndex = nextLocalIndex;
 
         // FIXME: detect attempt to directly branch to here?
-        controlStack.add(new ControlScope(new Label(), type.returnTypes(), 0, false, null, null));
+        controlStack.add(new ControlScope(new Label(), type.returnTypes(), List.of(), type.returnTypes(), false, null, null));
 
         localFrameEntries = localFrameEntriesList.toArray();
 
@@ -1175,7 +1175,8 @@ final class ModuleTranslator {
         controlStack.add(new ControlScope(
             endLabel,
             type.returnTypes(),
-            operandStack.size() - type.parameterTypes().size(),
+            List.copyOf(operandStack.subList(0, operandStack.size() - type.parameterTypes().size())),
+            type.returnTypes(),
             false,
             null,
             null
@@ -1192,7 +1193,8 @@ final class ModuleTranslator {
         controlStack.add(new ControlScope(
             startLabel,
             type.parameterTypes(),
-            operandStack.size() - type.parameterTypes().size(),
+            List.copyOf(operandStack.subList(0, operandStack.size() - type.parameterTypes().size())),
+            type.returnTypes(),
             true,
             null,
             null
@@ -1211,7 +1213,8 @@ final class ModuleTranslator {
         controlStack.add(new ControlScope(
             endLabel,
             type.returnTypes(),
-            operandStack.size() - type.parameterTypes().size(),
+            List.copyOf(operandStack.subList(0, operandStack.size() - type.parameterTypes().size())),
+            type.returnTypes(),
             false,
             elseLabel,
             List.copyOf(operandStack)
@@ -1244,6 +1247,10 @@ final class ModuleTranslator {
         if (!scope.isLoop() && !atUnreachablePoint) {
             checkTopOperands(scope.branchTargetParameterTypes());
         }
+
+        operandStack.clear();
+        operandStack.addAll(scope.baseOperandStack());
+        operandStack.addAll(scope.returnTypes());
 
         if (scope.elseLabel() != null) {
             functionWriter.visitLabel(scope.elseLabel());
@@ -2494,10 +2501,7 @@ final class ModuleTranslator {
             translateReturn();
         }
 
-
         var target = controlStack.get(controlStack.size() - 1 - index);
-
-        System.out.println(operandStack + ", " + target.baseOperandStackSize());
 
         target.markBranchTargetUsed();
 
@@ -2511,7 +2515,7 @@ final class ModuleTranslator {
             nextLocalIndex += parameterType.width();
         }
 
-        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStackSize(); i--) {
+        for (var i = operandStack.size() - target.branchTargetParameterTypes().size() - 1; i >= target.baseOperandStack().size(); i--) {
             if (operandStack.get(i).isDoubleWidth()) {
                 functionWriter.visitInsn(POP2);
             }
