@@ -893,7 +893,6 @@ final class ModuleTranslator {
 
         firstScratchLocalIndex = nextLocalIndex;
 
-        // FIXME: detect attempt to directly branch to here?
         var block = new BlockScope(new Label(), type);
         stack.add(block);
 
@@ -901,9 +900,7 @@ final class ModuleTranslator {
             translateInstruction();
         }
 
-        // if (!atUnreachablePoint) {
         functionWriter.visitInsn(type.returnOpcode());
-        // }
 
         functionWriter.visitMaxs(0, 0);
         functionWriter.visitEnd();
@@ -953,7 +950,6 @@ final class ModuleTranslator {
 
     private void translateInstruction() throws IOException, TranslationException {
         var opcode = nextByte();
-        // System.out.println("0x" + Integer.toHexString(Byte.toUnsignedInt(opcode)));
         switch (opcode) {
             case OP_UNREACHABLE -> translateUnreachable();
             case OP_NOP -> translateNop();
@@ -1906,19 +1902,19 @@ final class ModuleTranslator {
 
     private void translateI64Clz() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfLeadingZeros", "(L)I", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfLeadingZeros", "(J)I", false);
         functionWriter.visitInsn(I2L);
     }
 
     private void translateI64Ctz() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfTrailingZeros", "(L)I", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfTrailingZeros", "(J)I", false);
         functionWriter.visitInsn(I2L);
     }
 
     private void translateI64Popcnt() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "bitCount", "(L)I", false);
+        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "bitCount", "(J)I", false);
         functionWriter.visitInsn(I2L);
     }
 
