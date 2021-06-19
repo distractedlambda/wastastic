@@ -864,7 +864,9 @@ final class ModuleTranslator {
         locals.clear();
         stack.clear();
 
+        // fn 205
         var index = nextFunctionIndex++;
+        // System.out.println("\nFunction: " + index);
         var type = definedFunctions.get(index);
 
         functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
@@ -896,13 +898,13 @@ final class ModuleTranslator {
         // FIXME: detect attempt to directly branch to here?
         stack.add(new BlockScope(new Label(), type));
 
-        while (!stack.isEmpty()) {
+        while (!type.returnTypes().equals(stack)) {
             translateInstruction();
         }
 
-        if (!atUnreachablePoint) {
-            functionWriter.visitInsn(type.returnOpcode());
-        }
+        // if (!atUnreachablePoint) {
+        functionWriter.visitInsn(type.returnOpcode());
+        // }
 
         functionWriter.visitMaxs(0, 0);
         functionWriter.visitEnd();
@@ -1156,6 +1158,7 @@ final class ModuleTranslator {
 
     private void translateBlock() throws TranslationException, IOException {
         var type = nextBlockType();
+        // System.out.println("Beginning block: " + type + ", current stack: " + stack);
         checkTopOperands(type.parameterTypes());
         stack.add(stack.size() - type.parameterTypes().size(), new BlockScope(new Label(), type));
     }
@@ -1163,6 +1166,7 @@ final class ModuleTranslator {
     private void translateLoop() throws TranslationException, IOException {
         var startLabel = new Label();
         var type = nextBlockType();
+        // System.out.println("Beginning loop: " + type + ", current stack: " + stack);
         checkTopOperands(type.parameterTypes());
         stack.add(stack.size() - type.parameterTypes().size(), new LoopScope(startLabel, type));
         functionWriter.visitLabel(startLabel);
@@ -1234,6 +1238,8 @@ final class ModuleTranslator {
             throw new TranslationException("Unexpected stack entry: " + entry);
         }
 
+        // System.out.println("Ending scope: " + scope + ", current stack: " + stack);
+
         if (!atUnreachablePoint) {
             var actualReturnTypes = stack.subList(scopeIndex + 1, stack.size());
             if (!actualReturnTypes.equals(scope.type().returnTypes())) {
@@ -1242,6 +1248,7 @@ final class ModuleTranslator {
         }
 
         stack.subList(scopeIndex, stack.size()).clear();
+        stack.addAll(scope.type().returnTypes());
 
         if (scope instanceof IfScope ifScope) {
             functionWriter.visitLabel(ifScope.elseLabel());
@@ -1250,6 +1257,8 @@ final class ModuleTranslator {
         else if (scope instanceof BlockScope blockScope) {
             functionWriter.visitLabel(blockScope.endLabel());
         }
+
+        atUnreachablePoint = false;
     }
 
     private void translateBr() throws IOException, TranslationException {
