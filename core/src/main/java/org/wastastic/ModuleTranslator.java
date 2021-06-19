@@ -172,7 +172,6 @@ import static org.wastastic.InstructionImpls.I64_TRUNC_SAT_F64_U_NAME;
 import static org.wastastic.Lists.first;
 import static org.wastastic.Lists.last;
 import static org.wastastic.Lists.removeLast;
-import static org.wastastic.Lists.replaceLast;
 import static org.wastastic.Names.DOUBLE_INTERNAL_NAME;
 import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
@@ -200,7 +199,7 @@ final class ModuleTranslator {
     private final @NotNull ReadableByteChannel inputChannel;
     private final @NotNull ByteBuffer inputBuffer;
 
-    private final ClassWriter classWriter = new ClassWriter(0);
+    private final ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
     private final ClassVisitor classVisitor = classWriter;
     private MethodVisitor functionWriter;
 
@@ -866,7 +865,6 @@ final class ModuleTranslator {
 
         // fn 205
         var index = nextFunctionIndex++;
-        System.out.println("\nFunction: " + index);
         var type = definedFunctions.get(index);
 
         functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
@@ -1159,7 +1157,6 @@ final class ModuleTranslator {
 
     private void translateBlock() throws TranslationException, IOException {
         var type = nextBlockType();
-        // System.out.println("Beginning block: " + type + ", current stack: " + stack);
         checkTopOperands(type.parameterTypes());
         stack.add(stack.size() - type.parameterTypes().size(), new BlockScope(new Label(), type));
     }
@@ -1167,7 +1164,6 @@ final class ModuleTranslator {
     private void translateLoop() throws TranslationException, IOException {
         var startLabel = new Label();
         var type = nextBlockType();
-        // System.out.println("Beginning loop: " + type + ", current stack: " + stack);
 
         checkTopOperands(type.parameterTypes());
         stack.add(stack.size() - type.parameterTypes().size(), new LoopScope(startLabel, type));
@@ -1362,7 +1358,6 @@ final class ModuleTranslator {
 
         var nextLocalIndex = calleeLocalIndex + 1;
         for (var i = type.parameterTypes().size() - 1; i >= 0; i--) {
-            // FIXME: is this okay?
             var parameterType = type.parameterTypes().get(i);
             functionWriter.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
             nextLocalIndex += parameterType.width();
@@ -1979,16 +1974,19 @@ final class ModuleTranslator {
 
     private void translateI64Shl() throws TranslationException {
         applyBinaryOp(ValueType.I64);
+        functionWriter.visitInsn(L2I);
         functionWriter.visitInsn(LSHL);
     }
 
     private void translateI64ShrS() throws TranslationException {
         applyBinaryOp(ValueType.I64);
+        functionWriter.visitInsn(L2I);
         functionWriter.visitInsn(LSHR);
     }
 
     private void translateI64ShrU() throws TranslationException {
         applyBinaryOp(ValueType.I64);
+        functionWriter.visitInsn(L2I);
         functionWriter.visitInsn(LUSHR);
     }
 
@@ -2647,6 +2645,8 @@ final class ModuleTranslator {
     }
 
     //==================================================================================================================
+
+    // FIXME: check that our integer decoding isn't shitting the bed
 
     private @NotNull FunctionType nextBlockType() throws IOException, TranslationException {
         var code = nextSigned33();
