@@ -1189,29 +1189,37 @@ final class ModuleTranslator {
     }
 
     private void translateElse() throws TranslationException {
-        atUnreachablePoint = false;
-
         IfScope scope;
+        var scopeIndex = stack.size();
 
         while (true) {
-            if (stack.isEmpty()) {
+            if (--scopeIndex == -1) {
                 throw new TranslationException("Missing IfScope on stack");
             }
 
-            var last = removeLast(stack);
+            var entry = stack.get(scopeIndex);
 
-            if (last instanceof ValueType) {
+            if (entry instanceof ValueType) {
                 continue;
             }
 
-            if (last instanceof IfScope ifScope) {
+            if (entry instanceof IfScope ifScope) {
                 scope = ifScope;
                 break;
             }
 
-            throw new TranslationException("Unexpected stack entry: " + last);
+            throw new TranslationException("Unexpected stack entry: " + entry);
         }
 
+        if (!atUnreachablePoint) {
+            var actualReturnTypes = stack.subList(scopeIndex + 1, stack.size());
+            if (!actualReturnTypes.equals(scope.type().returnTypes())) {
+                throw new TranslationException("Return types mismatch at end of IfScope: expected " + scope.type().returnTypes() + ", found " + actualReturnTypes);
+            }
+        }
+
+        atUnreachablePoint = false;
+        stack.subList(scopeIndex, stack.size()).clear();
         stack.add(new BlockScope(scope.endLabel(), scope.type()));
         stack.addAll(scope.type().parameterTypes());
 
