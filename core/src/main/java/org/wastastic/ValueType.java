@@ -32,7 +32,7 @@ import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 
-enum ValueType {
+enum ValueType implements StackEntry {
     I32,
     I64,
     F32,

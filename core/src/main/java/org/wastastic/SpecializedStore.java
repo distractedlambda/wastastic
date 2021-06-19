@@ -46,6 +46,7 @@ record SpecializedStore(@NotNull Op op, int memoryIndex, int offset) {
         private final @NotNull String vhName;
         private final int moduleArgumentFieldIndex;
         private final int argumentLoadOpcode;
+        private final @NotNull ValueType argumentValueType;
 
         Op(@NotNull String name, char argumentType, char storedType) {
             this.name = name;
@@ -75,6 +76,14 @@ record SpecializedStore(@NotNull Op op, int memoryIndex, int offset) {
                 case 'D' -> DLOAD;
                 default -> throw new IllegalArgumentException();
             };
+
+            this.argumentValueType = switch (argumentType) {
+                case 'B', 'S', 'I' -> ValueType.I32;
+                case 'J' -> ValueType.I64;
+                case 'F' -> ValueType.F32;
+                case 'D' -> ValueType.F64;
+                default -> throw new IllegalArgumentException();
+            };
         }
     }
 
@@ -84,6 +93,10 @@ record SpecializedStore(@NotNull Op op, int memoryIndex, int offset) {
 
     @NotNull String methodDescriptor() {
         return op.methodDescriptor;
+    }
+
+    @NotNull ValueType argumentType() {
+        return op.argumentValueType;
     }
 
     void writeMethod(@NotNull ClassVisitor classVisitor) {
