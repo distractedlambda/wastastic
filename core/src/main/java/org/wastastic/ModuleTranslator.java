@@ -200,7 +200,7 @@ final class ModuleTranslator {
     private final @NotNull ReadableByteChannel inputChannel;
     private final @NotNull ByteBuffer inputBuffer;
 
-    private final ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+    private final ClassWriter classWriter = new ClassWriter(0);
     private final ClassVisitor classVisitor = classWriter;
     private MethodVisitor functionWriter;
 
@@ -866,7 +866,7 @@ final class ModuleTranslator {
 
         // fn 205
         var index = nextFunctionIndex++;
-        // System.out.println("\nFunction: " + index);
+        System.out.println("\nFunction: " + index);
         var type = definedFunctions.get(index);
 
         functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
@@ -899,7 +899,7 @@ final class ModuleTranslator {
         var block = new BlockScope(new Label(), type);
         stack.add(block);
 
-        while (first(stack).equals(block)) {
+        while (!stack.isEmpty() && first(stack).equals(block)) {
             translateInstruction();
         }
 
@@ -1487,7 +1487,7 @@ final class ModuleTranslator {
         var specializedOp = new SpecializedLoad(op, 0, offset);
         loadOps.add(specializedOp);
 
-        applyBinaryOp(ValueType.I32, specializedOp.returnType());
+        applyUnaryOp(ValueType.I32, specializedOp.returnType());
 
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
