@@ -21,7 +21,7 @@ public final class Main {
         var freeFn = module.exportedFunctionHandle("free_memory");
         var parseF32Fn = module.exportedFunctionHandle("parse_f32");
 
-        var input = "3.141592sdgasdgasdg";
+        var input = "3.141592";
         var inputBytes = input.getBytes(StandardCharsets.UTF_8);
         var charsPtr = (int) allocFn.invokeExact(inputBytes.length, instance);
         var dstPtr = (int) allocFn.invokeExact(4, instance);

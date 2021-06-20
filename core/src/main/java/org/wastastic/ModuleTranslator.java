@@ -106,6 +106,7 @@ import static org.objectweb.asm.Opcodes.L2I;
 import static org.objectweb.asm.Opcodes.LADD;
 import static org.objectweb.asm.Opcodes.LAND;
 import static org.objectweb.asm.Opcodes.LCMP;
+import static org.objectweb.asm.Opcodes.LCONST_0;
 import static org.objectweb.asm.Opcodes.LMUL;
 import static org.objectweb.asm.Opcodes.LOR;
 import static org.objectweb.asm.Opcodes.LREM;
@@ -1700,6 +1701,7 @@ final class ModuleTranslator {
 
     private void translateI64Eqz() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.I32);
+        functionWriter.visitInsn(LCONST_0);
         functionWriter.visitInsn(LCMP);
         translateConditionalBoolean(IFEQ);
     }
