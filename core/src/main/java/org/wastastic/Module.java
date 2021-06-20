@@ -12,7 +12,7 @@ import java.nio.file.StandardOpenOption;
 
 public sealed interface Module permits ModuleImpl {
     static @NotNull Module read(@NotNull ReadableByteChannel channel) throws TranslationException, IOException {
-        return new ModuleTranslator(channel).translate();
+        return new ModuleTranslator(new ChannelModuleInput(channel, 256)).translate();
     }
 
     static @NotNull Module read(@NotNull Path path) throws IOException, TranslationException {
