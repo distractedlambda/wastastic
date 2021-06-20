@@ -354,16 +354,16 @@ final class ModuleTranslator {
             constructorWriter.visitVarInsn(ALOAD, 0);
 
             if (global.initialValue() instanceof F32Constant f32Constant) {
-                constructorWriter.visitLdcInsn(f32Constant.value());
+                pushF32Constant(constructorWriter, f32Constant.value());
             }
             else if (global.initialValue() instanceof F64Constant f64Constant) {
-                constructorWriter.visitLdcInsn(f64Constant.value());
+                pushF64Constant(constructorWriter, f64Constant.value());
             }
             else if (global.initialValue() instanceof I32Constant i32Constant) {
-                constructorWriter.visitLdcInsn(i32Constant.value());
+                pushI32Constant(constructorWriter, i32Constant.value());
             }
             else if (global.initialValue() instanceof I64Constant i64Constant) {
-                constructorWriter.visitLdcInsn(i64Constant.value());
+                pushI64Constant(constructorWriter, i64Constant.value());
             }
             else if (global.initialValue() == NullConstant.INSTANCE) {
                 constructorWriter.visitInsn(ACONST_NULL);
@@ -560,51 +560,6 @@ final class ModuleTranslator {
 
     private void translateGlobalImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
         throw new TranslationException("TODO implement global imports");
-
-        // var index = importedGlobals.size();
-        // var valueType = nextValueType();
-
-        // var getterFieldName = "g-" + index + "-get-mh";
-        // classWriter.visitField(ACC_PRIVATE | ACC_FINAL, getterFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
-
-        // var getterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-get", '(' + GENERATED_INSTANCE_DESCRIPTOR + ')' + valueType.descriptor(), null, null);
-        // getterMethod.visitCode();
-        // getterMethod.visitVarInsn(ALOAD, 0);
-        // getterMethod.visitInsn(DUP);
-        // getterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, getterFieldName, METHOD_HANDLE_DESCRIPTOR);
-        // getterMethod.visitInsn(SWAP);
-        // getterMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", '(' + GENERATED_INSTANCE_DESCRIPTOR + ')' + valueType.descriptor(), false);
-        // getterMethod.visitInsn(valueType.returnOpcode());
-        // getterMethod.visitMaxs(0, 0);
-        // getterMethod.visitEnd();
-
-        // var mutability = switch (nextByte()) {
-        //     case 0x00 -> {
-        //         yield Mutability.CONST;
-        //     }
-
-        //     case 0x01 -> {
-        //         var setterFieldName = "g-" + index + "-set-mh";
-        //         classWriter.visitField(ACC_PRIVATE | ACC_FINAL, setterFieldName, METHOD_HANDLE_DESCRIPTOR, null, null);
-
-        //         var setterMethod = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, "g-" + index + "-set", '(' + valueType.descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V", null, null);
-        //         setterMethod.visitCode();
-        //         setterMethod.visitVarInsn(ALOAD, valueType.width());
-        //         setterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, setterFieldName, METHOD_HANDLE_DESCRIPTOR);
-        //         setterMethod.visitVarInsn(valueType.localLoadOpcode(), 0);
-        //         setterMethod.visitVarInsn(ALOAD, valueType.width());
-        //         setterMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", '(' + valueType.descriptor() + GENERATED_INSTANCE_DESCRIPTOR + ")V", false);
-        //         setterMethod.visitInsn(RETURN);
-        //         setterMethod.visitMaxs(0, 0);
-        //         setterMethod.visitEnd();
-
-        //         yield Mutability.VAR;
-        //     }
-
-        //     default -> throw new TranslationException("Invalid mutability");
-        // };
-
-        // importedGlobals.add(new ImportedGlobal(new QualifiedName(moduleName, name), new GlobalType(valueType, mutability)));
     }
 
     private void translateFunctionSection() throws IOException {
@@ -699,8 +654,9 @@ final class ModuleTranslator {
         }
     }
 
-    private void translateStartSection() throws IOException {
+    private void translateStartSection() throws IOException, TranslationException {
         startFunctionIndex = nextUnsigned32();
+        throw new TranslationException("TODO implement start function");
     }
 
     private void translateElementSection() throws IOException, TranslationException {
@@ -864,7 +820,6 @@ final class ModuleTranslator {
         locals.clear();
         stack.clear();
 
-        // fn 205
         var index = nextFunctionIndex++;
         var type = definedFunctions.get(index);
 
@@ -879,6 +834,11 @@ final class ModuleTranslator {
         }
 
         selfArgumentLocalIndex = nextLocalIndex;
+
+        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
+        functionWriter.visitVarInsn(ASTORE, selfArgumentLocalIndex);
+
         nextLocalIndex += 1;
 
         for (var fieldVectorsRemaining = nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
@@ -901,6 +861,7 @@ final class ModuleTranslator {
             translateInstruction();
         }
 
+        // FIXME: do we need to be conditional about emitting this?
         functionWriter.visitInsn(type.returnOpcode());
 
         functionWriter.visitMaxs(0, 0);
@@ -1242,8 +1203,6 @@ final class ModuleTranslator {
 
             throw new TranslationException("Unexpected stack entry: " + entry);
         }
-
-        // System.out.println("Ending scope: " + scope + ", current stack: " + stack);
 
         if (!atUnreachablePoint) {
             var actualReturnTypes = stack.subList(scopeIndex + 1, stack.size());
@@ -2323,7 +2282,6 @@ final class ModuleTranslator {
 
         if (index < importedFunctions.size()) {
             functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-            functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
             functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(index), METHOD_HANDLE_DESCRIPTOR);
         }
         else {
@@ -2410,7 +2368,6 @@ final class ModuleTranslator {
     private void translateDataDrop() throws IOException {
         var index = nextUnsigned32();
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_DATA_NAME, MEMORY_SEGMENT_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
@@ -2447,7 +2404,6 @@ final class ModuleTranslator {
     private void translateElemDrop() throws IOException {
         var index = nextUnsigned32();
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_ELEMENTS_NAME, OBJECT_ARRAY_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
@@ -2550,6 +2506,8 @@ final class ModuleTranslator {
     //==================================================================================================================
 
     private void emitBranch(int index) throws TranslationException {
+        // FIXME: stack fixup code isn't well-tested
+
         var scopeIndex = stack.size();
         var scopesRemaining = index;
 
@@ -2620,25 +2578,21 @@ final class ModuleTranslator {
 
     private void emitDataFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
 
     private void emitElementFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
 
     private void emitMemoryFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(index), Memory.DESCRIPTOR);
     }
 
     private void emitTableFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(index), Table.DESCRIPTOR);
     }
 
