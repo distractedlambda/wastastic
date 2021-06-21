@@ -10,19 +10,19 @@ import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-import static org.objectweb.asm.Opcodes.ACC_FINAL;
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACONST_NULL;
@@ -178,20 +178,21 @@ import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 import static org.wastastic.Names.dataFieldName;
 import static org.wastastic.Names.elementFieldName;
-import static org.wastastic.Names.functionMethodHandleFieldName;
-import static org.wastastic.Names.functionMethodName;
-import static org.wastastic.Names.globalFieldName;
-import static org.wastastic.Names.globalGetterMethodName;
-import static org.wastastic.Names.globalSetterMethodName;
-import static org.wastastic.Names.memoryFieldName;
-import static org.wastastic.Names.tableFieldName;
 
 final class ModuleTranslator {
-    private final @NotNull ModuleInput input;
+    private final @NotNull MemorySegment input;
+    private long inputOffset;
 
     private final ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
     private final ClassVisitor classVisitor = classWriter;
     private MethodVisitor functionWriter;
+
+    private String moduleName;
+
+    private final Map<Integer, String> tableNames = new HashMap<>();
+    private final Map<Integer, String> globalNames = new HashMap<>();
+    private final Map<Integer, String> functionNames = new HashMap<>();
+    private final Map<Integer, Map<Integer, String>> localNames = new HashMap<>();
 
     private final ArrayList<FunctionType> types = new ArrayList<>();
     private final ArrayList<ImportedFunction> importedFunctions = new ArrayList<>();
@@ -221,58 +222,56 @@ final class ModuleTranslator {
 
     private int startFunctionIndex = -1;
 
-    ModuleTranslator(@NotNull ModuleInput input) {
+    ModuleTranslator(@NotNull MemorySegment input) {
         this.input = input;
     }
 
     @NotNull ModuleImpl translate() throws TranslationException, IOException {
-        classVisitor.visit(V17, 0, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
-
-        if (input.nextByte() != 0x00 ||
-            input.nextByte() != 0x61 ||
-            input.nextByte() != 0x73 ||
-            input.nextByte() != 0x6d
+        if (nextByte() != 0x00 ||
+            nextByte() != 0x61 ||
+            nextByte() != 0x73 ||
+            nextByte() != 0x6d
         ) {
             throw new TranslationException("Invalid magic number");
         }
 
-        if (input.nextByte() != 0x01 ||
-            input.nextByte() != 0x00 ||
-            input.nextByte() != 0x00 ||
-            input.nextByte() != 0x00
+        if (nextByte() != 0x01 ||
+            nextByte() != 0x00 ||
+            nextByte() != 0x00 ||
+            nextByte() != 0x00
         ) {
             throw new TranslationException("Unsupported version");
         }
 
-        while (true) {
-            byte sectionId;
+        var codeSectionOffsets = new ArrayList<Long>();
 
-            try {
-                sectionId = input.nextByte();
-            }
-            catch (EOFException ignored) {
-                break;
-            }
-
-            var sectionSize = input.nextUnsigned32();
+        while (inputOffset != input.byteSize()) {
+            byte sectionId = nextByte();
+            var sectionSize = Integer.toUnsignedLong(nextUnsigned32());
+            var nextSectionOffset = inputOffset + sectionSize;
 
             switch (sectionId) {
-                case SECTION_CUSTOM -> input.skip(sectionSize);
-                case SECTION_TYPE -> translateTypeSection();
-                case SECTION_IMPORT -> translateImportSection();
-                case SECTION_FUNCTION -> translateFunctionSection();
-                case SECTION_TABLE -> translateTableSection();
-                case SECTION_MEMORY -> translateMemorySection();
-                case SECTION_GLOBAL -> translateGlobalSection();
-                case SECTION_EXPORT -> translateExportSection();
-                case SECTION_START -> translateStartSection();
-                case SECTION_ELEMENT -> translateElementSection();
-                case SECTION_CODE -> translateCodeSection();
-                case SECTION_DATA -> translateDataSection();
-                case SECTION_DATA_COUNT -> translateDataCountSection();
-                default -> throw new TranslationException("Invalid section ID");
+                case SECTION_CUSTOM -> readCustomSection();
+                case SECTION_TYPE -> readTypeSection();
+                case SECTION_IMPORT -> readImportSection();
+                case SECTION_FUNCTION -> readFunctionSection();
+                case SECTION_TABLE -> readTableSection();
+                case SECTION_MEMORY -> readMemorySection();
+                case SECTION_GLOBAL -> readGlobalSection();
+                case SECTION_EXPORT -> readExportSection();
+                case SECTION_START -> readStartSection();
+                case SECTION_ELEMENT -> readElementSection();
+                case SECTION_CODE -> codeSectionOffsets.add(inputOffset);
+                case SECTION_DATA -> readDataSection();
+                case SECTION_DATA_COUNT -> readDataCountSection();
+                default -> throw new TranslationException("Invalid section ID: " + sectionId);
             }
+
+            // FIXME: check that sections stay within bounds
+            inputOffset = nextSectionOffset;
         }
+
+        classVisitor.visit(V17, 0, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
 
         var constructorWriter = classVisitor.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, new String[]{ModuleInstantiationException.INTERNAL_NAME});
         constructorWriter.visitCode();
@@ -475,143 +474,171 @@ final class ModuleTranslator {
         return new ModuleImpl(lookup, exportedFunctions, exportedTableIndices, exportedMemoryIndices);
     }
 
-    private void translateTypeSection() throws IOException, TranslationException {
-        var remaining = input.nextUnsigned32();
+    private void readCustomSection() {
+        if (!nextName().equals("name")) {
+            return;
+        }
+
+        if (nextByte() == 0x00) {
+            nextUnsigned32(); // subsection size, ignored
+            moduleName = nextName();
+        }
+
+        if (nextByte() == 0x01) {
+            for (var remaining = nextUnsigned32(); remaining != 0; remaining--) {
+                var functionIndex = nextUnsigned32();
+                var functionName = nextName();
+                functionNames.put(functionIndex, functionName);
+            }
+        }
+
+        if (nextByte() == 0x02) {
+            for (var remainingFunctions = nextUnsigned32(); remainingFunctions != 0; remainingFunctions--) {
+                var functionIndex = nextUnsigned32();
+                for (var remainingNames = nextUnsigned32(); remainingNames != 0; remainingNames--) {
+                    var localIndex = nextUnsigned32();
+                    var localName = nextName();
+                    localNames.computeIfAbsent(functionIndex, HashMap::new).put(localIndex, localName);
+                }
+            }
+        }
+    }
+
+    private void readTypeSection() throws TranslationException {
+        var remaining = nextUnsigned32();
         types.ensureCapacity(types.size() + remaining);
         for (; remaining != 0; remaining--) {
-            if (input.nextByte() != TYPE_FUNCTION) {
+            if (nextByte() != TYPE_FUNCTION) {
                 throw new TranslationException("Invalid function type");
             }
             types.add(new FunctionType(nextResultType(), nextResultType()));
         }
     }
 
-    private void translateImportSection() throws IOException, TranslationException {
-        for (var remaining = input.nextUnsigned32(); remaining != 0; remaining--) {
+    private void readImportSection() throws TranslationException {
+        for (var remaining = nextUnsigned32(); remaining != 0; remaining--) {
             var moduleName = nextName();
             var name = nextName();
-            switch (input.nextByte()) {
-                case 0x00 -> translateFunctionImport(moduleName, name);
-                case 0x01 -> translateTableImport(moduleName, name);
-                case 0x02 -> translateMemoryImport(moduleName, name);
-                case 0x03 -> translateGlobalImport(moduleName, name);
+            var qualifiedName = new QualifiedName(moduleName, name);
+            switch (nextByte()) {
+                case 0x00 -> importedFunctions.add(new ImportedFunction(qualifiedName, nextIndexedType()));
+                case 0x01 -> importedTables.add(new ImportedTable(qualifiedName, nextTableType()));
+                case 0x02 -> importedMemories.add(new ImportedMemory(qualifiedName, nextMemoryType()));
+                case 0x03 -> throw new TranslationException("TODO implement global imports");
                 default -> throw new TranslationException("Invalid import description");
             }
         }
     }
 
-    private void translateFunctionImport(@NotNull String moduleName, @NotNull String name) throws IOException {
-        var type = nextIndexedType();
-        var index = nextFunctionIndex++;
+    private void translateFunctionImport(@NotNull String moduleName, @NotNull String name) {
+        // var type = nextIndexedType();
+        // var index = nextFunctionIndex++;
+        // var methodName = "import$" + moduleName + "$" + name;
+        // var methodHandleFieldName = methodName + "$methodHandle";
 
-        var handleFieldName = functionMethodHandleFieldName(index);
-        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, handleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null).visitEnd();
+        // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, methodHandleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null).visitEnd();
 
-        var wrapperMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
-        wrapperMethod.visitCode();
+        // var wrapperMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
+        // wrapperMethod.visitCode();
 
-        var selfArgIndex = 0;
-        for (var parameterType : type.parameterTypes()) {
-            selfArgIndex += parameterType.width();
-        }
+        // var selfArgIndex = 0;
+        // for (var parameterType : type.parameterTypes()) {
+        //     selfArgIndex += parameterType.width();
+        // }
 
-        wrapperMethod.visitVarInsn(ALOAD, selfArgIndex);
-        wrapperMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, handleFieldName, METHOD_HANDLE_DESCRIPTOR);
+        // wrapperMethod.visitVarInsn(ALOAD, selfArgIndex);
+        // wrapperMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, handleFieldName, METHOD_HANDLE_DESCRIPTOR);
 
-        var nextArgIndex = 0;
-        for (var parameterType : type.parameterTypes()) {
-            wrapperMethod.visitVarInsn(parameterType.localLoadOpcode(), nextArgIndex);
-            nextArgIndex += parameterType.width();
-        }
+        // var nextArgIndex = 0;
+        // for (var parameterType : type.parameterTypes()) {
+        //     wrapperMethod.visitVarInsn(parameterType.localLoadOpcode(), nextArgIndex);
+        //     nextArgIndex += parameterType.width();
+        // }
 
-        wrapperMethod.visitVarInsn(ALOAD, selfArgIndex);
-        wrapperMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
-        wrapperMethod.visitInsn(type.returnOpcode());
+        // wrapperMethod.visitVarInsn(ALOAD, selfArgIndex);
+        // wrapperMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
+        // wrapperMethod.visitInsn(type.returnOpcode());
 
-        wrapperMethod.visitMaxs(0, 0);
-        wrapperMethod.visitEnd();
+        // wrapperMethod.visitMaxs(0, 0);
+        // wrapperMethod.visitEnd();
 
-        importedFunctions.add(new ImportedFunction(new QualifiedName(moduleName, name), type));
+        // importedFunctions.add(new ImportedFunction(new QualifiedName(moduleName, name), type));
     }
 
-    private void translateTableImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
-        var index = importedTables.size();
-        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null).visitEnd();
-        importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType()));
+    private void translateTableImport(@NotNull String moduleName, @NotNull String name) throws TranslationException {
+        // var index = importedTables.size();
+        // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null).visitEnd();
+        // importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType()));
     }
 
-    private void translateMemoryImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
-        var index = importedMemories.size();
-        classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null).visitEnd();
-        importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType()));
+    private void translateMemoryImport(@NotNull String moduleName, @NotNull String name) throws TranslationException {
+        // var index = importedMemories.size();
+        // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null).visitEnd();
+        // importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType()));
     }
 
-    private void translateGlobalImport(@NotNull String moduleName, @NotNull String name) throws TranslationException, IOException {
-        throw new TranslationException("TODO implement global imports");
-    }
-
-    private void translateFunctionSection() throws IOException {
-        var remaining = input.nextUnsigned32();
+    private void readFunctionSection() {
+        var remaining = nextUnsigned32();
         definedFunctions.ensureCapacity(definedFunctions.size() + remaining);
         for (; remaining != 0; remaining--) {
             definedFunctions.add(nextIndexedType());
         }
     }
 
-    private void translateTableSection() throws IOException, TranslationException {
-        var remaining = input.nextUnsigned32();
+    private void readTableSection() throws TranslationException {
+        var remaining = nextUnsigned32();
         definedTables.ensureCapacity(definedTables.size() + remaining);
         for (; remaining != 0; remaining--) {
-            var index = definedTables.size() + importedTables.size();
-            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null).visitEnd();
+            // var index = definedTables.size() + importedTables.size();
+            // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null).visitEnd();
             definedTables.add(nextTableType());
         }
     }
 
-    private void translateMemorySection() throws IOException, TranslationException {
-        var remaining = input.nextUnsigned32();
+    private void readMemorySection() throws TranslationException {
+        var remaining = nextUnsigned32();
         definedMemories.ensureCapacity(definedMemories.size() + remaining);
         for (; remaining != 0; remaining--) {
-            var index = definedMemories.size() + importedMemories.size();
-            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null).visitEnd();
+            // var index = definedMemories.size() + importedMemories.size();
+            // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null).visitEnd();
             definedMemories.add(nextMemoryType());
         }
     }
 
-    private void translateGlobalSection() throws IOException, TranslationException {
-        var remaining = input.nextUnsigned32();
+    private void readGlobalSection() throws TranslationException {
+        var remaining = nextUnsigned32();
         definedGlobals.ensureCapacity(definedGlobals.size() + remaining);
         for (; remaining != 0; remaining--) {
             var type = nextValueType();
-            var index = definedGlobals.size() + importedGlobals.size();
-            var access = ACC_PRIVATE;
-            var fieldName = globalFieldName(index);
+            // var index = definedGlobals.size() + importedGlobals.size();
+            // var access = ACC_PRIVATE;
+            // var fieldName = globalFieldName(index);
 
-            var getterMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, globalGetterMethodName(index), type.globalGetterDescriptor(), null, null);
-            getterMethod.visitCode();
-            getterMethod.visitVarInsn(ALOAD, 0);
-            getterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
-            getterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, type.descriptor());
-            getterMethod.visitInsn(type.returnOpcode());
-            getterMethod.visitMaxs(0, 0);
-            getterMethod.visitEnd();
+            // var getterMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, globalGetterMethodName(index), type.globalGetterDescriptor(), null, null);
+            // getterMethod.visitCode();
+            // getterMethod.visitVarInsn(ALOAD, 0);
+            // getterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
+            // getterMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, type.descriptor());
+            // getterMethod.visitInsn(type.returnOpcode());
+            // getterMethod.visitMaxs(0, 0);
+            // getterMethod.visitEnd();
 
-            var mutability = switch (input.nextByte()) {
+            var mutability = switch (nextByte()) {
                 case 0x00 -> {
-                    access |= ACC_FINAL;
+                    // access |= ACC_FINAL;
                     yield Mutability.CONST;
                 }
 
                 case 0x01 -> {
-                    var setterMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, globalSetterMethodName(index), type.globalSetterDescriptor(), null, null);
-                    setterMethod.visitCode();
-                    setterMethod.visitVarInsn(ALOAD, type.width());
-                    setterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
-                    setterMethod.visitVarInsn(type.localLoadOpcode(), 0);
-                    setterMethod.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, type.descriptor());
-                    setterMethod.visitInsn(RETURN);
-                    setterMethod.visitMaxs(0, 0);
-                    setterMethod.visitEnd();
+                    // var setterMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, globalSetterMethodName(index), type.globalSetterDescriptor(), null, null);
+                    // setterMethod.visitCode();
+                    // setterMethod.visitVarInsn(ALOAD, type.width());
+                    // setterMethod.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
+                    // setterMethod.visitVarInsn(type.localLoadOpcode(), 0);
+                    // setterMethod.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, type.descriptor());
+                    // setterMethod.visitInsn(RETURN);
+                    // setterMethod.visitMaxs(0, 0);
+                    // setterMethod.visitEnd();
 
                     yield Mutability.VAR;
                 }
@@ -619,18 +646,18 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid mutability");
             };
 
-            classVisitor.visitField(access, fieldName, type.descriptor(), null, null).visitEnd();
+            // classVisitor.visitField(access, fieldName, type.descriptor(), null, null).visitEnd();
             definedGlobals.add(new DefinedGlobal(new GlobalType(type, mutability), nextConstantExpression()));
         }
     }
 
-    private void translateExportSection() throws IOException, TranslationException {
-        var remaining = input.nextUnsigned32();
+    private void readExportSection() throws TranslationException {
+        var remaining = nextUnsigned32();
         exports.ensureCapacity(exports.size() + remaining);
         for (; remaining != 0; remaining--) {
             var name = nextName();
 
-            var kind = switch (input.nextByte()) {
+            var kind = switch (nextByte()) {
                 case 0x00 -> ExportKind.FUNCTION;
                 case 0x01 -> ExportKind.TABLE;
                 case 0x02 -> ExportKind.MEMORY;
@@ -638,35 +665,37 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid export description");
             };
 
-            exports.add(new Export(name, kind, input.nextUnsigned32()));
+            exports.add(new Export(name, kind, nextUnsigned32()));
         }
     }
 
-    private void translateStartSection() throws IOException, TranslationException {
-        startFunctionIndex = input.nextUnsigned32();
+    private void readStartSection() throws TranslationException {
+        startFunctionIndex = nextUnsigned32();
         throw new TranslationException("TODO implement start function");
     }
 
-    private void translateElementSection() throws IOException, TranslationException {
-        for (var remaining = input.nextUnsigned32(); remaining != 0; remaining--) {
-            translateElementSegment();
+    private void readElementSection() throws TranslationException {
+        for (var remaining = nextUnsigned32(); remaining != 0; remaining--) {
+            readElementSegment();
         }
     }
 
-    private void translateElementSegment() throws IOException, TranslationException {
+    private void readElementSegment() throws TranslationException {
+        // FIXME: tidy this up
+
         Constant[] values;
         ElementSegment.Mode mode;
         int tableIndex, tableOffset;
 
-        switch (input.nextByte()) {
+        switch (nextByte()) {
             case 0x00 -> {
                 mode = ElementSegment.Mode.ACTIVE;
                 tableIndex = 0;
                 tableOffset = nextI32ConstantExpression();
-                var functionIndexCount = input.nextUnsigned32();
+                var functionIndexCount = nextUnsigned32();
                 values = new Constant[functionIndexCount];
                 for (var i = 0; i < functionIndexCount; i++) {
-                    values[i] = new FunctionRefConstant(input.nextUnsigned32());
+                    values[i] = new FunctionRefConstant(nextUnsigned32());
                 }
             }
 
@@ -675,22 +704,22 @@ final class ModuleTranslator {
                 tableIndex = 0;
                 tableOffset = 0;
                 nextElementKind();
-                var functionIndexCount = input.nextUnsigned32();
+                var functionIndexCount = nextUnsigned32();
                 values = new Constant[functionIndexCount];
                 for (var i = 0; i < functionIndexCount; i++) {
-                    values[i] = new FunctionRefConstant(input.nextUnsigned32());
+                    values[i] = new FunctionRefConstant(nextUnsigned32());
                 }
             }
 
             case 0x02 -> {
                 mode = ElementSegment.Mode.ACTIVE;
-                tableIndex = input.nextUnsigned32();
+                tableIndex = nextUnsigned32();
                 tableOffset = nextI32ConstantExpression();
                 nextElementKind();
-                var functionIndexCount = input.nextUnsigned32();
+                var functionIndexCount = nextUnsigned32();
                 values = new Constant[functionIndexCount];
                 for (var i = 0; i < functionIndexCount; i++) {
-                    values[i] = new FunctionRefConstant(input.nextUnsigned32());
+                    values[i] = new FunctionRefConstant(nextUnsigned32());
                 }
             }
 
@@ -700,9 +729,9 @@ final class ModuleTranslator {
                 tableOffset = 0;
                 values = ElementSegment.EMPTY_VALUES;
                 nextElementKind();
-                var functionIndexCount = input.nextUnsigned32();
+                var functionIndexCount = nextUnsigned32();
                 for (var i = 0; i < functionIndexCount; i++) {
-                    input.nextUnsigned32();
+                    nextUnsigned32();
                 }
             }
 
@@ -710,7 +739,7 @@ final class ModuleTranslator {
                 mode = ElementSegment.Mode.ACTIVE;
                 tableIndex = 0;
                 tableOffset = nextI32ConstantExpression();
-                var exprCount = input.nextUnsigned32();
+                var exprCount = nextUnsigned32();
                 values = new Constant[exprCount];
                 for (var i = 0; i < exprCount; i++) {
                     values[i] = nextFunctionRefConstantExpression();
@@ -722,7 +751,7 @@ final class ModuleTranslator {
                 tableIndex = 0;
                 tableOffset = 0;
                 var type = nextReferenceType();
-                var exprCount = input.nextUnsigned32();
+                var exprCount = nextUnsigned32();
                 values = new Constant[exprCount];
                 switch (type) {
                     case FUNCREF -> {
@@ -741,10 +770,10 @@ final class ModuleTranslator {
 
             case 0x06 -> {
                 mode = ElementSegment.Mode.ACTIVE;
-                tableIndex = input.nextUnsigned32();
+                tableIndex = nextUnsigned32();
                 tableOffset = nextI32ConstantExpression();
                 var type = nextReferenceType();
-                var exprCount = input.nextUnsigned32();
+                var exprCount = nextUnsigned32();
                 values = new Constant[exprCount];
                 switch (type) {
                     case FUNCREF -> {
@@ -768,7 +797,7 @@ final class ModuleTranslator {
                 values = ElementSegment.EMPTY_VALUES;
                 nextReferenceType();
                 var type = nextReferenceType();
-                var exprCount = input.nextUnsigned32();
+                var exprCount = nextUnsigned32();
                 switch (type) {
                     case FUNCREF -> {
                         for (var i = 0; i < exprCount; i++) {
@@ -787,23 +816,23 @@ final class ModuleTranslator {
             default -> throw new TranslationException("Invalid element segment");
         }
 
-        if (mode != ElementSegment.Mode.DECLARATIVE) {
-            var index = elementSegments.size();
-            classVisitor.visitField(ACC_PRIVATE, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR, null, null).visitEnd();
-        }
+        // if (mode != ElementSegment.Mode.DECLARATIVE) {
+        //     var index = elementSegments.size();
+        //     classVisitor.visitField(ACC_PRIVATE, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR, null, null).visitEnd();
+        // }
 
         elementSegments.add(new ElementSegment(values, mode, tableIndex, tableOffset));
     }
 
-    private void translateCodeSection() throws IOException, TranslationException {
-        var functionCount = input.nextUnsigned32();
+    private void translateCodeSection() throws TranslationException {
+        var functionCount = nextUnsigned32();
         for (; functionCount != 0; functionCount--) {
-            input.nextUnsigned32(); // size, ignored
+            nextUnsigned32(); // size, ignored
             translateFunction();
         }
     }
 
-    private void translateFunction() throws IOException, TranslationException {
+    private void translateFunction() throws TranslationException {
         atUnreachablePoint = false;
         locals.clear();
         stack.clear();
@@ -829,8 +858,8 @@ final class ModuleTranslator {
 
         nextLocalIndex += 1;
 
-        for (var fieldVectorsRemaining = input.nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
-            var fieldsRemaining = input.nextUnsigned32();
+        for (var fieldVectorsRemaining = nextUnsigned32(); fieldVectorsRemaining != 0; fieldVectorsRemaining--) {
+            var fieldsRemaining = nextUnsigned32();
             var fieldType = nextValueType();
             for (; fieldsRemaining != 0; fieldsRemaining--) {
                 locals.add(new Local(fieldType, nextLocalIndex));
@@ -856,17 +885,19 @@ final class ModuleTranslator {
         functionWriter.visitEnd();
     }
 
-    private void translateDataSection() throws IOException, TranslationException {
-        var dataCount = input.nextUnsigned32();
+    private void readDataSection() throws TranslationException {
+        // FIXME: tidy this up
+
+        var dataCount = nextUnsigned32();
         dataSegments.ensureCapacity(dataSegments.size() + dataCount);
         for (; dataCount != 0; dataCount--) {
-            var index = dataSegments.size();
-            classVisitor.visitField(ACC_PRIVATE, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR, null, null).visitEnd();
+            // var index = dataSegments.size();
+            // classVisitor.visitField(ACC_PRIVATE, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR, null, null).visitEnd();
 
             DataSegment.Mode mode;
             int memoryIndex, memoryOffset;
 
-            switch (input.nextByte()) {
+            switch (nextByte()) {
                 case 0x00 -> {
                     mode = DataSegment.Mode.ACTIVE;
                     memoryIndex = 0;
@@ -881,25 +912,27 @@ final class ModuleTranslator {
 
                 case 0x02 -> {
                     mode = DataSegment.Mode.ACTIVE;
-                    memoryIndex = input.nextUnsigned32();
+                    memoryIndex = nextUnsigned32();
                     memoryOffset = nextI32ConstantExpression();
                 }
 
                 default -> throw new TranslationException("Invalid data segment");
             }
 
-            var contentsSize = input.nextUnsigned32();
-            var contents = input.nextBytes(Integer.toUnsignedLong(contentsSize), dataSegmentsScope);
+            var contentsSize = nextUnsigned32();
+            var contents = nextData(Integer.toUnsignedLong(contentsSize));
             dataSegments.add(new DataSegment(contents, mode, memoryIndex, memoryOffset));
         }
     }
 
-    private void translateDataCountSection() {
+    private void readDataCountSection() {
         // TODO
     }
 
-    private void translateInstruction() throws IOException, TranslationException {
-        var opcode = input.nextByte();
+    //==================================================================================================================
+
+    private void translateInstruction() throws TranslationException {
+        var opcode = nextByte();
         switch (opcode) {
             case OP_UNREACHABLE -> translateUnreachable();
             case OP_NOP -> translateNop();
@@ -1101,13 +1134,13 @@ final class ModuleTranslator {
         // Nothing to do
     }
 
-    private void translateBlock() throws TranslationException, IOException {
+    private void translateBlock() throws TranslationException {
         var type = nextBlockType();
         checkTopOperands(type.parameterTypes());
         stack.add(stack.size() - type.parameterTypes().size(), new BlockScope(new Label(), type));
     }
 
-    private void translateLoop() throws TranslationException, IOException {
+    private void translateLoop() throws TranslationException {
         var startLabel = new Label();
         var type = nextBlockType();
 
@@ -1117,7 +1150,7 @@ final class ModuleTranslator {
         functionWriter.visitLabel(startLabel);
     }
 
-    private void translateIf() throws TranslationException, IOException {
+    private void translateIf() throws TranslationException {
         popOperand(ValueType.I32);
 
         var elseLabel = new Label();
@@ -1213,31 +1246,31 @@ final class ModuleTranslator {
         atUnreachablePoint = false;
     }
 
-    private void translateBr() throws IOException, TranslationException {
-        emitBranch(input.nextUnsigned32());
+    private void translateBr() throws TranslationException {
+        emitBranch(nextUnsigned32());
         atUnreachablePoint = true;
     }
 
-    private void translateBrIf() throws IOException, TranslationException {
+    private void translateBrIf() throws TranslationException {
         popOperand(ValueType.I32);
 
         var pastBranchLabel = new Label();
         functionWriter.visitJumpInsn(IFEQ, pastBranchLabel);
-        emitBranch(input.nextUnsigned32());
+        emitBranch(nextUnsigned32());
         functionWriter.visitLabel(pastBranchLabel);
     }
 
-    private void translateBrTable() throws IOException, TranslationException {
+    private void translateBrTable() throws TranslationException {
         popOperand(ValueType.I32);
 
-        var indexedTargetCount = input.nextUnsigned32();
+        var indexedTargetCount = nextUnsigned32();
         var indexedTargets = new int[indexedTargetCount];
 
         for (var i = 0; i < indexedTargetCount; i++) {
-            indexedTargets[i] = input.nextUnsigned32();
+            indexedTargets[i] = nextUnsigned32();
         }
 
-        var defaultTarget = input.nextUnsigned32();
+        var defaultTarget = nextUnsigned32();
 
         var indexedAdapterLabels = new Label[indexedTargetCount];
         for (var i = 0; i < indexedTargetCount; i++) {
@@ -1266,8 +1299,8 @@ final class ModuleTranslator {
         atUnreachablePoint = true;
     }
 
-    private void translateCall() throws IOException, TranslationException {
-        var index = input.nextUnsigned32();
+    private void translateCall() throws TranslationException {
+        var index = nextUnsigned32();
 
         FunctionType type;
         if (index < importedFunctions.size()) {
@@ -1285,7 +1318,7 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodName(index), type.descriptor(), false);
     }
 
-    private void translateCallIndirect() throws IOException, TranslationException {
+    private void translateCallIndirect() throws TranslationException {
         var type = nextIndexedType();
 
         popOperand(ValueType.I32);
@@ -1293,7 +1326,7 @@ final class ModuleTranslator {
         removeLast(stack, type.parameterTypes().size());
         stack.addAll(type.returnTypes());
 
-        emitTableFieldLoad(input.nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
         functionWriter.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
 
@@ -1343,35 +1376,35 @@ final class ModuleTranslator {
         }
     }
 
-    private void translateSelectVec() throws TranslationException, IOException {
-        for (var i = input.nextUnsigned32(); i != 0; i--) {
+    private void translateSelectVec() throws TranslationException {
+        for (var i = nextUnsigned32(); i != 0; i--) {
             nextValueType();
         }
 
         translateSelect();
     }
 
-    private void translateLocalGet() throws IOException {
+    private void translateLocalGet() {
         var local = nextIndexedLocal();
         stack.add(local.type());
         functionWriter.visitVarInsn(local.type().localLoadOpcode(), local.index());
     }
 
-    private void translateLocalSet() throws IOException, TranslationException {
+    private void translateLocalSet() throws TranslationException {
         var local = nextIndexedLocal();
         popOperand(local.type());
         functionWriter.visitVarInsn(local.type().localStoreOpcode(), local.index());
     }
 
-    private void translateLocalTee() throws IOException, TranslationException {
+    private void translateLocalTee() throws TranslationException {
         var local = nextIndexedLocal();
         applyUnaryOp(local.type());
         functionWriter.visitInsn(local.type().isDoubleWidth() ? DUP2 : DUP);
         functionWriter.visitVarInsn(local.type().localStoreOpcode(), local.index());
     }
 
-    private void translateGlobalGet() throws IOException {
-        var globalIndex = input.nextUnsigned32();
+    private void translateGlobalGet() {
+        var globalIndex = nextUnsigned32();
         ValueType type;
 
         if (globalIndex < importedGlobals.size()) {
@@ -1387,8 +1420,8 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalGetterMethodName(globalIndex), type.globalGetterDescriptor(), false);
     }
 
-    private void translateGlobalSet() throws IOException, TranslationException {
-        var globalIndex = input.nextUnsigned32();
+    private void translateGlobalSet() throws TranslationException {
+        var globalIndex = nextUnsigned32();
         ValueType type;
 
         if (globalIndex < importedGlobals.size()) {
@@ -1404,8 +1437,8 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalSetterMethodName(globalIndex), type.globalSetterDescriptor(), false);
     }
 
-    private void translateTableGet() throws IOException, TranslationException {
-        var index = input.nextUnsigned32();
+    private void translateTableGet() throws TranslationException {
+        var index = nextUnsigned32();
 
         ValueType elementType;
         if (index < importedTables.size()) {
@@ -1420,17 +1453,17 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateTableSet() throws IOException, TranslationException {
+    private void translateTableSet() throws TranslationException {
         popReferenceOperand();
         popOperand(ValueType.I32);
 
-        emitTableFieldLoad(input.nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateLoad(@NotNull SpecializedLoad.Op op) throws IOException, TranslationException {
-        input.nextUnsigned32(); // expected alignment (ignored)
-        var offset = input.nextUnsigned32();
+    private void translateLoad(@NotNull SpecializedLoad.Op op) throws TranslationException {
+        nextUnsigned32(); // expected alignment (ignored)
+        var offset = nextUnsigned32();
         var specializedOp = new SpecializedLoad(op, 0, offset);
         loadOps.add(specializedOp);
 
@@ -1440,65 +1473,65 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
     }
 
-    private void translateI32Load() throws IOException, TranslationException {
+    private void translateI32Load() throws TranslationException {
         translateLoad(SpecializedLoad.Op.I32);
     }
 
-    private void translateI64Load() throws IOException, TranslationException {
+    private void translateI64Load() throws TranslationException {
         translateLoad(SpecializedLoad.Op.I64);
     }
 
-    private void translateF32Load() throws IOException, TranslationException {
+    private void translateF32Load() throws TranslationException {
         translateLoad(SpecializedLoad.Op.F32);
     }
 
-    private void translateF64Load() throws IOException, TranslationException {
+    private void translateF64Load() throws TranslationException {
         translateLoad(SpecializedLoad.Op.F64);
     }
 
-    private void translateI32Load8S() throws IOException, TranslationException {
+    private void translateI32Load8S() throws TranslationException {
         translateLoad(SpecializedLoad.Op.I8_AS_I32);
     }
 
-    private void translateI32Load8U() throws IOException, TranslationException {
+    private void translateI32Load8U() throws TranslationException {
         translateLoad(SpecializedLoad.Op.U8_AS_I32);
     }
 
-    private void translateI32Load16S() throws IOException, TranslationException {
+    private void translateI32Load16S() throws TranslationException {
         translateLoad(SpecializedLoad.Op.I16_AS_I32);
     }
 
-    private void translateI32Load16U() throws IOException, TranslationException {
+    private void translateI32Load16U() throws TranslationException {
         translateLoad(SpecializedLoad.Op.U16_AS_I32);
     }
 
-    private void translateI64Load8S() throws IOException, TranslationException {
+    private void translateI64Load8S() throws TranslationException {
         translateLoad(SpecializedLoad.Op.I8_AS_I64);
     }
 
-    private void translateI64Load8U() throws IOException, TranslationException {
+    private void translateI64Load8U() throws TranslationException {
         translateLoad(SpecializedLoad.Op.U8_AS_I64);
     }
 
-    private void translateI64Load16S() throws IOException, TranslationException {
+    private void translateI64Load16S() throws TranslationException {
         translateLoad(SpecializedLoad.Op.I16_AS_I64);
     }
 
-    private void translateI64Load16U() throws IOException, TranslationException {
+    private void translateI64Load16U() throws TranslationException {
         translateLoad(SpecializedLoad.Op.U16_AS_I64);
     }
 
-    private void translateI64Load32S() throws IOException, TranslationException {
+    private void translateI64Load32S() throws TranslationException {
         translateLoad(SpecializedLoad.Op.I32_AS_I64);
     }
 
-    private void translateI64Load32U() throws IOException, TranslationException {
+    private void translateI64Load32U() throws TranslationException {
         translateLoad(SpecializedLoad.Op.U32_AS_I64);
     }
 
-    private void translateStore(@NotNull SpecializedStore.Op op) throws IOException, TranslationException {
-        input.nextUnsigned32(); // expected alignment (ignored)
-        var offset = input.nextUnsigned32();
+    private void translateStore(@NotNull SpecializedStore.Op op) throws TranslationException {
+        nextUnsigned32(); // expected alignment (ignored)
+        var offset = nextUnsigned32();
         var specializedOp = new SpecializedStore(op, 0, offset);
         storeOps.add(specializedOp);
 
@@ -1509,71 +1542,71 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
     }
 
-    private void translateI32Store() throws IOException, TranslationException {
+    private void translateI32Store() throws TranslationException {
         translateStore(SpecializedStore.Op.I32);
     }
 
-    private void translateI64Store() throws IOException, TranslationException {
+    private void translateI64Store() throws TranslationException {
         translateStore(SpecializedStore.Op.I64);
     }
 
-    private void translateF32Store() throws IOException, TranslationException {
+    private void translateF32Store() throws TranslationException {
         translateStore(SpecializedStore.Op.F32);
     }
 
-    private void translateF64Store() throws IOException, TranslationException {
+    private void translateF64Store() throws TranslationException {
         translateStore(SpecializedStore.Op.F64);
     }
 
-    private void translateI32Store8() throws IOException, TranslationException {
+    private void translateI32Store8() throws TranslationException {
         translateStore(SpecializedStore.Op.I32_AS_I8);
     }
 
-    private void translateI32Store16() throws IOException, TranslationException {
+    private void translateI32Store16() throws TranslationException {
         translateStore(SpecializedStore.Op.I32_AS_I16);
     }
 
-    private void translateI64Store8() throws IOException, TranslationException {
+    private void translateI64Store8() throws TranslationException {
         translateStore(SpecializedStore.Op.I64_AS_I8);
     }
 
-    private void translateI64Store16() throws IOException, TranslationException {
+    private void translateI64Store16() throws TranslationException {
         translateStore(SpecializedStore.Op.I64_AS_I16);
     }
 
-    private void translateI64Store32() throws IOException, TranslationException {
+    private void translateI64Store32() throws TranslationException {
         translateStore(SpecializedStore.Op.I64_AS_I32);
     }
 
-    private void translateMemorySize() throws IOException {
+    private void translateMemorySize() {
         stack.add(ValueType.I32);
-        emitMemoryFieldLoad(input.nextUnsigned32());
+        emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.SIZE_METHOD_NAME, Memory.SIZE_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateMemoryGrow() throws IOException, TranslationException {
+    private void translateMemoryGrow() throws TranslationException {
         applyUnaryOp(ValueType.I32);
-        emitMemoryFieldLoad(input.nextUnsigned32());
+        emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.GROW_METHOD_NAME, Memory.GROW_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateI32Const() throws IOException {
-        pushI32Constant(functionWriter, input.nextSigned32());
+    private void translateI32Const() {
+        pushI32Constant(functionWriter, nextSigned32());
         stack.add(ValueType.I32);
     }
 
-    private void translateI64Const() throws IOException {
-        pushI64Constant(functionWriter, input.nextSigned64());
+    private void translateI64Const() {
+        pushI64Constant(functionWriter, nextSigned64());
         stack.add(ValueType.I64);
     }
 
-    private void translateF32Const() throws IOException {
-        pushF32Constant(functionWriter, input.nextFloat32());
+    private void translateF32Const() {
+        pushF32Constant(functionWriter, nextFloat32());
         stack.add(ValueType.F32);
     }
 
-    private void translateF64Const() throws IOException {
-        pushF64Constant(functionWriter, input.nextFloat64());
+    private void translateF64Const() {
+        pushF64Constant(functionWriter, nextFloat64());
         stack.add(ValueType.F64);
     }
 
@@ -2252,7 +2285,7 @@ final class ModuleTranslator {
         functionWriter.visitInsn(I2L);
     }
 
-    private void translateRefNull() throws TranslationException, IOException {
+    private void translateRefNull() throws TranslationException {
         stack.add(nextReferenceType());
         functionWriter.visitInsn(ACONST_NULL);
     }
@@ -2263,10 +2296,10 @@ final class ModuleTranslator {
         translateConditionalBoolean(IFNULL);
     }
 
-    private void translateRefFunc() throws IOException {
+    private void translateRefFunc() {
         stack.add(ValueType.FUNCREF);
 
-        var index = input.nextUnsigned32();
+        var index = nextUnsigned32();
 
         if (index < importedFunctions.size()) {
             functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
@@ -2279,8 +2312,8 @@ final class ModuleTranslator {
         }
     }
 
-    private void translateCont() throws IOException, TranslationException {
-        switch (input.nextByte()) {
+    private void translateCont() throws TranslationException {
+        switch (nextByte()) {
             case OP_CONT_I32_TRUNC_SAT_F32_S -> translateI32TruncSatF32S();
             case OP_CONT_I32_TRUNC_SAT_F32_U -> translateI32TruncSatF32U();
             case OP_CONT_I32_TRUNC_SAT_F64_S -> translateI32TruncSatF64S();
@@ -2343,91 +2376,91 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F64_U_NAME, I64_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
-    private void translateMemoryInit() throws IOException, TranslationException {
+    private void translateMemoryInit() throws TranslationException {
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
 
-        emitDataFieldLoad(input.nextUnsigned32());
-        emitMemoryFieldLoad(input.nextUnsigned32());
+        emitDataFieldLoad(nextUnsigned32());
+        emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_METHOD_NAME, Memory.INIT_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateDataDrop() throws IOException {
-        var index = input.nextUnsigned32();
+    private void translateDataDrop() {
+        var index = nextUnsigned32();
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_DATA_NAME, MEMORY_SEGMENT_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
 
-    private void translateMemoryCopy() throws IOException, TranslationException {
+    private void translateMemoryCopy() throws TranslationException {
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
 
-        emitMemoryFieldLoad(input.nextUnsigned32());
-        emitMemoryFieldLoad(input.nextUnsigned32());
+        emitMemoryFieldLoad(nextUnsigned32());
+        emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.COPY_METHOD_NAME, Memory.COPY_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateMemoryFill() throws IOException, TranslationException {
+    private void translateMemoryFill() throws TranslationException {
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
 
-        emitMemoryFieldLoad(input.nextUnsigned32());
+        emitMemoryFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.FILL_METHOD_NAME, Memory.FILL_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateTableInit() throws IOException, TranslationException {
+    private void translateTableInit() throws TranslationException {
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
 
-        emitElementFieldLoad(input.nextUnsigned32());
-        emitTableFieldLoad(input.nextUnsigned32());
+        emitElementFieldLoad(nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_METHOD_NAME, Table.INIT_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateElemDrop() throws IOException {
-        var index = input.nextUnsigned32();
+    private void translateElemDrop() {
+        var index = nextUnsigned32();
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_ELEMENTS_NAME, OBJECT_ARRAY_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
 
-    private void translateTableCopy() throws IOException, TranslationException {
+    private void translateTableCopy() throws TranslationException {
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
 
-        emitTableFieldLoad(input.nextUnsigned32());
-        emitTableFieldLoad(input.nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_METHOD_NAME, Table.COPY_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateTableGrow() throws IOException, TranslationException {
+    private void translateTableGrow() throws TranslationException {
         popOperand(ValueType.I32);
         popReferenceOperand();
         stack.add(ValueType.I32);
 
-        emitTableFieldLoad(input.nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateTableSize() throws IOException {
+    private void translateTableSize() {
         stack.add(ValueType.I32);
 
-        emitTableFieldLoad(input.nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SIZE_METHOD_NAME, Table.SIZE_METHOD_DESCRIPTOR, false);
     }
 
-    private void translateTableFill() throws IOException, TranslationException {
+    private void translateTableFill() throws TranslationException {
         popOperand(ValueType.I32);
         popReferenceOperand();
         popOperand(ValueType.I32);
 
-        emitTableFieldLoad(input.nextUnsigned32());
+        emitTableFieldLoad(nextUnsigned32());
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_METHOD_NAME, Table.FILL_METHOD_DESCRIPTOR, false);
     }
 
@@ -2588,8 +2621,8 @@ final class ModuleTranslator {
 
     // FIXME: check that our integer decoding isn't shitting the bed
 
-    private @NotNull FunctionType nextBlockType() throws IOException, TranslationException {
-        var code = input.nextSigned33();
+    private @NotNull FunctionType nextBlockType() throws TranslationException {
+        var code = nextSigned33();
         if (code >= 0) {
             return types.get((int) code);
         }
@@ -2607,106 +2640,106 @@ final class ModuleTranslator {
         }
     }
 
-    private @NotNull Constant nextConstantExpression() throws IOException, TranslationException {
-        var value = switch (input.nextByte()) {
+    private @NotNull Constant nextConstantExpression() throws TranslationException {
+        var value = switch (nextByte()) {
             case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
-            case OP_I32_CONST -> new I32Constant(input.nextSigned32());
-            case OP_I64_CONST -> new I64Constant(input.nextSigned64());
+            case OP_I32_CONST -> new I32Constant(nextSigned32());
+            case OP_I64_CONST -> new I64Constant(nextSigned64());
             case OP_REF_NULL -> NullConstant.INSTANCE;
-            case OP_REF_FUNC -> new FunctionRefConstant(input.nextUnsigned32());
+            case OP_REF_FUNC -> new FunctionRefConstant(nextUnsigned32());
             default -> throw new TranslationException("Invalid constant expression");
         };
 
-        if (input.nextByte() != OP_END) {
+        if (nextByte() != OP_END) {
             throw new TranslationException("Invalid constant expression");
         }
 
         return value;
     }
 
-    private void nextElementKind() throws IOException, TranslationException {
-        if (input.nextByte() != 0) {
+    private void nextElementKind() throws TranslationException {
+        if (nextByte() != 0) {
             throw new TranslationException("Unsupported elemkind");
         }
     }
 
-    private @NotNull Constant nextExternRefConstantExpression() throws IOException, TranslationException {
-        var value = switch (input.nextByte()) {
+    private @NotNull Constant nextExternRefConstantExpression() throws TranslationException {
+        var value = switch (nextByte()) {
             case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
             case OP_REF_NULL -> NullConstant.INSTANCE;
             default -> throw new TranslationException("Invalid externref constant expression");
         };
 
-        if (input.nextByte() != OP_END) {
+        if (nextByte() != OP_END) {
             throw new TranslationException("Invalid externref constant expression");
         }
 
         return value;
     }
 
-    private @NotNull Constant nextFunctionRefConstantExpression() throws IOException, TranslationException {
-        var value = switch (input.nextByte()) {
+    private @NotNull Constant nextFunctionRefConstantExpression() throws TranslationException {
+        var value = switch (nextByte()) {
             case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
             case OP_REF_NULL -> NullConstant.INSTANCE;
-            case OP_REF_FUNC -> new FunctionRefConstant(input.nextUnsigned32());
+            case OP_REF_FUNC -> new FunctionRefConstant(nextUnsigned32());
             default -> throw new TranslationException("Invalid funcref constant expression");
         };
 
-        if (input.nextByte() != OP_END) {
+        if (nextByte() != OP_END) {
             throw new TranslationException("Invalid funcref constant expression");
         }
 
         return value;
     }
 
-    private int nextI32ConstantExpression() throws TranslationException, IOException {
-        var value = switch (input.nextByte()) {
+    private int nextI32ConstantExpression() throws TranslationException {
+        var value = switch (nextByte()) {
             case OP_GLOBAL_GET -> throw new TranslationException("TODO implement global.get constants");
-            case OP_I32_CONST -> input.nextSigned32();
+            case OP_I32_CONST -> nextSigned32();
             default -> throw new TranslationException("Invalid i32 constant expression");
         };
 
-        if (input.nextByte() != OP_END) {
+        if (nextByte() != OP_END) {
             throw new TranslationException("Invalid i32 constant expression");
         }
 
         return value;
     }
 
-    private @NotNull Local nextIndexedLocal() throws IOException {
-        return locals.get(input.nextUnsigned32());
+    private @NotNull Local nextIndexedLocal() {
+        return locals.get(nextUnsigned32());
     }
 
-    private @NotNull FunctionType nextIndexedType() throws IOException {
-        return types.get(input.nextUnsigned32());
+    private @NotNull FunctionType nextIndexedType() {
+        return types.get(nextUnsigned32());
     }
 
-    private @NotNull Limits nextLimits() throws TranslationException, IOException {
-        return switch (input.nextByte()) {
-            case 0x00 -> new Limits(input.nextUnsigned32());
-            case 0x01 -> new Limits(input.nextUnsigned32(), input.nextUnsigned32());
+    private @NotNull Limits nextLimits() throws TranslationException {
+        return switch (nextByte()) {
+            case 0x00 -> new Limits(nextUnsigned32());
+            case 0x01 -> new Limits(nextUnsigned32(), nextUnsigned32());
             default -> throw new TranslationException("Invalid limits encoding");
         };
     }
 
-    private @NotNull MemoryType nextMemoryType() throws TranslationException, IOException {
+    private @NotNull MemoryType nextMemoryType() throws TranslationException {
         return new MemoryType(nextLimits());
     }
 
-    private @NotNull String nextName() throws IOException {
-        return input.nextUtf8(input.nextUnsigned32());
+    private @NotNull String nextName() {
+        return nextUtf8(nextUnsigned32());
     }
 
-    private @NotNull ValueType nextReferenceType() throws TranslationException, IOException {
-        return switch (input.nextByte()) {
+    private @NotNull ValueType nextReferenceType() throws TranslationException {
+        return switch (nextByte()) {
             case TYPE_EXTERNREF -> ValueType.EXTERNREF;
             case TYPE_FUNCREF -> ValueType.FUNCREF;
             default -> throw new TranslationException("Invalid reference type");
         };
     }
 
-    private @NotNull List<ValueType> nextResultType() throws IOException, TranslationException {
-        var unsignedSize = input.nextUnsigned32();
+    private @NotNull List<ValueType> nextResultType() throws TranslationException {
+        var unsignedSize = nextUnsigned32();
         switch (unsignedSize) {
             case 0:
                 return List.of();
@@ -2724,12 +2757,12 @@ final class ModuleTranslator {
         }
     }
 
-    private @NotNull TableType nextTableType() throws TranslationException, IOException {
+    @NotNull TableType nextTableType() throws TranslationException {
         return new TableType(nextReferenceType(), nextLimits());
     }
 
-    private @NotNull ValueType nextValueType() throws IOException, TranslationException {
-        var code = input.nextByte();
+    private @NotNull ValueType nextValueType() throws TranslationException {
+        var code = nextByte();
         return switch (code) {
             case TYPE_EXTERNREF -> ValueType.EXTERNREF;
             case TYPE_FUNCREF -> ValueType.FUNCREF;
@@ -2739,6 +2772,231 @@ final class ModuleTranslator {
             case TYPE_I32 -> ValueType.I32;
             default -> throw new TranslationException("Invalid value type: " + Integer.toHexString(Byte.toUnsignedInt(code)));
         };
+    }
+
+    private byte nextByte() {
+        return (byte) Memory.VH_BYTE.get(input, inputOffset++);
+    }
+
+    private int nextUnsigned32() {
+        // FIXME: validate this
+
+        byte b;
+        var total = 0;
+
+        total |= (b = nextByte()) & 0x7f;
+        if (b >= 0) {
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 7;
+        if (b >= 0) {
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 14;
+        if (b >= 0) {
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 21;
+        if (b >= 0) {
+            return total;
+        }
+
+        total |= nextByte() << 28;
+        return total;
+    }
+
+    private @NotNull String nextUtf8(int length) {
+        var bytes = new byte[length];
+
+        MemorySegment.ofArray(bytes).copyFrom(input.asSlice(inputOffset, length));
+
+        inputOffset += length;
+        return new String(bytes);
+    }
+
+    private int nextSigned32() {
+        byte b;
+        var total = 0;
+
+        total |= (b = nextByte()) & 0x7f;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffff80;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 7;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffc000;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 14;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffe00000;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 21;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xf0000000;
+            }
+            return total;
+        }
+
+        total |= nextByte() << 28;
+        return total;
+    }
+
+    private long nextSigned33() {
+        byte b;
+        var total = 0;
+
+        total |= (b = nextByte()) & 0x7f;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffffffffffff80L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 7;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffffffffffc000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 14;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffffffffe00000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 21;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xfffffffff0000000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7fL) << 28;
+        if (b > 63) {
+            total |= 0xfffffff800000000L;
+        }
+        return total;
+    }
+
+    private long nextSigned64() {
+        byte b;
+        var total = 0L;
+
+        total |= (b = nextByte()) & 0x7f;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffffffffffff80L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 7;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffffffffffc000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 14;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xffffffffffe00000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7f) << 21;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xfffffffff0000000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7fL) << 28;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xfffffff800000000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7fL) << 35;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xfffffc0000000000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7fL) << 42;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xfffe000000000000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7fL) << 49;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0xff00000000000000L;
+            }
+            return total;
+        }
+
+        total |= ((b = nextByte()) & 0x7fL) << 56;
+        if (b >= 0) {
+            if (b > 63) {
+                total |= 0x8000000000000000L;
+            }
+            return total;
+        }
+
+        total |= (long) nextByte() << 63;
+        return total;
+    }
+
+    private float nextFloat32() {
+        var value = (float) Memory.VH_FLOAT.get(input, inputOffset);
+        inputOffset += 4;
+        return value;
+    }
+
+    private double nextFloat64() {
+        var value = (double) Memory.VH_DOUBLE.get(input, inputOffset);
+        inputOffset += 8;
+        return value;
+    }
+
+    private @NotNull MemorySegment nextData(long length) {
+        var newSegment = MemorySegment.allocateNative(length, 8, dataSegmentsScope);
+        newSegment.copyFrom(input.asSlice(inputOffset, length));
+        inputOffset += length;
+        return newSegment;
     }
 
     //==================================================================================================================

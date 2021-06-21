@@ -23,40 +23,12 @@ final class Names {
         return builder.append(")").append(getDescriptor(returnType)).toString();
     }
 
-    static @NotNull String tableFieldName(int index) {
-        return "t" + index;
-    }
-
-    static @NotNull String functionMethodName(int index) {
-        return "f" + index;
-    }
-
-    static @NotNull String functionMethodHandleFieldName(int index) {
-        return "fh" + index;
-    }
-
-    static @NotNull String memoryFieldName(int index) {
-        return "m" + index;
-    }
-
     static @NotNull String dataFieldName(int index) {
-        return "d" + index;
+        return "data-" + index;
     }
 
     static @NotNull String elementFieldName(int index) {
-        return "e" + index;
-    }
-
-    static @NotNull String globalFieldName(int index) {
-        return "g" + index;
-    }
-
-    static @NotNull String globalGetterMethodName(int index) {
-        return "gg" + index;
-    }
-
-    static @NotNull String globalSetterMethodName(int index) {
-        return "gs" + index;
+        return "element-" + index;
     }
 
     static final String BYTE_INTERNAL_NAME = getInternalName(Byte.class);

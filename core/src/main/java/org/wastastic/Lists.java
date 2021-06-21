@@ -1,35 +1,26 @@
 package org.wastastic;
 
+import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NotNull;
+
 import java.util.List;
 
 final class Lists {
     private Lists() {}
 
-    static <E> E single(List<E> list) {
-        if (list.size() != 1) {
-            throw new IllegalArgumentException();
-        }
-
+    @Contract(pure = true) static <E> E first(@NotNull List<E> list) {
         return list.get(0);
     }
 
-    static <E> E first(List<E> list) {
-        return list.get(0);
-    }
-
-    static <E> E last(List<E> list) {
+    static <E> E last(@NotNull List<E> list) {
         return list.get(list.size() - 1);
     }
 
-    static void removeLast(List<?> list, int count) {
+    static void removeLast(@NotNull List<?> list, int count) {
         list.subList(list.size() - count, list.size()).clear();;
     }
 
-    static <E> E removeLast(List<E> list) {
+    static <E> E removeLast(@NotNull List<E> list) {
         return list.remove(list.size() - 1);
-    }
-
-    static <E> void replaceLast(List<E> list, E newValue) {
-        list.set(list.size() - 1, newValue);
     }
 }
