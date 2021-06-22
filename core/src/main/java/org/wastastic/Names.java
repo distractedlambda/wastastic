@@ -23,12 +23,16 @@ final class Names {
         return builder.append(")").append(getDescriptor(returnType)).toString();
     }
 
+    static @NotNull String importName(@NotNull QualifiedName qualifiedName) {
+        return "import$" + qualifiedName.moduleName() + "$" + qualifiedName.name();
+    }
+
     static @NotNull String dataFieldName(int index) {
-        return "data-" + index;
+        return "$data$" + index;
     }
 
     static @NotNull String elementFieldName(int index) {
-        return "element-" + index;
+        return "$element$" + index;
     }
 
     static final String BYTE_INTERNAL_NAME = getInternalName(Byte.class);

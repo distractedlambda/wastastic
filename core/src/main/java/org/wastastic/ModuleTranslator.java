@@ -3,6 +3,7 @@ package org.wastastic;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.ConstantDynamic;
@@ -18,11 +19,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
+import static org.objectweb.asm.Opcodes.ACC_FINAL;
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACONST_NULL;
@@ -43,6 +43,7 @@ import static org.objectweb.asm.Opcodes.DSUB;
 import static org.objectweb.asm.Opcodes.DUP;
 import static org.objectweb.asm.Opcodes.DUP2;
 import static org.objectweb.asm.Opcodes.DUP2_X2;
+import static org.objectweb.asm.Opcodes.DUP_X2;
 import static org.objectweb.asm.Opcodes.F2D;
 import static org.objectweb.asm.Opcodes.F2I;
 import static org.objectweb.asm.Opcodes.F2L;
@@ -178,6 +179,8 @@ import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 import static org.wastastic.Names.dataFieldName;
 import static org.wastastic.Names.elementFieldName;
+import static org.wastastic.Names.importName;
+import static org.wastastic.Names.uniqueifyName;
 
 final class ModuleTranslator {
     private final @NotNull MemorySegment input;
@@ -189,10 +192,13 @@ final class ModuleTranslator {
 
     private String moduleName;
 
-    private final Map<Integer, String> tableNames = new HashMap<>();
-    private final Map<Integer, String> globalNames = new HashMap<>();
-    private final Map<Integer, String> functionNames = new HashMap<>();
-    private final Map<Integer, Map<Integer, String>> localNames = new HashMap<>();
+    private final Map<String, Integer> usedNames = new HashMap<>();
+
+    private String[] memoryNames = null;
+    private String[] tableNames = null;
+    private String[] globalNames = null;
+    private String[] functionNames = null;
+    private Map<Integer, String>[] localNames = null;
 
     private final ArrayList<FunctionType> types = new ArrayList<>();
     private final ArrayList<ImportedFunction> importedFunctions = new ArrayList<>();
@@ -210,9 +216,6 @@ final class ModuleTranslator {
     private int nextFunctionIndex;
 
     private final ResourceScope dataSegmentsScope = ResourceScope.newImplicitScope();
-
-    private final Set<SpecializedLoad> loadOps = new LinkedHashSet<>();
-    private final Set<SpecializedStore> storeOps = new LinkedHashSet<>();
 
     private boolean atUnreachablePoint;
     private int selfArgumentLocalIndex;
@@ -271,13 +274,115 @@ final class ModuleTranslator {
             inputOffset = nextSectionOffset;
         }
 
+        ensureNameTables();
+
         classVisitor.visit(V17, 0, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
+
+        if (moduleName != null) {
+            classVisitor.visitSource(moduleName, null);
+        }
+
+        // Define fields for imported functions (method handles)
+        for (var i = 0; i < importedFunctions.size(); i++) {
+            if (functionNames[i] == null) {
+                var importedFunction = importedFunctions.get(i);
+                functionNames[i] = uniqueName(importName(importedFunction.qualifiedName()));
+            }
+
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, functionNames[i], METHOD_HANDLE_DESCRIPTOR, null, null).visitEnd();
+        }
+
+        // Generate names for anonymous functions
+        for (var i = 0; i < definedFunctions.size(); i++) {
+            var functionIndex = importedFunctions.size() + i;
+
+            if (functionNames[functionIndex] == null) {
+                functionNames[functionIndex] = uniqueName("$function$" + functionIndex);
+            }
+        }
+
+        // Define fields for imported tables
+        for (var i = 0; i < importedTables.size(); i++) {
+            if (tableNames[i] == null) {
+                var importedTable = importedTables.get(i);
+                tableNames[i] = uniqueName(importName(importedTable.name()));
+            }
+
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableNames[i], Table.DESCRIPTOR, null, null).visitEnd();
+        }
+
+        // Define fields for defined tables
+        for (var i = 0; i < definedTables.size(); i++) {
+            var tableIndex = importedTables.size() + i;
+
+            if (tableNames[tableIndex] == null) {
+                tableNames[tableIndex] = uniqueName("$table$" + tableIndex);
+            }
+
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableNames[tableIndex], Table.DESCRIPTOR, null, null).visitEnd();
+        }
+
+        // Define fields for imported memories
+        for (var i = 0; i < importedMemories.size(); i++) {
+            if (memoryNames[i] == null) {
+                var importedMemory = importedMemories.get(i);
+                memoryNames[i] = uniqueName(importName(importedMemory.name()));
+            }
+
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryNames[i], Memory.DESCRIPTOR, null, null).visitEnd();
+        }
+
+        // Define fields for defined memories
+        for (var i = 0; i < definedMemories.size(); i++) {
+            var memoryIndex = importedMemories.size() + i;
+
+            if (memoryNames[memoryIndex] == null) {
+                memoryNames[memoryIndex] = uniqueName("$memory$" + memoryIndex);
+            }
+
+            classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryNames[memoryIndex], Memory.DESCRIPTOR, null, null).visitEnd();
+        }
+
+        // Define fields for defined globals
+        for (var i = 0; i < definedGlobals.size(); i++) {
+            var global = definedGlobals.get(i);
+            var globalIndex = importedGlobals.size() + i;
+
+            if (globalNames[globalIndex] == null) {
+                globalNames[globalIndex] = uniqueName("$global$" + globalIndex);
+            }
+
+            var access = ACC_PRIVATE;
+
+            // FIXME: optimize CONST globals to statics?
+            if (global.type().mutability() == Mutability.CONST) {
+                access |= ACC_FINAL;
+            }
+
+            classVisitor.visitField(access, globalNames[globalIndex], global.type().valueType().descriptor(), null, null).visitEnd();
+        }
+
+        // Define fields for (non-declarative) element segments
+        for (var i = 0; i < elementSegments.size(); i++) {
+            if (elementSegments.get(i).mode() != ElementSegment.Mode.DECLARATIVE) {
+                var name = elementFieldName(i);
+                classVisitor.visitField(ACC_PRIVATE, name, OBJECT_ARRAY_DESCRIPTOR, null, null).visitEnd();
+            }
+        }
+
+        // Define fields for data segments
+        for (var i = 0; i < dataSegments.size(); i++) {
+            var name = dataFieldName(i);
+            classVisitor.visitField(ACC_PRIVATE, name, MEMORY_SEGMENT_DESCRIPTOR, null, null).visitEnd();
+        }
 
         var constructorWriter = classVisitor.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, new String[]{ModuleInstantiationException.INTERNAL_NAME});
         constructorWriter.visitCode();
+
         constructorWriter.visitVarInsn(ALOAD, 0);
         constructorWriter.visitMethodInsn(INVOKESPECIAL, OBJECT_INTERNAL_NAME, "<init>", "()V", false);
 
+        // Initialize imported functions
         for (var i = 0; i < importedFunctions.size(); i++) {
             var importedFunction = importedFunctions.get(i);
             constructorWriter.visitVarInsn(ALOAD, 0);
@@ -286,19 +391,21 @@ final class ModuleTranslator {
             constructorWriter.visitLdcInsn(importedFunction.qualifiedName().name());
             constructorWriter.visitLdcInsn(importedFunction.type().asmType());
             constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_FUNCTION_NAME, IMPORT_FUNCTION_DESCRIPTOR, false);
-            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(i), METHOD_HANDLE_DESCRIPTOR);
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[i], METHOD_HANDLE_DESCRIPTOR);
         }
 
+        // Initialize imported tables
         for (var i = 0; i < importedTables.size(); i++) {
             var importedTable = importedTables.get(i);
             constructorWriter.visitVarInsn(ALOAD, 0);
             constructorWriter.visitVarInsn(ALOAD, 1);
-            constructorWriter.visitLdcInsn(importedTable.qualifiedName().moduleName());
-            constructorWriter.visitLdcInsn(importedTable.qualifiedName().name());
+            constructorWriter.visitLdcInsn(importedTable.name().moduleName());
+            constructorWriter.visitLdcInsn(importedTable.name().name());
             constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_TABLE_NAME, IMPORT_TABLE_DESCRIPTOR, false);
-            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(i), Table.DESCRIPTOR);
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableNames[i], Table.DESCRIPTOR);
         }
 
+        // Initialize defined tables
         for (var i = 0; i < definedTables.size(); i++) {
             var tableType = definedTables.get(i);
             var tableIndex = importedTables.size() + i;
@@ -308,19 +415,21 @@ final class ModuleTranslator {
             constructorWriter.visitLdcInsn(tableType.limits().unsignedMinimum());
             constructorWriter.visitLdcInsn(tableType.limits().unsignedMaximum());
             constructorWriter.visitMethodInsn(INVOKESPECIAL, Table.INTERNAL_NAME, "<init>", "(II)V", false);
-            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(tableIndex), Table.DESCRIPTOR);
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableNames[tableIndex], Table.DESCRIPTOR);
         }
 
+        // Initialize imported memories
         for (var i = 0; i < importedMemories.size(); i++) {
             var importedMemory = importedMemories.get(i);
             constructorWriter.visitVarInsn(ALOAD, 0);
             constructorWriter.visitVarInsn(ALOAD, 1);
-            constructorWriter.visitLdcInsn(importedMemory.qualifiedName().moduleName());
-            constructorWriter.visitLdcInsn(importedMemory.qualifiedName().name());
+            constructorWriter.visitLdcInsn(importedMemory.name().moduleName());
+            constructorWriter.visitLdcInsn(importedMemory.name().name());
             constructorWriter.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_MEMORY_NAME, IMPORT_MEMORY_DESCRIPTOR, false);
-            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(i), Memory.DESCRIPTOR);
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryNames[i], Memory.DESCRIPTOR);
         }
 
+        // Initialize defined memories
         for (var i = 0; i < definedMemories.size(); i++) {
             var memoryType = definedMemories.get(i);
             var memoryIndex = importedMemories.size() + i;
@@ -330,11 +439,12 @@ final class ModuleTranslator {
             constructorWriter.visitLdcInsn(memoryType.limits().unsignedMinimum());
             constructorWriter.visitLdcInsn(memoryType.limits().unsignedMaximum());
             constructorWriter.visitMethodInsn(INVOKESPECIAL, Memory.INTERNAL_NAME, "<init>", "(II)V", false);
-            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(memoryIndex), Memory.DESCRIPTOR);
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryNames[memoryIndex], Memory.DESCRIPTOR);
         }
 
         // TODO: implement global imports
 
+        // Initialize defined globals
         for (var i = 0; i < definedGlobals.size(); i++) {
             var global = definedGlobals.get(i);
             var globalIndex = importedGlobals.size() + i;
@@ -356,13 +466,14 @@ final class ModuleTranslator {
                 constructorWriter.visitInsn(ACONST_NULL);
             }
             else if (global.initialValue() instanceof FunctionRefConstant functionRefConstant) {
+                var functionName = functionNames[functionRefConstant.index()];
                 if (functionRefConstant.index() < importedFunctions.size()) {
-                    constructorWriter.visitInsn(DUP);
-                    functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(functionRefConstant.index()), METHOD_HANDLE_DESCRIPTOR);
+                    constructorWriter.visitVarInsn(ALOAD, 0);
+                    functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionName, METHOD_HANDLE_DESCRIPTOR);
                 }
                 else {
                     var type = definedFunctions.get(functionRefConstant.index() - importedFunctions.size());
-                    var handle = new Handle(H_INVOKESPECIAL, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodName(functionRefConstant.index()), type.descriptor(), false);
+                    var handle = new Handle(H_INVOKESPECIAL, GENERATED_INSTANCE_INTERNAL_NAME, functionName, type.descriptor(), false);
                     functionWriter.visitLdcInsn(handle);
                 }
             }
@@ -370,64 +481,65 @@ final class ModuleTranslator {
                 throw new ClassCastException();
             }
 
-            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, globalFieldName(globalIndex), global.type().valueType().descriptor());
+            constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, globalNames[globalIndex], global.type().valueType().descriptor());
         }
 
         var nextElementSegmentBootstrapIndex = 0;
-        var constantWhatevers = new ArrayList<Constant[]>();
+        var elementSegmentContents = new ArrayList<Constant[]>();
 
+        // Initialize element segments
         for (var i = 0; i < elementSegments.size(); i++) {
             var element = elementSegments.get(i);
 
             if (element.mode() == ElementSegment.Mode.DECLARATIVE) {
+                // FIXME: what are declarative ones for?
                 continue;
             }
 
-            constantWhatevers.add(element.values());
+            elementSegmentContents.add(element.values());
 
             var fieldName = elementFieldName(i);
             constructorWriter.visitVarInsn(ALOAD, 0);
             constructorWriter.visitLdcInsn(new ConstantDynamic(fieldName, OBJECT_ARRAY_DESCRIPTOR, GeneratedInstanceClassData.ELEMENT_BOOTSTRAP, nextElementSegmentBootstrapIndex++));
 
+            // Emit copy-to-table code into constructor
             if (element.mode() == ElementSegment.Mode.ACTIVE) {
                 constructorWriter.visitInsn(DUP);
-                constructorWriter.visitLdcInsn(element.tableOffset());
+                pushI32Constant(constructorWriter, element.tableOffset());
                 constructorWriter.visitVarInsn(ALOAD, 0);
-                constructorWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(element.tableIndex()), Table.DESCRIPTOR);
+                constructorWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableNames[element.tableIndex()], Table.DESCRIPTOR);
                 constructorWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_FROM_ACTIVE_NAME, Table.INIT_FROM_ACTIVE_DESCRIPTOR, false);
             }
 
             constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, OBJECT_ARRAY_DESCRIPTOR);
         }
 
+        // Initialize data segments
         for (var i = 0; i < dataSegments.size(); i++) {
             var data = dataSegments.get(i);
             var fieldName = dataFieldName(i);
             constructorWriter.visitVarInsn(ALOAD, 0);
             constructorWriter.visitLdcInsn(new ConstantDynamic(fieldName, MEMORY_SEGMENT_DESCRIPTOR, GeneratedInstanceClassData.DATA_BOOTSTRAP, i));
 
+            // Emit copy-to-memory code into constructor
             if (data.mode() == DataSegment.Mode.ACTIVE) {
                 constructorWriter.visitInsn(DUP);
-                constructorWriter.visitLdcInsn(data.memoryOffset());
+                pushI32Constant(constructorWriter, data.memoryOffset());
                 constructorWriter.visitVarInsn(ALOAD, 0);
-                constructorWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(data.memoryIndex()), Memory.DESCRIPTOR);
+                constructorWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryNames[data.memoryIndex()], Memory.DESCRIPTOR);
                 constructorWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_FROM_ACTIVE_NAME, Memory.INIT_FROM_ACTIVE_DESCRIPTOR, false);
             }
 
             constructorWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, fieldName, MEMORY_SEGMENT_DESCRIPTOR);
         }
 
+        if (startFunctionIndex != -1) {
+            throw new TranslationException("TODO: implement start function calls");
+        }
+
         constructorWriter.visitInsn(RETURN);
         constructorWriter.visitMaxs(0, 0);
         constructorWriter.visitEnd();
-
-        for (var loadOp : loadOps) {
-            loadOp.writeMethod(classVisitor);
-        }
-
-        for (var storeOp : storeOps) {
-            storeOp.writeMethod(classVisitor);
-        }
 
         var dataMemorySegments = new MemorySegment[dataSegments.size()];
         for (var i = 0; i < dataSegments.size(); i++) {
@@ -443,7 +555,7 @@ final class ModuleTranslator {
             functionTypes[importedFunctions.size() + i] = definedFunctions.get(i);
         }
 
-        var classData = new GeneratedInstanceClassData(functionTypes, dataMemorySegments, constantWhatevers.toArray(Constant[][]::new));
+        var classData = new GeneratedInstanceClassData(functionTypes, dataMemorySegments, elementSegmentContents.toArray(Constant[][]::new));
 
         classVisitor.visitEnd();
         var bytes = classWriter.toByteArray();
@@ -474,10 +586,13 @@ final class ModuleTranslator {
         return new ModuleImpl(lookup, exportedFunctions, exportedTableIndices, exportedMemoryIndices);
     }
 
+    @SuppressWarnings("unchecked")
     private void readCustomSection() {
         if (!nextName().equals("name")) {
             return;
         }
+
+        ensureNameTables();
 
         if (nextByte() == 0x00) {
             nextUnsigned32(); // subsection size, ignored
@@ -488,17 +603,21 @@ final class ModuleTranslator {
             for (var remaining = nextUnsigned32(); remaining != 0; remaining--) {
                 var functionIndex = nextUnsigned32();
                 var functionName = nextName();
-                functionNames.put(functionIndex, functionName);
+                functionNames[functionIndex] = uniqueName(functionName);
             }
         }
 
         if (nextByte() == 0x02) {
+            localNames = new Map[definedFunctions.size()];
+
             for (var remainingFunctions = nextUnsigned32(); remainingFunctions != 0; remainingFunctions--) {
                 var functionIndex = nextUnsigned32();
+                var names = new HashMap<Integer, String>();
+                localNames[functionIndex - importedFunctions.size()] = names;
                 for (var remainingNames = nextUnsigned32(); remainingNames != 0; remainingNames--) {
                     var localIndex = nextUnsigned32();
                     var localName = nextName();
-                    localNames.computeIfAbsent(functionIndex, HashMap::new).put(localIndex, localName);
+                    names.put(localIndex, localName);
                 }
             }
         }
@@ -528,53 +647,6 @@ final class ModuleTranslator {
                 default -> throw new TranslationException("Invalid import description");
             }
         }
-    }
-
-    private void translateFunctionImport(@NotNull String moduleName, @NotNull String name) {
-        // var type = nextIndexedType();
-        // var index = nextFunctionIndex++;
-        // var methodName = "import$" + moduleName + "$" + name;
-        // var methodHandleFieldName = methodName + "$methodHandle";
-
-        // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, methodHandleFieldName, METHOD_HANDLE_DESCRIPTOR, null, null).visitEnd();
-
-        // var wrapperMethod = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
-        // wrapperMethod.visitCode();
-
-        // var selfArgIndex = 0;
-        // for (var parameterType : type.parameterTypes()) {
-        //     selfArgIndex += parameterType.width();
-        // }
-
-        // wrapperMethod.visitVarInsn(ALOAD, selfArgIndex);
-        // wrapperMethod.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, handleFieldName, METHOD_HANDLE_DESCRIPTOR);
-
-        // var nextArgIndex = 0;
-        // for (var parameterType : type.parameterTypes()) {
-        //     wrapperMethod.visitVarInsn(parameterType.localLoadOpcode(), nextArgIndex);
-        //     nextArgIndex += parameterType.width();
-        // }
-
-        // wrapperMethod.visitVarInsn(ALOAD, selfArgIndex);
-        // wrapperMethod.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
-        // wrapperMethod.visitInsn(type.returnOpcode());
-
-        // wrapperMethod.visitMaxs(0, 0);
-        // wrapperMethod.visitEnd();
-
-        // importedFunctions.add(new ImportedFunction(new QualifiedName(moduleName, name), type));
-    }
-
-    private void translateTableImport(@NotNull String moduleName, @NotNull String name) throws TranslationException {
-        // var index = importedTables.size();
-        // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, tableFieldName(index), Table.DESCRIPTOR, null, null).visitEnd();
-        // importedTables.add(new ImportedTable(new QualifiedName(moduleName, name), nextTableType()));
-    }
-
-    private void translateMemoryImport(@NotNull String moduleName, @NotNull String name) throws TranslationException {
-        // var index = importedMemories.size();
-        // classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, memoryFieldName(index), Memory.DESCRIPTOR, null, null).visitEnd();
-        // importedMemories.add(new ImportedMemory(new QualifiedName(moduleName, name), nextMemoryType()));
     }
 
     private void readFunctionSection() {
@@ -651,27 +723,56 @@ final class ModuleTranslator {
         }
     }
 
+    private void ensureNameTables() {
+        if (functionNames == null) {
+            functionNames = new String[importedFunctions.size() + definedFunctions.size()];
+            tableNames = new String[importedTables.size() + definedTables.size()];
+            memoryNames = new String[importedMemories.size() + definedMemories.size()];
+            globalNames = new String[importedGlobals.size() + definedGlobals.size()];
+        }
+    }
+
     private void readExportSection() throws TranslationException {
+        ensureNameTables();
+
         var remaining = nextUnsigned32();
         exports.ensureCapacity(exports.size() + remaining);
         for (; remaining != 0; remaining--) {
             var name = nextName();
+            var uniquedName = uniqueName(name);
+            var kindCode = nextByte();
+            var index = nextUnsigned32();
 
-            var kind = switch (nextByte()) {
-                case 0x00 -> ExportKind.FUNCTION;
-                case 0x01 -> ExportKind.TABLE;
-                case 0x02 -> ExportKind.MEMORY;
-                case 0x03 -> ExportKind.GLOBAL;
+            var kind = switch (kindCode) {
+                case 0x00 -> {
+                    functionNames[index] = uniquedName;
+                    yield ExportKind.FUNCTION;
+                }
+
+                case 0x01 -> {
+                    tableNames[index] = uniquedName;
+                    yield ExportKind.TABLE;
+                }
+
+                case 0x02 -> {
+                    memoryNames[index] = uniquedName;
+                    yield ExportKind.MEMORY;
+                }
+
+                case 0x03 -> {
+                    globalNames[index] = uniquedName;
+                    yield ExportKind.GLOBAL;
+                }
+
                 default -> throw new TranslationException("Invalid export description");
             };
 
-            exports.add(new Export(name, kind, nextUnsigned32()));
+            exports.add(new Export(name, kind, index));
         }
     }
 
-    private void readStartSection() throws TranslationException {
+    private void readStartSection() {
         startFunctionIndex = nextUnsigned32();
-        throw new TranslationException("TODO implement start function");
     }
 
     private void readElementSection() throws TranslationException {
@@ -840,7 +941,7 @@ final class ModuleTranslator {
         var index = nextFunctionIndex++;
         var type = definedFunctions.get(index);
 
-        functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionMethodName(index), type.descriptor(), null, null);
+        functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionNames(index), type.descriptor(), null, null);
         functionWriter.visitCode();
 
         var nextLocalIndex = 0;
@@ -891,9 +992,6 @@ final class ModuleTranslator {
         var dataCount = nextUnsigned32();
         dataSegments.ensureCapacity(dataSegments.size() + dataCount);
         for (; dataCount != 0; dataCount--) {
-            // var index = dataSegments.size();
-            // classVisitor.visitField(ACC_PRIVATE, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR, null, null).visitEnd();
-
             DataSegment.Mode mode;
             int memoryIndex, memoryOffset;
 
@@ -1315,7 +1413,14 @@ final class ModuleTranslator {
         stack.addAll(type.returnTypes());
 
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodName(index), type.descriptor(), false);
+
+        if (index < importedFunctions.size()) {
+            functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[index], METHOD_HANDLE_DESCRIPTOR);
+            emitIndirectCall(type);
+        }
+        else {
+            functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[index], type.descriptor(), false);
+        }
     }
 
     private void translateCallIndirect() throws TranslationException {
@@ -1330,6 +1435,10 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
         functionWriter.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
 
+        emitIndirectCall(type);
+    }
+
+    private void emitIndirectCall(@NotNull FunctionType type) {
         var calleeLocalIndex = firstScratchLocalIndex;
         functionWriter.visitVarInsn(ASTORE, calleeLocalIndex);
 
@@ -1403,12 +1512,12 @@ final class ModuleTranslator {
         functionWriter.visitVarInsn(local.type().localStoreOpcode(), local.index());
     }
 
-    private void translateGlobalGet() {
+    private void translateGlobalGet() throws TranslationException {
         var globalIndex = nextUnsigned32();
         ValueType type;
 
         if (globalIndex < importedGlobals.size()) {
-            type = importedGlobals.get(globalIndex).getType().valueType();
+            throw new TranslationException("TODO: implement imported globals");
         }
         else {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
@@ -1417,7 +1526,7 @@ final class ModuleTranslator {
         stack.add(type);
 
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalGetterMethodName(globalIndex), type.globalGetterDescriptor(), false);
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, globalNames[globalIndex], type.descriptor());
     }
 
     private void translateGlobalSet() throws TranslationException {
@@ -1425,7 +1534,7 @@ final class ModuleTranslator {
         ValueType type;
 
         if (globalIndex < importedGlobals.size()) {
-            type = importedGlobals.get(globalIndex).getType().valueType();
+            throw new TranslationException("TODO: implement imported globals");
         }
         else {
             type = definedGlobals.get(globalIndex - importedGlobals.size()).type().valueType();
@@ -1434,7 +1543,16 @@ final class ModuleTranslator {
         popOperand(type);
 
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, globalSetterMethodName(globalIndex), type.globalSetterDescriptor(), false);
+
+        if (type.isDoubleWidth()) {
+            functionWriter.visitInsn(DUP_X2);
+            functionWriter.visitInsn(POP);
+        }
+        else {
+            functionWriter.visitInsn(SWAP);
+        }
+
+        functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, globalNames[globalIndex], type.descriptor());
     }
 
     private void translateTableGet() throws TranslationException {
@@ -1462,15 +1580,15 @@ final class ModuleTranslator {
     }
 
     private void translateLoad(@NotNull SpecializedLoad.Op op) throws TranslationException {
-        nextUnsigned32(); // expected alignment (ignored)
-        var offset = nextUnsigned32();
-        var specializedOp = new SpecializedLoad(op, 0, offset);
-        loadOps.add(specializedOp);
+        // nextUnsigned32(); // expected alignment (ignored)
+        // var offset = nextUnsigned32();
+        // var specializedOp = new SpecializedLoad(op, 0, offset);
+        // loadOps.add(specializedOp);
 
-        applyUnaryOp(ValueType.I32, specializedOp.returnType());
+        // applyUnaryOp(ValueType.I32, specializedOp.returnType());
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
+        // functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        // functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
     }
 
     private void translateI32Load() throws TranslationException {
@@ -1530,16 +1648,16 @@ final class ModuleTranslator {
     }
 
     private void translateStore(@NotNull SpecializedStore.Op op) throws TranslationException {
-        nextUnsigned32(); // expected alignment (ignored)
-        var offset = nextUnsigned32();
-        var specializedOp = new SpecializedStore(op, 0, offset);
-        storeOps.add(specializedOp);
+        // nextUnsigned32(); // expected alignment (ignored)
+        // var offset = nextUnsigned32();
+        // var specializedOp = new SpecializedStore(op, 0, offset);
+        // storeOps.add(specializedOp);
 
-        popOperand(specializedOp.argumentType());
-        popOperand(ValueType.I32);
+        // popOperand(specializedOp.argumentType());
+        // popOperand(ValueType.I32);
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
+        // functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        // functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, specializedOp.methodName(), specializedOp.methodDescriptor(), false);
     }
 
     private void translateI32Store() throws TranslationException {
@@ -2303,11 +2421,11 @@ final class ModuleTranslator {
 
         if (index < importedFunctions.size()) {
             functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-            functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodHandleFieldName(index), METHOD_HANDLE_DESCRIPTOR);
+            functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[index], METHOD_HANDLE_DESCRIPTOR);
         }
         else {
             var type = definedFunctions.get(index - importedFunctions.size());
-            var handle = new Handle(H_INVOKESPECIAL, GENERATED_INSTANCE_INTERNAL_NAME, functionMethodName(index), type.descriptor(), false);
+            var handle = new Handle(H_INVOKESPECIAL, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[index], type.descriptor(), false);
             functionWriter.visitLdcInsn(handle);
         }
     }
@@ -2609,12 +2727,12 @@ final class ModuleTranslator {
 
     private void emitMemoryFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryFieldName(index), Memory.DESCRIPTOR);
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryNames[index], Memory.DESCRIPTOR);
     }
 
     private void emitTableFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableFieldName(index), Table.DESCRIPTOR);
+        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableNames[index], Table.DESCRIPTOR);
     }
 
     //==================================================================================================================
@@ -2997,6 +3115,19 @@ final class ModuleTranslator {
         newSegment.copyFrom(input.asSlice(inputOffset, length));
         inputOffset += length;
         return newSegment;
+    }
+
+    //==================================================================================================================
+
+    private @NotNull String uniqueName(@NotNull String name) {
+        var existingCount = usedNames.putIfAbsent(name, 0);
+        if (existingCount == null) {
+            return name;
+        }
+        else {
+            usedNames.put(name, existingCount + 1);
+            return name + "$" + existingCount;
+        }
     }
 
     //==================================================================================================================
