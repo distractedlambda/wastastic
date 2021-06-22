@@ -141,6 +141,148 @@ public final class Memory {
             .copyFrom(MemorySegment.ofArray(bytes));
     }
 
+    private static long effectiveAddress(int address, int offset) {
+        return Integer.toUnsignedLong(address) + Integer.toUnsignedLong(offset);
+    }
+
+    static final String I32_LOAD_NAME = "i32Load";
+    static final String I32_LOAD_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
+    static int i32Load(int address, int offset, @NotNull Memory self) {
+        return (int) VH_INT.get(self.segment, effectiveAddress(address, offset));
+    }
+
+    static final String I64_LOAD_NAME = "i64Load";
+    static final String I64_LOAD_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
+    static long i64Load(int address, int offset, @NotNull Memory self) {
+        return (long) VH_LONG.get(self.segment, effectiveAddress(address, offset));
+    }
+
+    static final String F32_LOAD_NAME = "f32Load";
+    static final String F32_LOAD_DESCRIPTOR = methodDescriptor(float.class, int.class, int.class, Memory.class);
+    static float f32Load(int address, int offset, @NotNull Memory self) {
+        return (float) VH_FLOAT.get(self.segment, effectiveAddress(address, offset));
+    }
+
+    static final String F64_LOAD_NAME = "f64Load";
+    static final String F64_LOAD_DESCRIPTOR = methodDescriptor(double.class, int.class, int.class, Memory.class);
+    static double f64Load(int address, int offset, @NotNull Memory self) {
+        return (double) VH_DOUBLE.get(self.segment, effectiveAddress(address, offset));
+    }
+
+    static final String I32_LOAD_8_S_NAME = "i32Load8S";
+    static final String I32_LOAD_8_S_DESCRIPTOR = methodDescriptor(byte.class, int.class, int.class, Memory.class);
+    static byte i32Load8S(int address, int offset, @NotNull Memory self) {
+        return (byte) VH_BYTE.get(self.segment, effectiveAddress(address, offset));
+    }
+
+    static final String I32_LOAD_8_U_NAME = "i32Load8U";
+    static final String I32_LOAD_8_U_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
+    static int i32Load8U(int address, int offset, @NotNull Memory self) {
+        return Byte.toUnsignedInt(i32Load8S(address, offset, self));
+    }
+
+    static final String I32_LOAD_16_S_NAME = "i32Load16S";
+    static final String I32_LOAD_16_S_DESCRIPTOR = methodDescriptor(short.class, int.class, int.class, Memory.class);
+    static short i32Load16S(int address, int offset, @NotNull Memory self) {
+        return (short) VH_SHORT.get(self.segment, effectiveAddress(address, offset));
+    }
+
+    static final String I32_LOAD_16_U_NAME = "i32Load16U";
+    static final String I32_LOAD_16_U_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
+    static int i32Load16U(int address, int offset, @NotNull Memory self) {
+        return Short.toUnsignedInt(i32Load16S(address, offset, self));
+    }
+
+    static final String I64_LOAD_8_S_NAME = "i64Load8S";
+    static final String I64_LOAD_8_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
+    static long i64Load8S(int address, int offset, @NotNull Memory self) {
+        return i32Load8S(address, offset, self);
+    }
+
+    static final String I64_LOAD_8_U_NAME = "i64Load8U";
+    static final String I64_LOAD_8_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
+    static long i64Load8U(int address, int offset, @NotNull Memory self) {
+        return Byte.toUnsignedLong(i32Load8S(address, offset, self));
+    }
+
+    static final String I64_LOAD_16_S_NAME = "i64Load16S";
+    static final String I64_LOAD_16_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
+    static long i64Load16S(int address, int offset, @NotNull Memory self) {
+        return i32Load16S(address, offset, self);
+    }
+
+    static final String I64_LOAD_16_U_NAME = "i64Load16U";
+    static final String I64_LOAD_16_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
+    static long i64Load16U(int address, int offset, @NotNull Memory self) {
+        return Short.toUnsignedLong(i32Load16S(address, offset, self));
+    }
+
+    static final String I64_LOAD_32_S_NAME = "i64Load32S";
+    static final String I64_LOAD_32_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
+    static long i64Load32S(int address, int offset, @NotNull Memory self) {
+        return i32Load(address, offset, self);
+    }
+
+    static final String I64_LOAD_32_U_NAME = "i64Load32U";
+    static final String I64_LOAD_32_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
+    static long i64Load32U(int address, int offset, @NotNull Memory self) {
+        return Integer.toUnsignedLong(i32Load(address, offset, self));
+    }
+
+    static final String I32_STORE_NAME = "i32Store";
+    static final String I32_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Memory.class);
+    static void i32Store(int address, int value, int offset, @NotNull Memory self) {
+        VH_INT.set(self.segment, effectiveAddress(address, offset), value);
+    }
+
+    static final String I64_STORE_NAME = "i64Store";
+    static final String I64_STORE_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static void i64Store(int address, long value, int offset, @NotNull Memory self) {
+        VH_LONG.set(self.segment, effectiveAddress(address, offset), value);
+    }
+
+    static final String F32_STORE_NAME = "f32Store";
+    static final String F32_STORE_DESCRIPTOR = methodDescriptor(void.class, float.class, int.class, int.class, Memory.class);
+    static void f32Store(int address, float value, int offset, @NotNull Memory self) {
+        VH_FLOAT.set(self.segment, effectiveAddress(address, offset), value);
+    }
+
+    static final String F64_STORE_NAME = "f64Store";
+    static final String F64_STORE_DESCRIPTOR = methodDescriptor(void.class, double.class, int.class, int.class, Memory.class);
+    static void f64Store(int address, double value, int offset, @NotNull Memory self) {
+        VH_DOUBLE.set(self.segment, effectiveAddress(address, offset), value);
+    }
+
+    static final String I32_STORE_8_NAME = "i32Store8";
+    static final String I32_STORE_8_DESCRIPTOR = methodDescriptor(void.class, byte.class, int.class, int.class, Memory.class);
+    static void i32Store8(int address, byte value, int offset, @NotNull Memory self) {
+        VH_BYTE.set(self.segment, effectiveAddress(address, offset), value);
+    }
+
+    static final String I32_STORE_16_NAME = "i32Store16";
+    static final String I32_STORE_16_DESCRIPTOR = methodDescriptor(void.class, short.class, int.class, int.class, Memory.class);
+    static void i32Store16(int address, short value, int offset, @NotNull Memory self) {
+        VH_SHORT.set(self.segment, effectiveAddress(address, offset), value);
+    }
+
+    static final String I64_STORE_8_NAME = "i64Store8";
+    static final String I64_STORE_8_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static void i64Store8(int address, long value, int offset, @NotNull Memory self) {
+        i32Store8(address, (byte) value, offset, self);
+    }
+
+    static final String I64_STORE_16_NAME = "i64Store16";
+    static final String I64_STORE_16_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static void i64Store16(int address, long value, int offset, @NotNull Memory self) {
+        i32Store16(address, (short) value, offset, self);
+    }
+
+    static final String I64_STORE_32_NAME = "i64Store32";
+    static final String I64_STORE_32_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static void i64Store32(int address, long value, int offset, @NotNull Memory self) {
+        i32Store(address, (int) value, offset, self);
+    }
+
     static final String SIZE_METHOD_NAME = "size";
     static final String SIZE_METHOD_DESCRIPTOR = methodDescriptor(int.class, Memory.class);
     static int size(@NotNull Memory self) {
