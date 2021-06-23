@@ -236,49 +236,49 @@ public final class Memory {
     }
 
     static final String I64_STORE_NAME = "i64Store";
-    static final String I64_STORE_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static final String I64_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
     static void i64Store(int address, long value, int offset, @NotNull Memory self) {
         VH_LONG.set(self.segment, effectiveAddress(address, offset), value);
     }
 
     static final String F32_STORE_NAME = "f32Store";
-    static final String F32_STORE_DESCRIPTOR = methodDescriptor(void.class, float.class, int.class, int.class, Memory.class);
+    static final String F32_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, float.class, int.class, Memory.class);
     static void f32Store(int address, float value, int offset, @NotNull Memory self) {
         VH_FLOAT.set(self.segment, effectiveAddress(address, offset), value);
     }
 
     static final String F64_STORE_NAME = "f64Store";
-    static final String F64_STORE_DESCRIPTOR = methodDescriptor(void.class, double.class, int.class, int.class, Memory.class);
+    static final String F64_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, double.class, int.class, Memory.class);
     static void f64Store(int address, double value, int offset, @NotNull Memory self) {
         VH_DOUBLE.set(self.segment, effectiveAddress(address, offset), value);
     }
 
     static final String I32_STORE_8_NAME = "i32Store8";
-    static final String I32_STORE_8_DESCRIPTOR = methodDescriptor(void.class, byte.class, int.class, int.class, Memory.class);
+    static final String I32_STORE_8_DESCRIPTOR = methodDescriptor(void.class, int.class, byte.class, int.class, Memory.class);
     static void i32Store8(int address, byte value, int offset, @NotNull Memory self) {
         VH_BYTE.set(self.segment, effectiveAddress(address, offset), value);
     }
 
     static final String I32_STORE_16_NAME = "i32Store16";
-    static final String I32_STORE_16_DESCRIPTOR = methodDescriptor(void.class, short.class, int.class, int.class, Memory.class);
+    static final String I32_STORE_16_DESCRIPTOR = methodDescriptor(void.class, int.class, short.class, int.class, Memory.class);
     static void i32Store16(int address, short value, int offset, @NotNull Memory self) {
         VH_SHORT.set(self.segment, effectiveAddress(address, offset), value);
     }
 
     static final String I64_STORE_8_NAME = "i64Store8";
-    static final String I64_STORE_8_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static final String I64_STORE_8_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
     static void i64Store8(int address, long value, int offset, @NotNull Memory self) {
         i32Store8(address, (byte) value, offset, self);
     }
 
     static final String I64_STORE_16_NAME = "i64Store16";
-    static final String I64_STORE_16_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static final String I64_STORE_16_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
     static void i64Store16(int address, long value, int offset, @NotNull Memory self) {
         i32Store16(address, (short) value, offset, self);
     }
 
     static final String I64_STORE_32_NAME = "i64Store32";
-    static final String I64_STORE_32_DESCRIPTOR = methodDescriptor(void.class, long.class, int.class, int.class, Memory.class);
+    static final String I64_STORE_32_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
     static void i64Store32(int address, long value, int offset, @NotNull Memory self) {
         i32Store(address, (int) value, offset, self);
     }

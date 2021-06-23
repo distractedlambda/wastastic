@@ -10,10 +10,10 @@ import java.lang.invoke.MethodHandles.Lookup;
 
 import static org.objectweb.asm.Opcodes.H_INVOKESTATIC;
 import static org.objectweb.asm.Type.getInternalName;
-import static org.wastastic.Names.functionMethodName;
 import static org.wastastic.Names.methodDescriptor;
 
 record GeneratedInstanceClassData(
+    @NotNull String @NotNull[] functionNames,
     @NotNull FunctionType @NotNull[] functionTypes,
     @NotNull MemorySegment @NotNull[] data,
     @NotNull Constant @NotNull[] @NotNull[] elements
@@ -35,7 +35,7 @@ record GeneratedInstanceClassData(
         var resolvedValues = new Object[constantValues.length];
         for (var i = 0; i < resolvedValues.length; i++) {
             if (constantValues[i] instanceof FunctionRefConstant functionRefConstant) {
-                resolvedValues[i] = lookup.findStatic(lookup.lookupClass(), functionMethodName(functionRefConstant.index()), classData.functionTypes[functionRefConstant.index()].jvmType());
+                resolvedValues[i] = lookup.findStatic(lookup.lookupClass(), classData.functionNames[functionRefConstant.index()], classData.functionTypes[functionRefConstant.index()].jvmType());
             }
             else if (constantValues[i] != NullConstant.INSTANCE) {
                 throw new ClassCastException();

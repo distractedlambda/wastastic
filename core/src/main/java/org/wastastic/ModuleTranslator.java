@@ -282,12 +282,38 @@ final class ModuleTranslator {
 
         // Define fields for imported functions (method handles)
         for (var i = 0; i < importedFunctions.size(); i++) {
+            var importedFunction = importedFunctions.get(i);
+
             if (functionNames[i] == null) {
-                var importedFunction = importedFunctions.get(i);
                 functionNames[i] = uniqueName(importName(importedFunction.qualifiedName()));
             }
 
             classVisitor.visitField(ACC_PRIVATE | ACC_FINAL, functionNames[i], METHOD_HANDLE_DESCRIPTOR, null, null).visitEnd();
+
+            var wrapper = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionNames[i], importedFunction.type().descriptor(), null, null);
+            wrapper.visitCode();
+
+            var selfArgumentLocalIndex1 = 0;
+            for (var parameterType : importedFunction.type().parameterTypes()) {
+                selfArgumentLocalIndex1 += parameterType.width();
+            }
+
+            wrapper.visitVarInsn(ALOAD, selfArgumentLocalIndex1);
+            wrapper.visitTypeInsn(CHECKCAST, GENERATED_INSTANCE_INTERNAL_NAME);
+            wrapper.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[i], METHOD_HANDLE_DESCRIPTOR);
+
+            var argumentLocalIndex = 0;
+            for (var parameterType : importedFunction.type().parameterTypes()) {
+                wrapper.visitVarInsn(parameterType.localLoadOpcode(), argumentLocalIndex);
+                argumentLocalIndex += parameterType.width();
+            }
+
+            wrapper.visitVarInsn(ALOAD, selfArgumentLocalIndex1);
+            wrapper.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", importedFunction.type().descriptor(), false);
+            wrapper.visitInsn(importedFunction.type().returnOpcode());
+
+            wrapper.visitMaxs(0, 0);
+            wrapper.visitEnd();
         }
 
         // Generate names for anonymous functions
@@ -539,12 +565,19 @@ final class ModuleTranslator {
         constructorWriter.visitMaxs(0, 0);
         constructorWriter.visitEnd();
 
+        for (var offset : codeSectionOffsets) {
+            inputOffset = offset;
+            readCodeSection();
+        }
+
         var dataMemorySegments = new MemorySegment[dataSegments.size()];
+
         for (var i = 0; i < dataSegments.size(); i++) {
             dataMemorySegments[i] = dataSegments.get(i).contents();
         }
 
         var functionTypes = new FunctionType[importedFunctions.size() + definedFunctions.size()];
+
         for (var i = 0; i < importedFunctions.size(); i++) {
             functionTypes[i] = importedFunctions.get(i).type();
         }
@@ -553,7 +586,7 @@ final class ModuleTranslator {
             functionTypes[importedFunctions.size() + i] = definedFunctions.get(i);
         }
 
-        var classData = new GeneratedInstanceClassData(functionTypes, dataMemorySegments, elementSegmentContents.toArray(Constant[][]::new));
+        var classData = new GeneratedInstanceClassData(functionNames, functionTypes, dataMemorySegments, elementSegmentContents.toArray(Constant[][]::new));
 
         classVisitor.visitEnd();
         var bytes = classWriter.toByteArray();
@@ -567,21 +600,26 @@ final class ModuleTranslator {
         }
 
         var exportedFunctions = new LinkedHashMap<String, ExportedFunction>();
-        var exportedTableIndices = new LinkedHashMap<String, Integer>();
-        var exportedMemoryIndices = new LinkedHashMap<String, Integer>();
+        var exportedTableNames = new LinkedHashMap<String, String>();
+        var exportedMemoryNames = new LinkedHashMap<String, String>();
 
         for (var export : exports) {
-            // FIXME: deal with inconsistency in imported method handles v.s. handles to wrapper methods
             switch (export.kind()) {
-                case TABLE -> exportedTableIndices.put(export.name(), export.index());
-                case FUNCTION -> exportedFunctions.put(export.name(), new ExportedFunction(export.index(), functionTypes[export.index()]));
-                case MEMORY -> exportedMemoryIndices.put(export.name(), export.index());
+                case TABLE -> {
+                    exportedTableNames.put(export.name(), tableNames[export.index()]);
+                }
+
+                case FUNCTION -> {
+                    exportedFunctions.put(export.name(), new ExportedFunction(functionNames[export.index()], functionTypes[export.index()]));
+                }
+
+                case MEMORY -> {
+                    exportedMemoryNames.put(export.name(), memoryNames[export.index()]);
+                }
             }
         }
 
-        // FIXME: implement start method
-
-        return new ModuleImpl(lookup, exportedFunctions, exportedTableIndices, exportedMemoryIndices);
+        return new ModuleImpl(lookup, exportedFunctions, exportedTableNames, exportedMemoryNames);
     }
 
     @SuppressWarnings("unchecked")
@@ -884,7 +922,7 @@ final class ModuleTranslator {
         elementSegments.add(new ElementSegment(values, mode, tableIndex, tableOffset));
     }
 
-    private void translateCodeSection() throws TranslationException {
+    private void readCodeSection() throws TranslationException {
         var functionCount = nextUnsigned32();
         for (; functionCount != 0; functionCount--) {
             nextUnsigned32(); // size, ignored
@@ -900,7 +938,7 @@ final class ModuleTranslator {
         var index = nextFunctionIndex++;
         var type = definedFunctions.get(index);
 
-        functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionNames(index), type.descriptor(), null, null);
+        functionWriter = classVisitor.visitMethod(ACC_PRIVATE | ACC_STATIC, functionNames[index + importedFunctions.size()], type.descriptor(), null, null);
         functionWriter.visitCode();
 
         var nextLocalIndex = 0;
@@ -1372,14 +1410,7 @@ final class ModuleTranslator {
         stack.addAll(type.returnTypes());
 
         functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-
-        if (index < importedFunctions.size()) {
-            functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[index], METHOD_HANDLE_DESCRIPTOR);
-            emitIndirectCall(type);
-        }
-        else {
-            functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[index], type.descriptor(), false);
-        }
+        functionWriter.visitMethodInsn(INVOKESTATIC, GENERATED_INSTANCE_INTERNAL_NAME, functionNames[index], type.descriptor(), false);
     }
 
     private void translateCallIndirect() throws TranslationException {
@@ -1394,10 +1425,6 @@ final class ModuleTranslator {
         functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
         functionWriter.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
 
-        emitIndirectCall(type);
-    }
-
-    private void emitIndirectCall(@NotNull FunctionType type) {
         var calleeLocalIndex = firstScratchLocalIndex;
         functionWriter.visitVarInsn(ASTORE, calleeLocalIndex);
 
@@ -1606,8 +1633,8 @@ final class ModuleTranslator {
     }
 
     private void translateStore(@NotNull ValueType operandType, @NotNull String name, @NotNull String descriptor) throws TranslationException {
-        popOperand(ValueType.I32);
         popOperand(operandType);
+        popOperand(ValueType.I32);
 
         nextUnsigned32(); // expected alignment (ignored)
         pushI32Constant(functionWriter, nextUnsigned32()); // offset
