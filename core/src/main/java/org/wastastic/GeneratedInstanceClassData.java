@@ -18,29 +18,5 @@ record GeneratedInstanceClassData(
     @NotNull MemorySegment @NotNull[] data,
     @NotNull Constant @NotNull[] @NotNull[] elements
 ) {
-    static final String INTERNAL_NAME = getInternalName(GeneratedInstanceClassData.class);
 
-    static final Handle DATA_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "dataBootstrap", methodDescriptor(MemorySegment.class, Lookup.class, String.class, Class.class, int.class), false);
-
-    static @NotNull MemorySegment dataBootstrap(@NotNull Lookup lookup, String name, Class<?> clazz, int index) throws IllegalAccessException {
-        var classData = MethodHandles.classData(lookup, ConstantDescs.DEFAULT_NAME, GeneratedInstanceClassData.class);
-        return classData.data[index];
-    }
-
-    static final Handle ELEMENT_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "elementBootstrap", methodDescriptor(Object[].class, Lookup.class, String.class, Class.class, int.class), false);
-
-    static @NotNull Object[] elementBootstrap(@NotNull Lookup lookup, String name, Class<?> clazz, int index) throws IllegalAccessException, NoSuchMethodException {
-        var classData = MethodHandles.classData(lookup, ConstantDescs.DEFAULT_NAME, GeneratedInstanceClassData.class);
-        var constantValues = classData.elements[index];
-        var resolvedValues = new Object[constantValues.length];
-        for (var i = 0; i < resolvedValues.length; i++) {
-            if (constantValues[i] instanceof FunctionRefConstant functionRefConstant) {
-                resolvedValues[i] = lookup.findStatic(lookup.lookupClass(), classData.functionNames[functionRefConstant.index()], classData.functionTypes[functionRefConstant.index()].jvmType());
-            }
-            else if (constantValues[i] != NullConstant.INSTANCE) {
-                throw new ClassCastException();
-            }
-        }
-        return resolvedValues;
-    }
 }

@@ -11,12 +11,17 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public sealed interface Module permits ModuleImpl {
+public sealed interface Module permits ModuleClassLoader {
     static @NotNull Module read(@NotNull Path path) throws IOException, TranslationException {
+        MemorySegment copy;
+
         try (var scope = ResourceScope.newConfinedScope()) {
             var mapped = MemorySegment.mapFile(path, 0, Files.size(path), FileChannel.MapMode.READ_ONLY, scope);
-            return new ModuleTranslator(mapped).translate();
+            copy = MemorySegment.allocateNative(mapped.byteSize(), 8, ResourceScope.newImplicitScope());
+            copy.copyFrom(mapped);
         }
+
+        return new ModuleClassLoader(new ModuleParser().parse(copy));
     }
 
     @NotNull MethodHandle instantiationHandle();

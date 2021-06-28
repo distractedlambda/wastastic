@@ -2,4 +2,11 @@ package org.wastastic;
 
 import org.jetbrains.annotations.NotNull;
 
-record TableType(@NotNull ValueType elementType, @NotNull Limits limits) {}
+import static java.util.Objects.requireNonNull;
+
+record TableType(@NotNull ValueType elementType, @NotNull Limits limits) {
+    TableType {
+        requireNonNull(elementType);
+        requireNonNull(limits);
+    }
+}

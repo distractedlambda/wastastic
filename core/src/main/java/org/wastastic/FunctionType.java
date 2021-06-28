@@ -1,48 +1,37 @@
 package org.wastastic;
 
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
-import org.objectweb.asm.Type;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.lang.invoke.MethodType;
 import java.util.List;
+import java.util.Objects;
 
-import static java.lang.invoke.MethodType.methodType;
+import static java.util.Collections.unmodifiableList;
+import static java.util.Objects.requireNonNull;
+import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.RETURN;
-import static org.objectweb.asm.Type.getMethodType;
-import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
+import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
+import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 
-record FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) {
-    FunctionType {
-        if (returnTypes.size() > 1) {
-            throw new IllegalArgumentException();
-        }
+final class FunctionType {
+    private final @NotNull List<ValueType> parameterTypes;
+    private final @NotNull List<ValueType> returnTypes;
+    private @Nullable String descriptor;
+
+    FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) {
+        this.parameterTypes = requireNonNull(parameterTypes);
+        this.returnTypes = requireNonNull(returnTypes);
     }
 
-    @NotNull String descriptor() {
-        var builder = new StringBuilder("(");
-
-        for (var parameterType : parameterTypes) {
-            builder.append(parameterType.descriptor());
-        }
-
-        builder.append(MODULE_INSTANCE_DESCRIPTOR);
-        builder.append(')');
-
-        if (returnTypes.isEmpty()) {
-            builder.append('V');
-        }
-        else if (returnTypes.size() == 1) {
-            builder.append(returnTypes.get(0).descriptor());
-        }
-        else {
-            throw new AssertionError();
-        }
-
-        return builder.toString();
+    @Contract(pure = true) @NotNull @Unmodifiable List<ValueType> parameterTypes() {
+        return unmodifiableList(parameterTypes);
     }
 
-    @NotNull Type asmType() {
-        return getMethodType(descriptor());
+    @Contract(pure = true) @NotNull @Unmodifiable List<ValueType> returnTypes() {
+        return unmodifiableList(returnTypes);
     }
 
     int returnOpcode() {
@@ -53,19 +42,65 @@ record FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<Value
             return returnTypes.get(0).returnOpcode();
         }
         else {
-            throw new AssertionError();
+            return ARETURN;
         }
     }
 
-    @NotNull MethodType jvmType() {
-        var jvmParameterTypes = new Class<?>[parameterTypes().size() + 1];
+    @NotNull String descriptor() {
+        var descriptor = this.descriptor;
 
-        for (var i = 0; i < parameterTypes.size(); i++) {
-            jvmParameterTypes[i] = parameterTypes.get(i).jvmType();
+        if (descriptor == null) {
+            this.descriptor = descriptor = computeDescriptor();
         }
 
-        jvmParameterTypes[parameterTypes.size()] = ModuleInstance.class;
+        return descriptor;
+    }
 
-        return methodType(!returnTypes.isEmpty() ? returnTypes.get(0).jvmType() : void.class, jvmParameterTypes);
+    private @NotNull String computeDescriptor() {
+        var builder = new StringBuilder("(");
+
+        for (var parameterType : parameterTypes) {
+            builder.append(parameterType.descriptor());
+        }
+
+        builder.append('L').append(GENERATED_INSTANCE_INTERNAL_NAME).append(';');
+        builder.append(')');
+
+        if (returnTypes.isEmpty()) {
+            builder.append('V');
+        }
+        else if (returnTypes.size() == 1) {
+            builder.append(returnTypes.get(0).descriptor());
+        }
+        else {
+            builder.append(OBJECT_ARRAY_DESCRIPTOR);
+        }
+
+        return builder.toString();
+    }
+
+    @NotNull MethodType methodType(@NotNull Class<?> instanceClass) {
+        requireNonNull(instanceClass);
+
+        var argumentTypes = new Class<?>[parameterTypes.size() + 1];
+
+        for (var i = 0; i < parameterTypes.size(); i++) {
+            argumentTypes[i] = parameterTypes.get(i).jvmType();
+        }
+
+        argumentTypes[parameterTypes.size()] = instanceClass;
+
+        Class<?> returnType;
+        if (returnTypes.isEmpty()) {
+            returnType = void.class;
+        }
+        else if (returnTypes.size() == 1) {
+            returnType = returnTypes.get(0).jvmType();
+        }
+        else {
+            returnType = Object[].class;
+        }
+
+        return MethodType.methodType(returnType, argumentTypes);
     }
 }

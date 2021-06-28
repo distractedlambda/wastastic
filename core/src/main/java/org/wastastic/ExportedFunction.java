@@ -2,4 +2,11 @@ package org.wastastic;
 
 import org.jetbrains.annotations.NotNull;
 
-record ExportedFunction(@NotNull String name, @NotNull FunctionType type) {}
+import static java.util.Objects.requireNonNull;
+
+record ExportedFunction(@NotNull String name, @NotNull FunctionType type) {
+    ExportedFunction {
+        requireNonNull(name);
+        requireNonNull(type);
+    }
+}

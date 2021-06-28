@@ -2,4 +2,13 @@ package org.wastastic;
 
 import org.jetbrains.annotations.NotNull;
 
-record DefinedGlobal(@NotNull GlobalType type, @NotNull Constant initialValue) {}
+import java.util.Objects;
+
+import static java.util.Objects.requireNonNull;
+
+record DefinedGlobal(@NotNull GlobalType type, @NotNull Constant initialValue) {
+    DefinedGlobal {
+        requireNonNull(type);
+        requireNonNull(initialValue);
+    }
+}

@@ -2,4 +2,11 @@ package org.wastastic;
 
 import org.jetbrains.annotations.NotNull;
 
-record ImportedFunction(@NotNull QualifiedName qualifiedName, @NotNull FunctionType type) {}
+import static java.util.Objects.requireNonNull;
+
+record ImportedFunction(@NotNull QualifiedName qualifiedName, @NotNull FunctionType type) {
+    ImportedFunction {
+        requireNonNull(qualifiedName);
+        requireNonNull(type);
+    }
+}

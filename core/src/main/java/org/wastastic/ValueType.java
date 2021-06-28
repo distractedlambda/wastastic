@@ -10,29 +10,24 @@ import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.ASTORE;
 import static org.objectweb.asm.Opcodes.DCONST_0;
 import static org.objectweb.asm.Opcodes.DLOAD;
-import static org.objectweb.asm.Opcodes.DOUBLE;
 import static org.objectweb.asm.Opcodes.DRETURN;
 import static org.objectweb.asm.Opcodes.DSTORE;
 import static org.objectweb.asm.Opcodes.FCONST_0;
 import static org.objectweb.asm.Opcodes.FLOAD;
-import static org.objectweb.asm.Opcodes.FLOAT;
 import static org.objectweb.asm.Opcodes.FRETURN;
 import static org.objectweb.asm.Opcodes.FSTORE;
 import static org.objectweb.asm.Opcodes.ICONST_0;
 import static org.objectweb.asm.Opcodes.ILOAD;
-import static org.objectweb.asm.Opcodes.INTEGER;
 import static org.objectweb.asm.Opcodes.IRETURN;
 import static org.objectweb.asm.Opcodes.ISTORE;
 import static org.objectweb.asm.Opcodes.LCONST_0;
 import static org.objectweb.asm.Opcodes.LLOAD;
-import static org.objectweb.asm.Opcodes.LONG;
 import static org.objectweb.asm.Opcodes.LRETURN;
 import static org.objectweb.asm.Opcodes.LSTORE;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
-import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 
-enum ValueType implements StackEntry {
+enum ValueType {
     I32,
     I64,
     F32,
@@ -49,14 +44,6 @@ enum ValueType implements StackEntry {
             case FUNCREF -> METHOD_HANDLE_INTERNAL_NAME;
             case EXTERNREF -> OBJECT_INTERNAL_NAME;
         };
-    }
-
-    @NotNull String globalGetterDescriptor() {
-        return "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + descriptor();
-    }
-
-    @NotNull String globalSetterDescriptor() {
-        return "(" + descriptor() + MODULE_INSTANCE_DESCRIPTOR + ")V";
     }
 
     boolean isDoubleWidth() {
@@ -110,17 +97,6 @@ enum ValueType implements StackEntry {
             case F32 -> FCONST_0;
             case F64 -> DCONST_0;
             case FUNCREF, EXTERNREF -> ACONST_NULL;
-        };
-    }
-
-    @NotNull Object asmLocalType() {
-        return switch (this) {
-            case I32 -> INTEGER;
-            case I64 -> LONG;
-            case F32 -> FLOAT;
-            case F64 -> DOUBLE;
-            case FUNCREF -> METHOD_HANDLE_INTERNAL_NAME;
-            case EXTERNREF -> OBJECT_INTERNAL_NAME;
         };
     }
 

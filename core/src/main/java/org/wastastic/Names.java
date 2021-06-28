@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
 import java.util.Map;
 
+import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Type.getDescriptor;
 import static org.objectweb.asm.Type.getInternalName;
 
@@ -24,7 +25,7 @@ final class Names {
     }
 
     static @NotNull String importName(@NotNull QualifiedName qualifiedName) {
-        return "import$" + qualifiedName.moduleName() + "$" + qualifiedName.name();
+        return qualifiedName.moduleName() + "." + qualifiedName.name();
     }
 
     static @NotNull String dataFieldName(int index) {
@@ -35,9 +36,14 @@ final class Names {
         return "$element$" + index;
     }
 
+    static @NotNull String functionClassInternalName(@NotNull String functionName) {
+        return "org/wastastic/GeneratedFunction$" + requireNonNull(functionName);
+    }
+
     static final String BYTE_INTERNAL_NAME = getInternalName(Byte.class);
     static final String DOUBLE_INTERNAL_NAME = getInternalName(Double.class);
     static final String FLOAT_INTERNAL_NAME = getInternalName(Float.class);
+    static final String FUNCTION_CLASS_ENTRY_NAME = "entry";
     static final String GENERATED_INSTANCE_INTERNAL_NAME = "org/wastastic/GeneratedModuleInstance";
     static final String INTEGER_INTERNAL_NAME = getInternalName(Integer.class);
     static final String LONG_INTERNAL_NAME = getInternalName(Long.class);
