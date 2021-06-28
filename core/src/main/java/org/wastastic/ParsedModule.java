@@ -156,7 +156,7 @@ final class ParsedModule {
             return importedFunctions.get(index).type();
         }
         else {
-            return definedFunctions.get(index - definedFunctions.size());
+            return definedFunctions.get(index - importedFunctions.size());
         }
     }
 

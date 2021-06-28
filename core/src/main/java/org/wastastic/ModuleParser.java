@@ -403,12 +403,12 @@ final class ModuleParser {
             var kind = reader.nextByte();
 
             if (kind < 0 || kind > 0x02) {
-                throw new TranslationException("Invalid data segment");
+                throw new TranslationException("Invalid data segment kind: " + kind);
             }
 
-            var mode = ((kind & 1) == 0) ? DataSegment.Mode.ACTIVE : DataSegment.Mode.PASSIVE;
-            var memoryOffset = ((kind & 1) == 1) ? 0 : reader.nextI32ConstantExpression();
-            var memoryIndex = (kind == 2) ? 0 : reader.nextUnsigned32();
+            var mode = (kind == 0 || kind == 2) ? DataSegment.Mode.ACTIVE : DataSegment.Mode.PASSIVE;
+            var memoryIndex = (kind == 2) ? reader.nextUnsigned32() : 0;
+            var memoryOffset = (kind == 0 || kind == 2) ? reader.nextI32ConstantExpression() : 0;
 
             var contentsSize = reader.nextUnsigned32();
             var contents = reader.nextData(Integer.toUnsignedLong(contentsSize), dataSegmentsScope);

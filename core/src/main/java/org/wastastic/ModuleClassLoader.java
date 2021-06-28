@@ -16,6 +16,7 @@ import static java.lang.invoke.MethodType.methodType;
 import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Opcodes.ACC_FINAL;
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
+import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACONST_NULL;
 import static org.objectweb.asm.Opcodes.ALOAD;
@@ -64,7 +65,7 @@ final class ModuleClassLoader extends ClassLoader implements Module {
         this.parsedModule = requireNonNull(parsedModule);
 
         for (var i = 0; i < parsedModule.functionNames().size(); i++) {
-            functionIndices.put(functionClassInternalName(parsedModule.functionNames().get(i)), i);
+            functionIndices.put(functionClassInternalName(parsedModule.functionNames().get(i)).replace('/', '.'), i);
         }
 
         for (var export : parsedModule.exports()) {
@@ -78,7 +79,7 @@ final class ModuleClassLoader extends ClassLoader implements Module {
 
     @Override public @NotNull MethodHandle instantiationHandle() {
         try {
-            var instanceClass = loadClass(GENERATED_INSTANCE_INTERNAL_NAME);
+            var instanceClass = loadClass(GENERATED_INSTANCE_INTERNAL_NAME.replace('/', '.'));
             return MethodHandles.lookup().findConstructor(instanceClass, methodType(void.class, Map.class));
         } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException exception) {
             throw new IllegalStateException(exception);
@@ -134,8 +135,8 @@ final class ModuleClassLoader extends ClassLoader implements Module {
     @Override protected Class<?> findClass(String name) throws ClassNotFoundException {
         requireNonNull(name);
 
-        if (name.equals(GENERATED_INSTANCE_INTERNAL_NAME)) {
-            return defineModuleInstance();
+        if (name.equals(GENERATED_INSTANCE_INTERNAL_NAME.replace('/', '.'))) {
+            return defineModuleInstance(name);
         }
 
         var functionIndex = functionIndices.get(name);
@@ -152,9 +153,9 @@ final class ModuleClassLoader extends ClassLoader implements Module {
         throw new ClassNotFoundException();
     }
 
-    private @NotNull Class<?> defineModuleInstance() {
+    private @NotNull Class<?> defineModuleInstance(@NotNull String className) {
         var writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-        writer.visit(V17, ACC_FINAL, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
+        writer.visit(V17, ACC_FINAL | ACC_PUBLIC, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
 
         for (var i = 0; i < parsedModule.importedFunctions().size(); i++) {
             writer.visitField(ACC_FINAL, parsedModule.functionNames().get(i), METHOD_HANDLE_DESCRIPTOR, null, null);
@@ -320,7 +321,7 @@ final class ModuleClassLoader extends ClassLoader implements Module {
 
         writer.visitEnd();
         var bytes = writer.toByteArray();
-        return defineClass(GENERATED_INSTANCE_INTERNAL_NAME, bytes, 0, bytes.length);
+        return defineClass(className, bytes, 0, bytes.length);
     }
 
     private @NotNull Class<?> defineFunction(int index, @NotNull String className) throws TranslationException {
@@ -329,7 +330,7 @@ final class ModuleClassLoader extends ClassLoader implements Module {
         }
 
         var bytes = new FunctionTranslator().translate(parsedModule, className, index);
-        return defineClass(className, bytes, 0, bytes.length);
+        return defineClass(null, bytes, 0, bytes.length);
     }
 
     private @NotNull Class<?> defineImportedFunctionWrapper(int index, @NotNull String className) {
@@ -361,7 +362,7 @@ final class ModuleClassLoader extends ClassLoader implements Module {
 
         writer.visitEnd();
         var bytes = writer.toByteArray();
-        return defineClass(className, bytes, 0, bytes.length);
+        return defineClass(null, bytes, 0, bytes.length);
     }
 
     private static final String INTERNAL_NAME = getInternalName(ModuleClassLoader.class);
