@@ -7,13 +7,12 @@ import org.jetbrains.annotations.Unmodifiable;
 
 import java.lang.invoke.MethodType;
 import java.util.List;
-import java.util.Objects;
 
 import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.RETURN;
-import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
+import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 
 final class FunctionType {
@@ -63,7 +62,7 @@ final class FunctionType {
             builder.append(parameterType.descriptor());
         }
 
-        builder.append('L').append(GENERATED_INSTANCE_INTERNAL_NAME).append(';');
+        builder.append(MODULE_INSTANCE_DESCRIPTOR);
         builder.append(')');
 
         if (returnTypes.isEmpty()) {
@@ -79,16 +78,14 @@ final class FunctionType {
         return builder.toString();
     }
 
-    @NotNull MethodType methodType(@NotNull Class<?> instanceClass) {
-        requireNonNull(instanceClass);
-
+    @NotNull MethodType methodType() {
         var argumentTypes = new Class<?>[parameterTypes.size() + 1];
 
         for (var i = 0; i < parameterTypes.size(); i++) {
             argumentTypes[i] = parameterTypes.get(i).jvmType();
         }
 
-        argumentTypes[parameterTypes.size()] = instanceClass;
+        argumentTypes[parameterTypes.size()] = ModuleInstance.class;
 
         Class<?> returnType;
         if (returnTypes.isEmpty()) {

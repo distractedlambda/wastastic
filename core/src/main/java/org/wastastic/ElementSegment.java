@@ -15,6 +15,4 @@ record ElementSegment(Constant @NotNull[] values, @NotNull Mode mode, int tableI
         ACTIVE,
         DECLARATIVE,
     }
-
-    static final Constant[] EMPTY_VALUES = new Constant[0];
 }

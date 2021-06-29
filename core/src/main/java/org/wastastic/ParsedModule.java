@@ -14,9 +14,6 @@ import static java.util.Objects.requireNonNull;
 
 final class ParsedModule {
     private final @NotNull List<String> functionNames;
-    private final @NotNull List<String> memoryNames;
-    private final @NotNull List<String> tableNames;
-    private final @NotNull List<String> globalNames;
     private final @NotNull List<FunctionType> types;
     private final @NotNull List<ImportedFunction> importedFunctions;
     private final @NotNull List<FunctionType> definedFunctions;
@@ -32,14 +29,9 @@ final class ParsedModule {
     private final @NotNull List<MemorySegment> functionBodies;
     private final @NotNull List<DataSegment> dataSegments;
     private final @NotNull List<ElementSegment> elementSegments;
-    private final @NotNull List<String> dataSegmentNames;
-    private final @NotNull List<String> elementSegmentNames;
 
     ParsedModule(
         @NotNull List<String> functionNames,
-        @NotNull List<String> memoryNames,
-        @NotNull List<String> tableNames,
-        @NotNull List<String> globalNames,
         @NotNull List<FunctionType> types,
         @NotNull List<ImportedFunction> importedFunctions,
         @NotNull List<FunctionType> definedFunctions,
@@ -54,14 +46,9 @@ final class ParsedModule {
         int startFunctionIndex,
         @NotNull List<MemorySegment> functionBodies,
         @NotNull List<DataSegment> dataSegments,
-        @NotNull List<ElementSegment> elementSegments,
-        @NotNull List<String> dataSegmentNames,
-        @NotNull List<String> elementSegmentNames
+        @NotNull List<ElementSegment> elementSegments
     ) {
         this.functionNames = requireNonNull(functionNames);
-        this.memoryNames = requireNonNull(memoryNames);
-        this.tableNames = requireNonNull(tableNames);
-        this.globalNames = requireNonNull(globalNames);
         this.types = requireNonNull(types);
         this.importedFunctions = requireNonNull(importedFunctions);
         this.definedFunctions = requireNonNull(definedFunctions);
@@ -77,24 +64,10 @@ final class ParsedModule {
         this.functionBodies = requireNonNull(functionBodies);
         this.dataSegments = requireNonNull(dataSegments);
         this.elementSegments = requireNonNull(elementSegments);
-        this.dataSegmentNames = requireNonNull(dataSegmentNames);
-        this.elementSegmentNames = requireNonNull(elementSegmentNames);
     }
 
     @Contract(pure = true) @NotNull @Unmodifiable List<String> functionNames() {
         return unmodifiableList(functionNames);
-    }
-
-    @Contract(pure = true) @NotNull @Unmodifiable List<String> memoryNames() {
-        return unmodifiableList(memoryNames);
-    }
-
-    @Contract(pure = true) @NotNull @Unmodifiable List<String> tableNames() {
-        return unmodifiableList(tableNames);
-    }
-
-    @Contract(pure = true) @NotNull @Unmodifiable List<String> globalNames() {
-        return unmodifiableList(globalNames);
     }
 
     @Contract(pure = true) @NotNull @Unmodifiable List<FunctionType> types() {
@@ -187,13 +160,5 @@ final class ParsedModule {
 
     @Contract(pure = true) @NotNull @Unmodifiable List<ElementSegment> elementSegments() {
         return unmodifiableList(elementSegments);
-    }
-
-    @Contract(pure = true) @NotNull @Unmodifiable List<String> dataSegmentNames() {
-        return unmodifiableList(dataSegmentNames);
-    }
-
-    @Contract(pure = true) @NotNull @Unmodifiable List<String> elementSegmentNames() {
-        return unmodifiableList(elementSegmentNames);
     }
 }

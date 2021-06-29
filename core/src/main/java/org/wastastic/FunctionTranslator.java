@@ -1,6 +1,5 @@
 package org.wastastic;
 
-import jdk.incubator.foreign.MemorySegment;
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Handle;
@@ -31,7 +30,6 @@ import static org.objectweb.asm.Opcodes.DSUB;
 import static org.objectweb.asm.Opcodes.DUP;
 import static org.objectweb.asm.Opcodes.DUP2;
 import static org.objectweb.asm.Opcodes.DUP2_X2;
-import static org.objectweb.asm.Opcodes.DUP_X2;
 import static org.objectweb.asm.Opcodes.F2D;
 import static org.objectweb.asm.Opcodes.F2I;
 import static org.objectweb.asm.Opcodes.F2L;
@@ -148,6 +146,7 @@ import static org.wastastic.Lists.removeLast;
 import static org.wastastic.Names.DOUBLE_INTERNAL_NAME;
 import static org.wastastic.Names.FLOAT_INTERNAL_NAME;
 import static org.wastastic.Names.FUNCTION_CLASS_ENTRY_NAME;
+import static org.wastastic.Names.GENERATED_FUNCTION_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.INTEGER_INTERNAL_NAME;
 import static org.wastastic.Names.LONG_INTERNAL_NAME;
@@ -156,9 +155,6 @@ import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
-import static org.wastastic.Names.dataFieldName;
-import static org.wastastic.Names.elementFieldName;
-import static org.wastastic.Names.functionClassInternalName;
 import static org.wastastic.WasmOpcodes.OP_BLOCK;
 import static org.wastastic.WasmOpcodes.OP_BR;
 import static org.wastastic.WasmOpcodes.OP_BR_IF;
@@ -377,23 +373,19 @@ final class FunctionTranslator {
     private WasmReader reader;
     private MethodVisitor functionWriter;
 
-    private int selfArgumentLocalIndex;
+    private int instanceArgumentLocalIndex;
     private int firstScratchLocalIndex;
 
-    byte @NotNull[] translate(
-        @NotNull ParsedModule parsedModule,
-        @NotNull String className,
-        int functionIndex
-    ) throws TranslationException {
+    byte @NotNull[] translate(@NotNull ParsedModule parsedModule, int functionIndex) throws TranslationException {
         this.parsedModule = parsedModule;
 
         reader = new WasmReader(parsedModule.functionBodies().get(functionIndex - parsedModule.importedFunctions().size()));
 
         var classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-        classWriter.visit(V17, ACC_FINAL, className, null, OBJECT_INTERNAL_NAME, null);
+        classWriter.visit(V17, ACC_FINAL, GENERATED_FUNCTION_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, null);
 
         functionWriter = classWriter.visitMethod(
-            ACC_STATIC,
+            ACC_PRIVATE | ACC_STATIC,
             FUNCTION_CLASS_ENTRY_NAME,
             parsedModule.functionType(functionIndex).descriptor(),
             null,
@@ -410,7 +402,7 @@ final class FunctionTranslator {
             nextLocalIndex += parameterType.width();
         }
 
-        selfArgumentLocalIndex = nextLocalIndex;
+        instanceArgumentLocalIndex = nextLocalIndex;
         nextLocalIndex += 1;
 
         for (var i = reader.nextUnsigned32(); i != 0; i--) {
@@ -800,8 +792,8 @@ final class FunctionTranslator {
         removeLast(operandStack, type.parameterTypes().size());
         operandStack.addAll(type.returnTypes());
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitMethodInsn(INVOKESTATIC, functionClassInternalName(parsedModule.functionNames().get(index)), FUNCTION_CLASS_ENTRY_NAME, type.descriptor(), false);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        functionWriter.visitInvokeDynamicInsn("", type.descriptor(), ModuleImpl.FUNCTION_BOOTSTRAP, index);
     }
 
     private void translateCallIndirect() throws TranslationException {
@@ -833,7 +825,7 @@ final class FunctionTranslator {
             functionWriter.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
     }
 
@@ -895,8 +887,8 @@ final class FunctionTranslator {
 
         operandStack.add(type);
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-        functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, parsedModule.globalNames().get(globalIndex), type.descriptor());
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        functionWriter.visitInvokeDynamicInsn("", type.globalGetDescriptor(), ModuleImpl.GLOBAL_GET_BOOTSTRAP, globalIndex);
     }
 
     private void translateGlobalSet() throws TranslationException {
@@ -905,17 +897,8 @@ final class FunctionTranslator {
 
         popOperand(type);
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
-
-        if (type.isDoubleWidth()) {
-            functionWriter.visitInsn(DUP_X2);
-            functionWriter.visitInsn(POP);
-        }
-        else {
-            functionWriter.visitInsn(SWAP);
-        }
-
-        functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, parsedModule.globalNames().get(globalIndex), type.descriptor());
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        functionWriter.visitInvokeDynamicInsn("", type.globalSetDescriptor(), ModuleImpl.GLOBAL_SET_BOOTSTRAP, globalIndex);
     }
 
     private void translateTableGet() throws TranslationException {
@@ -941,7 +924,7 @@ final class FunctionTranslator {
         reader.nextUnsigned32(); // expected alignment (ignored)
         pushI32Constant(functionWriter, reader.nextUnsigned32()); // offset
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, parsedModule.memoryNames().get(0), Memory.DESCRIPTOR);
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, name, descriptor, false);
     }
@@ -1009,7 +992,7 @@ final class FunctionTranslator {
         reader.nextUnsigned32(); // expected alignment (ignored)
         pushI32Constant(functionWriter, reader.nextUnsigned32()); // offset
 
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, parsedModule.memoryNames().get(0), Memory.DESCRIPTOR);
         functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, name, descriptor, false);
     }
@@ -1852,7 +1835,7 @@ final class FunctionTranslator {
 
     private void translateDataDrop() {
         var index = reader.nextUnsigned32();
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_DATA_NAME, MEMORY_SEGMENT_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
@@ -1888,7 +1871,7 @@ final class FunctionTranslator {
 
     private void translateElemDrop() {
         var index = reader.nextUnsigned32();
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETSTATIC, Empties.INTERNAL_NAME, EMPTY_ELEMENTS_NAME, OBJECT_ARRAY_DESCRIPTOR);
         functionWriter.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
@@ -2038,22 +2021,22 @@ final class FunctionTranslator {
     }
 
     private void emitDataFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataFieldName(index), MEMORY_SEGMENT_DESCRIPTOR);
     }
 
     private void emitElementFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementFieldName(index), OBJECT_ARRAY_DESCRIPTOR);
     }
 
     private void emitMemoryFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, parsedModule.memoryNames().get(index), Memory.DESCRIPTOR);
     }
 
     private void emitTableFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, selfArgumentLocalIndex);
+        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
         functionWriter.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, parsedModule.tableNames().get(index), Table.DESCRIPTOR);
     }
 }

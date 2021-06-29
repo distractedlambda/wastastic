@@ -11,7 +11,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public sealed interface Module permits ModuleClassLoader {
+public sealed interface Module permits ModuleImpl {
     static @NotNull Module read(@NotNull Path path) throws IOException, TranslationException {
         MemorySegment copy;
 
@@ -21,7 +21,7 @@ public sealed interface Module permits ModuleClassLoader {
             copy.copyFrom(mapped);
         }
 
-        return new ModuleClassLoader(new ModuleParser().parse(copy));
+        return new ModuleImpl(new ModuleParser().parse(copy));
     }
 
     @NotNull MethodHandle instantiationHandle();

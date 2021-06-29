@@ -24,6 +24,7 @@ import static org.objectweb.asm.Opcodes.LCONST_0;
 import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.LRETURN;
 import static org.objectweb.asm.Opcodes.LSTORE;
+import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 
@@ -109,5 +110,13 @@ enum ValueType {
             case FUNCREF -> MethodHandle.class;
             case EXTERNREF -> Object.class;
         };
+    }
+
+    @NotNull String globalGetDescriptor() {
+        return "(L" + GENERATED_INSTANCE_INTERNAL_NAME + ";)" + descriptor();
+    }
+
+    @NotNull String globalSetDescriptor() {
+        return "(" + descriptor() + "L" + GENERATED_INSTANCE_INTERNAL_NAME + ";)V";
     }
 }

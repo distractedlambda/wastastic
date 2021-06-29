@@ -6,12 +6,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static java.util.Arrays.asList;
-import static org.wastastic.Names.importName;
 import static org.wastastic.WasmOpcodes.SECTION_CODE;
 import static org.wastastic.WasmOpcodes.SECTION_CUSTOM;
 import static org.wastastic.WasmOpcodes.SECTION_DATA;
@@ -30,12 +27,7 @@ import static org.wastastic.WasmOpcodes.TYPE_FUNCTION;
 final class ModuleParser {
     private @Nullable String moduleName;
 
-    private final Map<String, Integer> usedNames = new HashMap<>();
-
     private String[] functionNames;
-    private String[] tableNames;
-    private String[] memoryNames;
-    private String[] globalNames;
 
     private final List<MemorySegment> functionBodies = new ArrayList<>();
     private final List<FunctionType> types = new ArrayList<>();
@@ -98,74 +90,8 @@ final class ModuleParser {
             }
         }
 
-        ensureNameTables();
-
-        for (var i = 0; i < importedFunctions.size(); i++) {
-            if (functionNames[i] == null) {
-                functionNames[i] = legalizeName(importName(importedFunctions.get(i).qualifiedName()));
-            }
-        }
-
-        for (var i = 0; i < definedFunctions.size(); i++) {
-            var functionIndex = importedFunctions.size() + i;
-
-            if (functionNames[functionIndex] == null) {
-                functionNames[functionIndex] = "$function$" + functionIndex;
-            }
-        }
-
-        for (var i = 0; i < importedTables.size(); i++) {
-            if (tableNames[i] == null) {
-                tableNames[i] = legalizeName(importName(importedTables.get(i).name()));
-            }
-        }
-
-        for (var i = 0; i < definedTables.size(); i++) {
-            var tableIndex = importedTables.size() + i;
-
-            if (tableNames[tableIndex] == null) {
-                tableNames[tableIndex] = "$table$" + tableIndex;
-            }
-        }
-
-        for (var i = 0; i < importedMemories.size(); i++) {
-            if (memoryNames[i] == null) {
-                memoryNames[i] = legalizeName(importName(importedMemories.get(i).name()));
-            }
-        }
-
-        for (var i = 0; i < definedMemories.size(); i++) {
-            var memoryIndex = importedMemories.size() + i;
-            if (memoryNames[memoryIndex] == null) {
-                memoryNames[memoryIndex] = "$memory$" + memoryIndex;
-            }
-        }
-
-        for (var i = 0; i < definedGlobals.size(); i++) {
-            var globalIndex = importedGlobals.size() + i;
-
-            if (globalNames[globalIndex] == null) {
-                globalNames[globalIndex] = "$global$" + globalIndex;
-            }
-        }
-
-        var dataSegmentNames = new String[dataSegments.size()];
-
-        for (var i = 0; i < dataSegments.size(); i++) {
-            dataSegmentNames[i] = "$dataSegment$" + i;
-        }
-
-        var elementSegmentNames = new String[elementSegments.size()];
-
-        for (var i = 0; i < elementSegments.size(); i++) {
-            elementSegmentNames[i] = "$elementSegment$" + i;
-        }
-
         return new ParsedModule(
             asList(functionNames),
-            asList(memoryNames),
-            asList(tableNames),
-            asList(globalNames),
             types,
             importedFunctions,
             definedFunctions,
@@ -180,9 +106,7 @@ final class ModuleParser {
             startFunctionIndex,
             functionBodies,
             dataSegments,
-            elementSegments,
-            asList(dataSegmentNames),
-            asList(elementSegmentNames)
+            elementSegments
         );
     }
 
@@ -204,9 +128,9 @@ final class ModuleParser {
                 }
 
                 case 0x01 -> {
-                    ensureNameTables();
+                    functionNames = new String[importedFunctions.size() + definedFunctions.size()];
                     for (var i = subsectionReader.nextUnsigned32(); i != 0; i--) {
-                        functionNames[subsectionReader.nextUnsigned32()] = legalizeName(subsectionReader.nextName());
+                        functionNames[subsectionReader.nextUnsigned32()] = subsectionReader.nextName();
                     }
                 }
             }
@@ -275,34 +199,16 @@ final class ModuleParser {
     }
 
     private void readExportSection(@NotNull WasmReader reader) throws TranslationException {
-        ensureNameTables();
         for (var remaining = reader.nextUnsigned32(); remaining != 0; remaining--) {
             var name = reader.nextName();
-            var legalizedName = legalizeName(name);
             var kindCode = reader.nextByte();
             var index = reader.nextUnsigned32();
 
             var kind = switch (kindCode) {
-                case 0x00 -> {
-                    functionNames[index] = legalizedName;
-                    yield ExportKind.FUNCTION;
-                }
-
-                case 0x01 -> {
-                    tableNames[index] = legalizedName;
-                    yield ExportKind.TABLE;
-                }
-
-                case 0x02 -> {
-                    memoryNames[index] = legalizedName;
-                    yield ExportKind.MEMORY;
-                }
-
-                case 0x03 -> {
-                    globalNames[index] = legalizedName;
-                    yield ExportKind.GLOBAL;
-                }
-
+                case 0x00 -> ExportKind.FUNCTION;
+                case 0x01 -> ExportKind.TABLE;
+                case 0x02 -> ExportKind.MEMORY;
+                case 0x03 -> ExportKind.GLOBAL;
                 default -> throw new TranslationException("Invalid export description");
             };
 
@@ -417,43 +323,5 @@ final class ModuleParser {
     }
 
     private void readDataCountSection(@NotNull WasmReader reader) {
-    }
-
-    private void ensureNameTables() {
-        if (functionNames == null) {
-            functionNames = new String[importedFunctions.size() + definedFunctions.size()];
-            tableNames = new String[importedTables.size() + definedTables.size()];
-            memoryNames = new String[importedMemories.size() + definedMemories.size()];
-            globalNames = new String[importedGlobals.size() + definedGlobals.size()];
-        }
-    }
-
-    private @NotNull String legalizeName(@NotNull String name) {
-        var builder = new StringBuilder();
-
-        for (var i = 0; i < name.length(); i++) {
-            switch (name.charAt(i)) {
-                case '.' -> builder.append("%2e");
-                case ';' -> builder.append("%3b");
-                case '[' -> builder.append("%5b");
-                case '/' -> builder.append("%2f");
-                case '<' -> builder.append("%3c");
-                case '>' -> builder.append("%3e");
-                case '%' -> builder.append("%25");
-                case '$' -> builder.append("%24");
-                default -> builder.append(name.charAt(i));
-            }
-        }
-
-        var escapedName = builder.toString();
-        var existingCount = usedNames.putIfAbsent(escapedName, 0);
-
-        if (existingCount == null) {
-            return escapedName;
-        }
-        else {
-            usedNames.put(escapedName, existingCount + 1);
-            return escapedName + "$" + existingCount;
-        }
     }
 }

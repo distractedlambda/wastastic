@@ -11,8 +11,8 @@ final class Empties {
     static final String INTERNAL_NAME = getInternalName(Empties.class);
 
     static final String EMPTY_DATA_NAME = "EMPTY_DATA";
-    static final MemorySegment EMPTY_DATA = MemorySegment.allocateNative(1, newImplicitScope()).asSlice(0, 0);
+    @SuppressWarnings("unused") static final MemorySegment EMPTY_DATA = MemorySegment.allocateNative(1, newImplicitScope()).asSlice(0, 0);
 
     static final String EMPTY_ELEMENTS_NAME = "EMPTY_ELEMENTS";
-    static final Object[] EMPTY_ELEMENTS = new Object[0];
+    @SuppressWarnings("unused") static final Object[] EMPTY_ELEMENTS = new Object[0];
 }
