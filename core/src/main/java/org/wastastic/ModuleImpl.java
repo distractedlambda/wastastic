@@ -16,6 +16,7 @@ import java.lang.invoke.VarHandle;
 import java.util.HashMap;
 import java.util.Map;
 
+import static java.lang.invoke.MethodHandles.classData;
 import static java.lang.invoke.MethodHandles.exactInvoker;
 import static java.lang.invoke.MethodHandles.filterArguments;
 import static java.lang.invoke.MethodHandles.permuteArguments;
@@ -68,9 +69,9 @@ final class ModuleImpl implements Module {
     private @Nullable MethodHandles.Lookup instanceLookup;
     private final @Nullable MethodHandle @NotNull[] functionHandles;
 
-    private final @NotNull Map<String, ExportedFunction> exportedFunctions = new HashMap<>();
-    private final @NotNull Map<String, String> exportedTableNames = new HashMap<>();
-    private final @NotNull Map<String, String> exportedMemoryNames = new HashMap<>();
+    private final @NotNull Map<String, Integer> exportedFunctions = new HashMap<>();
+    private final @NotNull Map<String, Integer> exportedTables = new HashMap<>();
+    private final @NotNull Map<String, Integer> exportedMemories = new HashMap<>();
 
     ModuleImpl(@NotNull ParsedModule parsedModule) {
         this.parsedModule = requireNonNull(parsedModule);
@@ -79,66 +80,64 @@ final class ModuleImpl implements Module {
 
         for (var export : parsedModule.exports()) {
             switch (export.kind()) {
-                case FUNCTION -> exportedFunctions.put(export.name(), new ExportedFunction(parsedModule.functionNames().get(export.index()), parsedModule.functionType(export.index())));
-                case TABLE -> exportedTableNames.put(export.name(), parsedModule.tableNames().get(export.index()));
-                case MEMORY -> exportedMemoryNames.put(export.name(), parsedModule.memoryNames().get(export.index()));
+                case FUNCTION -> exportedFunctions.put(export.name(), export.index());
+                case TABLE -> exportedTables.put(export.name(), export.index());
+                case MEMORY -> exportedMemories.put(export.name(), export.index());
             }
         }
     }
 
     @Override public @NotNull MethodHandle instantiationHandle() {
-        // try {
-        //     var instanceClass = loadClass(GENERATED_INSTANCE_INTERNAL_NAME.replace('/', '.'));
-        //     return MethodHandles.lookup().findConstructor(instanceClass, methodType(void.class, Map.class));
-        // } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException exception) {
-        //     throw new IllegalStateException(exception);
-        // }
+        try {
+            var lookup = getInstanceLookup();
+            return lookup.findConstructor(lookup.lookupClass(), methodType(void.class, Map.class));
+        } catch (IllegalAccessException | NoSuchMethodException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
-    @Override public @NotNull MethodHandle exportedFunctionHandle(@NotNull String name) {
-        // var function = exportedFunctions.get(name);
+    @Override public @NotNull MethodHandle exportedFunctionHandle(@NotNull String name) throws TranslationException {
+        var index = exportedFunctions.get(name);
 
-        // if (function == null) {
-        //     throw new IllegalArgumentException();
-        // }
+        if (index == null) {
+            throw new IllegalArgumentException();
+        }
 
-        // try {
-        //     var instanceClass = loadClass(GENERATED_INSTANCE_INTERNAL_NAME);
-        //     var functionClass = loadClass(functionClassInternalName(function.name()));
-        //     return MethodHandles.lookup().findStatic(functionClass, FUNCTION_CLASS_ENTRY_NAME, function.type().methodType(instanceClass));
-        // } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException exception) {
-        //     throw new IllegalStateException(exception);
-        // }
+        try {
+            return getFunctionHandle(index);
+        } catch (IllegalAccessException | NoSuchMethodException | NoSuchFieldException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     @Override public @NotNull VarHandle exportedTableHandle(@NotNull String name) {
-        // var fieldName = exportedTableNames.get(name);
+        var index = exportedTables.get(name);
 
-        // if (fieldName == null) {
-        //     throw new IllegalArgumentException();
-        // }
+        if (index == null) {
+            throw new IllegalArgumentException();
+        }
 
-        // try {
-        //     var instanceClass = loadClass(GENERATED_INSTANCE_INTERNAL_NAME);
-        //     return MethodHandles.lookup().findVarHandle(instanceClass, fieldName, Table.class);
-        // } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException exception) {
-        //     throw new IllegalStateException(exception);
-        // }
+        try {
+            var lookup = getInstanceLookup();
+            return lookup.findVarHandle(lookup.lookupClass(), tableName(index), Table.class);
+        } catch (IllegalAccessException | NoSuchFieldException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     @Override public @NotNull VarHandle exportedMemoryHandle(@NotNull String name) {
-        // var fieldName = exportedMemoryNames.get(name);
+        var index = exportedMemories.get(name);
 
-        // if (fieldName == null) {
-        //     throw new IllegalArgumentException();
-        // }
+        if (index == null) {
+            throw new IllegalArgumentException();
+        }
 
-        // try {
-        //     var instanceClass = loadClass(GENERATED_INSTANCE_INTERNAL_NAME);
-        //     return MethodHandles.lookup().findVarHandle(instanceClass, fieldName, Memory.class);
-        // } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException exception) {
-        //     throw new IllegalStateException(exception);
-        // }
+        try {
+            var lookup = getInstanceLookup();
+            return lookup.findVarHandle(lookup.lookupClass(), memoryName(index), Memory.class);
+        } catch (IllegalAccessException | NoSuchFieldException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private synchronized @NotNull MethodHandles.Lookup getInstanceLookup() throws IllegalAccessException {
@@ -235,7 +234,7 @@ final class ModuleImpl implements Module {
                 pushF64Constant(constructor, f64Constant.value());
             }
             else if (initialValue instanceof FunctionRefConstant functionRefConstant) {
-                constructor.visitLdcInsn(new ConstantDynamic("", METHOD_HANDLE_DESCRIPTOR, FUNCTION_REF_BOOTSTRAP, functionRefConstant.index()));
+                constructor.visitLdcInsn(new ConstantDynamic("_", METHOD_HANDLE_DESCRIPTOR, FUNCTION_REF_BOOTSTRAP, functionRefConstant.index()));
             }
             else {
                 throw new ClassCastException();
@@ -266,7 +265,7 @@ final class ModuleImpl implements Module {
 
         for (var i = 0; i < parsedModule.dataSegments().size(); i++) {
             constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitLdcInsn(new ConstantDynamic("", MEMORY_SEGMENT_DESCRIPTOR, DATA_BOOTSTRAP, i));
+            constructor.visitLdcInsn(new ConstantDynamic("_", MEMORY_SEGMENT_DESCRIPTOR, DATA_BOOTSTRAP, i));
 
             if (parsedModule.dataSegments().get(i).mode() == DataSegment.Mode.ACTIVE) {
                 constructor.visitInsn(DUP);
@@ -281,7 +280,7 @@ final class ModuleImpl implements Module {
 
         for (var i = 0; i < parsedModule.elementSegments().size(); i++) {
             constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitLdcInsn(new ConstantDynamic("", OBJECT_ARRAY_DESCRIPTOR, ELEMENT_BOOTSTRAP, i));
+            constructor.visitLdcInsn(new ConstantDynamic("_", OBJECT_ARRAY_DESCRIPTOR, ELEMENT_BOOTSTRAP, i));
 
             if (parsedModule.elementSegments().get(i).mode() == ElementSegment.Mode.ACTIVE) {
                 constructor.visitInsn(DUP);
@@ -296,7 +295,7 @@ final class ModuleImpl implements Module {
 
         if (parsedModule.startFunctionIndex().isPresent()) {
             constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitInvokeDynamicInsn("", parsedModule.functionType(parsedModule.startFunctionIndex().getAsInt()).descriptor(), FUNCTION_BOOTSTRAP, parsedModule.startFunctionIndex());
+            constructor.visitInvokeDynamicInsn("_", parsedModule.functionType(parsedModule.startFunctionIndex().getAsInt()).descriptor(), FUNCTION_BOOTSTRAP, parsedModule.startFunctionIndex());
         }
 
         constructor.visitInsn(RETURN);
@@ -341,47 +340,79 @@ final class ModuleImpl implements Module {
 
     static final Handle FUNCTION_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "functionBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
     @SuppressWarnings("unused") static @NotNull CallSite functionBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, TranslationException, NoSuchFieldException, NoSuchMethodException {
-        var module = MethodHandles.classData(lookup, "_", ModuleImpl.class);
+        var module = classData(lookup, "_", ModuleImpl.class);
         return new ConstantCallSite(module.getFunctionHandle(index));
     }
 
     static final Handle GLOBAL_GET_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "globalGetBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
     @SuppressWarnings("unused") static @NotNull CallSite globalGetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
-        var module = MethodHandles.classData(lookup, "_", ModuleImpl.class);
+        var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), globalName(index), module.parsedModule.globalType(index).valueType().jvmType());
         return new ConstantCallSite(handle);
     }
 
+    static final Handle TABLE_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "tableFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
+    @SuppressWarnings("unused") static @NotNull CallSite tableFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var instanceLookup = module.getInstanceLookup();
+        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), tableName(index), Table.class);
+        return new ConstantCallSite(handle);
+    }
+
+    static final Handle MEMORY_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "memoryFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
+    @SuppressWarnings("unused") static @NotNull CallSite memoryFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var instanceLookup = module.getInstanceLookup();
+        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), memoryName(index), Memory.class);
+        return new ConstantCallSite(handle);
+    }
+
+    static final Handle ELEMENT_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "elementFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
+    @SuppressWarnings("unused") static @NotNull CallSite elementFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var instanceLookup = module.getInstanceLookup();
+        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), elementSegmentName(index), Memory.class);
+        return new ConstantCallSite(handle);
+    }
+
+    static final Handle DATA_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "dataFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
+    @SuppressWarnings("unused") static @NotNull CallSite dataFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var instanceLookup = module.getInstanceLookup();
+        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), dataSegmentName(index), Memory.class);
+        return new ConstantCallSite(handle);
+    }
+
     static final Handle GLOBAL_SET_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "globalSetBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
     @SuppressWarnings("unused") static @NotNull CallSite globalSetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
-        var module = MethodHandles.classData(lookup, "_", ModuleImpl.class);
+        var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
         var handle = instanceLookup.findSetter(instanceLookup.lookupClass(), globalName(index), module.parsedModule.globalType(index).valueType().jvmType());
         handle = permuteArguments(handle, methodType(void.class, module.parsedModule.globalType(index).valueType().jvmType(), ModuleInstance.class), 1, 0);
         return new ConstantCallSite(handle);
     }
 
-    static final Handle FUNCTION_REF_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "functionBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, Class.class, int.class), false);
+    static final Handle FUNCTION_REF_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "functionRefBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, Class.class, int.class), false);
     @SuppressWarnings("unused") static @NotNull MethodHandle functionRefBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int index) throws IllegalAccessException, TranslationException, NoSuchFieldException, NoSuchMethodException {
-        var module = MethodHandles.classData(lookup, "_", ModuleImpl.class);
+        var module = classData(lookup, "_", ModuleImpl.class);
         return module.getFunctionHandle(index);
     }
 
     private static final Handle DATA_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "dataBootstrap", methodDescriptor(MemorySegment.class, MethodHandles.Lookup.class, String.class, Class.class, int.class), false);
     @SuppressWarnings("unused") static @NotNull MemorySegment dataBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int index) throws IllegalAccessException {
-        return ((ModuleImpl) clazz.getClassLoader()).parsedModule.dataSegments().get(index).contents();
+        var module = classData(lookup, "_", ModuleImpl.class);
+        return module.parsedModule.dataSegments().get(index).contents();
     }
 
     private static final Handle ELEMENT_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "elementBootstrap", methodDescriptor(Object[].class, MethodHandles.Lookup.class, String.class, Class.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull Object[] elementBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int index) throws IllegalAccessException, ClassNotFoundException, NoSuchMethodException {
-        var loader = (ModuleImpl) clazz.getClassLoader();
-        var constantValues = loader.parsedModule.elementSegments().get(index).values();
+    @SuppressWarnings("unused") static @NotNull Object[] elementBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int index) throws IllegalAccessException, NoSuchMethodException, TranslationException, NoSuchFieldException {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var constantValues = module.parsedModule.elementSegments().get(index).values();
         var resolvedValues = new Object[constantValues.length];
         for (var i = 0; i < resolvedValues.length; i++) {
             if (constantValues[i] instanceof FunctionRefConstant functionRefConstant) {
-                var functionClazz = loader.loadClass(loader.parsedModule.functionNames().get(functionRefConstant.index()));
-                resolvedValues[i] = lookup.findStatic(functionClazz, FUNCTION_CLASS_ENTRY_NAME, loader.parsedModule.functionType(functionRefConstant.index()).methodType(clazz));
+                resolvedValues[i] = module.getFunctionHandle(functionRefConstant.index());
             }
             else if (constantValues[i] != NullConstant.INSTANCE) {
                 throw new ClassCastException();

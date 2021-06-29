@@ -26,7 +26,7 @@ public sealed interface Module permits ModuleImpl {
 
     @NotNull MethodHandle instantiationHandle();
 
-    @NotNull MethodHandle exportedFunctionHandle(@NotNull String name);
+    @NotNull MethodHandle exportedFunctionHandle(@NotNull String name) throws TranslationException;
 
     @NotNull VarHandle exportedTableHandle(@NotNull String name);
 
