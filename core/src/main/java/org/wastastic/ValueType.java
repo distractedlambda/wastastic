@@ -26,6 +26,7 @@ import static org.objectweb.asm.Opcodes.LRETURN;
 import static org.objectweb.asm.Opcodes.LSTORE;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
+import static org.wastastic.Names.MODULE_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 
 enum ValueType {
@@ -113,10 +114,10 @@ enum ValueType {
     }
 
     @NotNull String globalGetDescriptor() {
-        return "(L" + GENERATED_INSTANCE_INTERNAL_NAME + ";)" + descriptor();
+        return "(L" + MODULE_INSTANCE_INTERNAL_NAME + ";)" + descriptor();
     }
 
     @NotNull String globalSetDescriptor() {
-        return "(" + descriptor() + "L" + GENERATED_INSTANCE_INTERNAL_NAME + ";)V";
+        return "(" + descriptor() + "L" + MODULE_INSTANCE_INTERNAL_NAME + ";)V";
     }
 }

@@ -147,6 +147,7 @@ import static org.wastastic.Names.MATH_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
+import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 import static org.wastastic.WasmOpcodes.OP_BLOCK;
@@ -412,7 +413,8 @@ final class FunctionTranslator {
 
         firstScratchLocalIndex = nextLocalIndex;
 
-        var functionScope = new BlockScope(new Label(), type, 0);
+        var topScopeType = new FunctionType(List.of(), type.returnTypes());
+        var functionScope = new BlockScope(new Label(), topScopeType, 0);
         controlStack.add(functionScope);
 
         while (!controlStack.isEmpty()) {
@@ -2006,21 +2008,21 @@ final class FunctionTranslator {
 
     private void emitDataFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "()" + MEMORY_SEGMENT_DESCRIPTOR, ModuleImpl.DATA_FIELD_BOOTSTRAP, index);
+        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + MEMORY_SEGMENT_DESCRIPTOR, ModuleImpl.DATA_FIELD_BOOTSTRAP, index);
     }
 
     private void emitElementFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "()" + OBJECT_ARRAY_DESCRIPTOR, ModuleImpl.ELEMENT_FIELD_BOOTSTRAP, index);
+        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + OBJECT_ARRAY_DESCRIPTOR, ModuleImpl.ELEMENT_FIELD_BOOTSTRAP, index);
     }
 
     private void emitMemoryFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "()" + Memory.DESCRIPTOR, ModuleImpl.MEMORY_FIELD_BOOTSTRAP, index);
+        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + Memory.DESCRIPTOR, ModuleImpl.MEMORY_FIELD_BOOTSTRAP, index);
     }
 
     private void emitTableFieldLoad(int index) {
         functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "()" + Table.DESCRIPTOR, ModuleImpl.TABLE_FIELD_BOOTSTRAP, index);
+        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + Table.DESCRIPTOR, ModuleImpl.TABLE_FIELD_BOOTSTRAP, index);
     }
 }

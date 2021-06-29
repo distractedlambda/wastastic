@@ -165,7 +165,7 @@ final class ModuleImpl implements Module {
         }
 
         for (var i = 0; i < parsedModule.elementSegments().size(); i++) {
-            writer.visitField(ACC_PRIVATE, dataSegmentName(i), OBJECT_ARRAY_DESCRIPTOR, null, null);
+            writer.visitField(ACC_PRIVATE, elementSegmentName(i), OBJECT_ARRAY_DESCRIPTOR, null, null);
         }
 
         for (var i = 0; i < parsedModule.definedGlobals().size(); i++) {
@@ -303,7 +303,8 @@ final class ModuleImpl implements Module {
         constructor.visitEnd();
 
         writer.visitEnd();
-        return instanceLookup = MethodHandles.lookup().defineHiddenClassWithClassData(writer.toByteArray(), this, false);
+        var bytes = writer.toByteArray();
+        return instanceLookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
     }
 
     private synchronized @NotNull MethodHandle getFunctionHandle(int index) throws TranslationException, IllegalAccessException, NoSuchMethodException, NoSuchFieldException {
@@ -311,29 +312,32 @@ final class ModuleImpl implements Module {
             return functionHandles[index];
         }
 
+        var type = parsedModule.functionType(index);
+        var methodType = type.methodType();
+
         if (index < parsedModule.importedFunctions().size()) {
             var lookup = getInstanceLookup();
+
+            var importInvoker = exactInvoker(type.methodType());
             var importGetter = lookup.findGetter(lookup.lookupClass(), functionName(index), MethodHandle.class);
-            var handle = exactInvoker(parsedModule.functionType(index).methodType());
-            handle = filterArguments(handle, 0, importGetter);
+            var erasedImportGetter = importGetter.asType(methodType(MethodHandle.class, ModuleInstance.class));
+            var handle = filterArguments(importInvoker, 0, erasedImportGetter);
 
-            var permutationOrder = new int[parsedModule.functionType(index).parameterTypes().size() + 2];
+            var parameterCount = type.parameterTypes().size();
+            var permutationOrder = new int[parameterCount + 2];
+            permutationOrder[0] = parameterCount;
 
-            permutationOrder[0] = parsedModule.functionType(index).parameterTypes().size();
-
-            for (var i = 0; i < parsedModule.functionType(index).parameterTypes().size(); i++) {
+            for (var i = 0; i < parameterCount; i++) {
                 permutationOrder[i + 1] = i;
             }
 
-            permutationOrder[parsedModule.functionType(index).parameterTypes().size() + 1] = parsedModule.functionType(index).parameterTypes().size();
-
-            handle = permuteArguments(handle, parsedModule.functionType(index).methodType(), permutationOrder);
-            return functionHandles[index] = handle;
+            permutationOrder[parameterCount + 1] = parameterCount;
+            return functionHandles[index] = permuteArguments(handle, methodType, permutationOrder);
         }
 
         var bytes = new FunctionTranslator().translate(parsedModule, index);
         var lookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
-        return functionHandles[index] = lookup.findStatic(lookup.lookupClass(), FUNCTION_CLASS_ENTRY_NAME, parsedModule.functionType(index).methodType());
+        return functionHandles[index] = lookup.findStatic(lookup.lookupClass(), FUNCTION_CLASS_ENTRY_NAME, methodType);
     }
 
     private static final String INTERNAL_NAME = getInternalName(ModuleImpl.class);
@@ -348,7 +352,9 @@ final class ModuleImpl implements Module {
     @SuppressWarnings("unused") static @NotNull CallSite globalGetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
-        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), globalName(index), module.parsedModule.globalType(index).valueType().jvmType());
+        var type = module.parsedModule.globalType(index).valueType().jvmType();
+        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), globalName(index), type);
+        handle = handle.asType(methodType(type, ModuleInstance.class));
         return new ConstantCallSite(handle);
     }
 
@@ -357,6 +363,7 @@ final class ModuleImpl implements Module {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), tableName(index), Table.class);
+        handle = handle.asType(methodType(Table.class, ModuleInstance.class));
         return new ConstantCallSite(handle);
     }
 
@@ -365,6 +372,7 @@ final class ModuleImpl implements Module {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), memoryName(index), Memory.class);
+        handle = handle.asType(methodType(Memory.class, ModuleInstance.class));
         return new ConstantCallSite(handle);
     }
 
@@ -372,7 +380,8 @@ final class ModuleImpl implements Module {
     @SuppressWarnings("unused") static @NotNull CallSite elementFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
-        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), elementSegmentName(index), Memory.class);
+        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), elementSegmentName(index), Object[].class);
+        handle = handle.asType(methodType(Object[].class, ModuleInstance.class));
         return new ConstantCallSite(handle);
     }
 
@@ -380,7 +389,8 @@ final class ModuleImpl implements Module {
     @SuppressWarnings("unused") static @NotNull CallSite dataFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
-        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), dataSegmentName(index), Memory.class);
+        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), dataSegmentName(index), MemorySegment.class);
+        handle = handle.asType(methodType(MemorySegment.class, ModuleInstance.class));
         return new ConstantCallSite(handle);
     }
 
@@ -388,8 +398,10 @@ final class ModuleImpl implements Module {
     @SuppressWarnings("unused") static @NotNull CallSite globalSetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int index) throws IllegalAccessException, NoSuchFieldException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getInstanceLookup();
-        var handle = instanceLookup.findSetter(instanceLookup.lookupClass(), globalName(index), module.parsedModule.globalType(index).valueType().jvmType());
-        handle = permuteArguments(handle, methodType(void.class, module.parsedModule.globalType(index).valueType().jvmType(), ModuleInstance.class), 1, 0);
+        var type = module.parsedModule.globalType(index).valueType().jvmType();
+        var handle = instanceLookup.findSetter(instanceLookup.lookupClass(), globalName(index), type);
+        handle = handle.asType(methodType(void.class, ModuleInstance.class, type));
+        handle = permuteArguments(handle, methodType(void.class, type, ModuleInstance.class), 1, 0);
         return new ConstantCallSite(handle);
     }
 
