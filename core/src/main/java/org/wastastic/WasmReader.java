@@ -245,13 +245,6 @@ final class WasmReader {
         return new String(bytes);
     }
 
-    @NotNull MemorySegment nextData(long length, @NotNull ResourceScope scope) {
-        var newSegment = MemorySegment.allocateNative(length, 8, scope);
-        newSegment.copyFrom(input.asSlice(offset, length));
-        offset += length;
-        return newSegment;
-    }
-
     @NotNull ValueType nextValueType() throws TranslationException {
         var code = nextByte();
         return switch (code) {

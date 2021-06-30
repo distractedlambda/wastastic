@@ -78,12 +78,23 @@ final class ModuleImpl implements Module {
         return index.scope();
     }
 
-    @Override public @NotNull MethodHandle instantiationHandle() {
+    @Override public void precompileFunctions() throws TranslationException {
+        getOrCreateInstance();
+        for (var i = 0; i < functionHandles.length; i++) {
+            getOrCreateFunction(i);
+        }
+    }
+
+    @Override public @NotNull MethodHandle instantiationHandle() throws TranslationException {
         try {
             var lookup = getOrCreateInstance();
             return lookup.findConstructor(lookup.lookupClass(), methodType(void.class, Map.class));
-        } catch (IllegalAccessException | NoSuchMethodException exception) {
-            throw new IllegalStateException(exception);
+        }
+        catch (TranslationException | VirtualMachineError exception) {
+            throw exception;
+        }
+        catch (Throwable exception) {
+            throw new TranslationException(exception);
         }
     }
 
@@ -94,14 +105,10 @@ final class ModuleImpl implements Module {
             throw new IllegalArgumentException();
         }
 
-        try {
-            return getOrCreateFunction(id);
-        } catch (IllegalAccessException | NoSuchMethodException | NoSuchFieldException exception) {
-            throw new IllegalStateException(exception);
-        }
+        return getOrCreateFunction(id);
     }
 
-    @Override public @NotNull VarHandle exportedTableHandle(@NotNull String name) {
+    @Override public @NotNull VarHandle exportedTableHandle(@NotNull String name) throws TranslationException {
         var id = index.exportedTables().get(name);
 
         if (id == null) {
@@ -111,12 +118,16 @@ final class ModuleImpl implements Module {
         try {
             var lookup = getOrCreateInstance();
             return lookup.findVarHandle(lookup.lookupClass(), tableName(id), Table.class);
-        } catch (IllegalAccessException | NoSuchFieldException exception) {
-            throw new IllegalStateException(exception);
+        }
+        catch (TranslationException | VirtualMachineError exception) {
+            throw exception;
+        }
+        catch (Throwable exception) {
+            throw new TranslationException(exception);
         }
     }
 
-    @Override public @NotNull VarHandle exportedMemoryHandle(@NotNull String name) {
+    @Override public @NotNull VarHandle exportedMemoryHandle(@NotNull String name) throws TranslationException {
         var id = index.exportedMemories().get(name);
 
         if (id == null) {
@@ -126,221 +137,241 @@ final class ModuleImpl implements Module {
         try {
             var lookup = getOrCreateInstance();
             return lookup.findVarHandle(lookup.lookupClass(), memoryName(id), Memory.class);
-        } catch (IllegalAccessException | NoSuchFieldException exception) {
-            throw new IllegalStateException(exception);
+        }
+        catch (TranslationException | VirtualMachineError exception) {
+            throw exception;
+        }
+        catch (Throwable exception) {
+            throw new TranslationException(exception);
         }
     }
 
-    private synchronized @NotNull MethodHandles.Lookup getOrCreateInstance() throws IllegalAccessException {
+    private synchronized @NotNull MethodHandles.Lookup getOrCreateInstance() throws TranslationException {
         if (instanceLookup != null) {
             return instanceLookup;
         }
 
-        var writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-        writer.visit(V17, ACC_FINAL, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
+        try {
+            var writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+            writer.visit(V17, ACC_FINAL, GENERATED_INSTANCE_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{MODULE_INSTANCE_INTERNAL_NAME});
 
-        for (var i = 0; i < index.importedFunctions().size(); i++) {
-            writer.visitField(ACC_PRIVATE | ACC_FINAL, functionName(i), METHOD_HANDLE_DESCRIPTOR, null, null);
-        }
-
-        for (var i = 0; i < index.importedMemories().size() + index.definedMemories().size(); i++) {
-            writer.visitField(ACC_PRIVATE | ACC_FINAL, memoryName(i), Memory.DESCRIPTOR, null, null);
-        }
-
-        for (var i = 0; i < index.importedTables().size() + index.definedTables().size(); i++) {
-            writer.visitField(ACC_PRIVATE | ACC_FINAL, tableName(i), Table.DESCRIPTOR, null, null);
-        }
-
-        for (var i = 0; i < index.dataSegments().size(); i++) {
-            writer.visitField(ACC_PRIVATE, dataSegmentName(i), MEMORY_SEGMENT_DESCRIPTOR, null, null);
-        }
-
-        for (var i = 0; i < index.elementSegments().size(); i++) {
-            writer.visitField(ACC_PRIVATE, elementSegmentName(i), OBJECT_ARRAY_DESCRIPTOR, null, null);
-        }
-
-        for (var i = 0; i < index.definedGlobals().size(); i++) {
-            var access = ACC_PRIVATE;
-
-            if (index.definedGlobals().get(i).type().mutability() == Mutability.CONST) {
-                access |= ACC_FINAL;
+            for (var i = 0; i < index.importedFunctions().size(); i++) {
+                writer.visitField(ACC_PRIVATE | ACC_FINAL, functionName(i), METHOD_HANDLE_DESCRIPTOR, null, null);
             }
 
-            writer.visitField(access, globalName(index.importedTables().size() + i), index.definedGlobals().get(i).type().valueType().descriptor(), null, null);
-        }
+            for (var i = 0; i < index.importedMemories().size() + index.definedMemories().size(); i++) {
+                writer.visitField(ACC_PRIVATE | ACC_FINAL, memoryName(i), Memory.DESCRIPTOR, null, null);
+            }
 
-        var constructor = writer.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, null);
-        constructor.visitParameter("imports", ACC_FINAL);
-        constructor.visitCode();
+            for (var i = 0; i < index.importedTables().size() + index.definedTables().size(); i++) {
+                writer.visitField(ACC_PRIVATE | ACC_FINAL, tableName(i), Table.DESCRIPTOR, null, null);
+            }
 
-        constructor.visitVarInsn(ALOAD, 0);
-        constructor.visitMethodInsn(INVOKESPECIAL, OBJECT_INTERNAL_NAME, "<init>", "()V", false);
+            for (var i = 0; i < index.dataSegments().size(); i++) {
+                writer.visitField(ACC_PRIVATE, dataSegmentName(i), MEMORY_SEGMENT_DESCRIPTOR, null, null);
+            }
 
-        for (var i = 0; i < index.importedFunctions().size(); i++) {
+            for (var i = 0; i < index.elementSegments().size(); i++) {
+                writer.visitField(ACC_PRIVATE, elementSegmentName(i), OBJECT_ARRAY_DESCRIPTOR, null, null);
+            }
+
+            for (var i = 0; i < index.definedGlobals().size(); i++) {
+                var access = ACC_PRIVATE;
+
+                if (index.definedGlobals().get(i).type().mutability() == Mutability.CONST) {
+                    access |= ACC_FINAL;
+                }
+
+                writer.visitField(access, globalName(index.importedTables().size() + i), index.definedGlobals().get(i).type().valueType().descriptor(), null, null);
+            }
+
+            var constructor = writer.visitMethod(ACC_PRIVATE, "<init>", GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR, null, null);
+            constructor.visitParameter("imports", ACC_FINAL);
+            constructor.visitCode();
+
             constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitVarInsn(ALOAD, 1);
-            constructor.visitLdcInsn(index.importedFunctions().get(i).qualifiedName().moduleName());
-            constructor.visitLdcInsn(index.importedFunctions().get(i).qualifiedName().name());
-            constructor.visitLdcInsn(getMethodType(index.importedFunctions().get(i).type().descriptor()));
-            constructor.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_FUNCTION_NAME, IMPORT_FUNCTION_DESCRIPTOR, false);
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionName(i), METHOD_HANDLE_DESCRIPTOR);
-        }
+            constructor.visitMethodInsn(INVOKESPECIAL, OBJECT_INTERNAL_NAME, "<init>", "()V", false);
 
-        for (var i = 0; i < index.importedMemories().size(); i++) {
-            constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitVarInsn(ALOAD, 1);
-            constructor.visitLdcInsn(index.importedMemories().get(i).name().moduleName());
-            constructor.visitLdcInsn(index.importedMemories().get(i).name().name());
-            constructor.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_MEMORY_NAME, IMPORT_MEMORY_DESCRIPTOR, false);
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryName(i), Memory.DESCRIPTOR);
-        }
-
-        for (var i = 0; i < index.importedTables().size(); i++) {
-            constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitVarInsn(ALOAD, 1);
-            constructor.visitLdcInsn(index.importedTables().get(i).name().moduleName());
-            constructor.visitLdcInsn(index.importedTables().get(i).name().name());
-            constructor.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_TABLE_NAME, IMPORT_TABLE_DESCRIPTOR, false);
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableName(i), Table.DESCRIPTOR);
-        }
-
-        for (var i = 0; i < index.definedGlobals().size(); i++) {
-            constructor.visitVarInsn(ALOAD, 0);
-
-            var initialValue = index.definedGlobals().get(i).initialValue();
-
-            if (initialValue instanceof NullConstant) {
-                constructor.visitInsn(ACONST_NULL);
-            }
-            else if (initialValue instanceof I32Constant i32Constant) {
-                pushI32Constant(constructor, i32Constant.value());
-            }
-            else if (initialValue instanceof I64Constant i64Constant) {
-                pushI64Constant(constructor, i64Constant.value());
-            }
-            else if (initialValue instanceof F32Constant f32Constant) {
-                pushF32Constant(constructor, f32Constant.value());
-            }
-            else if (initialValue instanceof F64Constant f64Constant) {
-                pushF64Constant(constructor, f64Constant.value());
-            }
-            else if (initialValue instanceof FunctionRefConstant functionRefConstant) {
-                constructor.visitLdcInsn(new ConstantDynamic("_", METHOD_HANDLE_DESCRIPTOR, FUNCTION_REF_BOOTSTRAP, functionRefConstant.index()));
-            }
-            else {
-                throw new ClassCastException();
-            }
-
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, globalName(index.importedGlobals().size() + i), index.definedGlobals().get(i).type().valueType().descriptor());
-        }
-
-        for (var i = 0; i < index.definedMemories().size(); i++) {
-            constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitTypeInsn(NEW, Memory.INTERNAL_NAME);
-            constructor.visitInsn(DUP);
-            pushI32Constant(constructor, index.definedMemories().get(i).limits().unsignedMinimum());
-            pushI32Constant(constructor, index.definedMemories().get(i).limits().unsignedMaximum());
-            constructor.visitMethodInsn(INVOKESPECIAL, Memory.INTERNAL_NAME, "<init>", "(II)V", false);
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryName(index.importedMemories().size() + i), Memory.DESCRIPTOR);
-        }
-
-        for (var i = 0; i < index.definedTables().size(); i++) {
-            constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitTypeInsn(NEW, Table.INTERNAL_NAME);
-            constructor.visitInsn(DUP);
-            pushI32Constant(constructor, index.definedTables().get(i).limits().unsignedMinimum());
-            pushI32Constant(constructor, index.definedTables().get(i).limits().unsignedMaximum());
-            constructor.visitMethodInsn(INVOKESPECIAL, Table.INTERNAL_NAME, "<init>", "(II)V", false);
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableName(index.importedTables().size() + i), Table.DESCRIPTOR);
-        }
-
-        for (var i = 0; i < index.dataSegments().size(); i++) {
-            constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitLdcInsn(new ConstantDynamic("_", MEMORY_SEGMENT_DESCRIPTOR, DATA_BOOTSTRAP, i));
-
-            if (index.dataSegments().get(i).mode() == DataSegment.Mode.ACTIVE) {
-                constructor.visitInsn(DUP);
-                pushI32Constant(constructor, index.dataSegments().get(i).memoryOffset());
+            for (var i = 0; i < index.importedFunctions().size(); i++) {
                 constructor.visitVarInsn(ALOAD, 0);
-                constructor.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryName(index.dataSegments().get(i).memoryIndex()), Memory.DESCRIPTOR);
-                constructor.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_FROM_ACTIVE_NAME, Memory.INIT_FROM_ACTIVE_DESCRIPTOR, false);
+                constructor.visitVarInsn(ALOAD, 1);
+                constructor.visitLdcInsn(index.importedFunctions().get(i).qualifiedName().moduleName());
+                constructor.visitLdcInsn(index.importedFunctions().get(i).qualifiedName().name());
+                constructor.visitLdcInsn(getMethodType(index.importedFunctions().get(i).type().descriptor()));
+                constructor.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_FUNCTION_NAME, IMPORT_FUNCTION_DESCRIPTOR, false);
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, functionName(i), METHOD_HANDLE_DESCRIPTOR);
             }
 
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataSegmentName(i), MEMORY_SEGMENT_DESCRIPTOR);
-        }
-
-        for (var i = 0; i < index.elementSegments().size(); i++) {
-            constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitLdcInsn(new ConstantDynamic("_", OBJECT_ARRAY_DESCRIPTOR, ELEMENT_BOOTSTRAP, i));
-
-            if (index.elementSegments().get(i).mode() == ElementSegment.Mode.ACTIVE) {
-                constructor.visitInsn(DUP);
-                pushI32Constant(constructor, index.elementSegments().get(i).tableOffset());
+            for (var i = 0; i < index.importedMemories().size(); i++) {
                 constructor.visitVarInsn(ALOAD, 0);
-                constructor.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableName(index.elementSegments().get(i).tableIndex()), Table.DESCRIPTOR);
-                constructor.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_FROM_ACTIVE_NAME, Table.INIT_FROM_ACTIVE_DESCRIPTOR, false);
+                constructor.visitVarInsn(ALOAD, 1);
+                constructor.visitLdcInsn(index.importedMemories().get(i).name().moduleName());
+                constructor.visitLdcInsn(index.importedMemories().get(i).name().name());
+                constructor.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_MEMORY_NAME, IMPORT_MEMORY_DESCRIPTOR, false);
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryName(i), Memory.DESCRIPTOR);
             }
 
-            constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementSegmentName(i), OBJECT_ARRAY_DESCRIPTOR);
+            for (var i = 0; i < index.importedTables().size(); i++) {
+                constructor.visitVarInsn(ALOAD, 0);
+                constructor.visitVarInsn(ALOAD, 1);
+                constructor.visitLdcInsn(index.importedTables().get(i).name().moduleName());
+                constructor.visitLdcInsn(index.importedTables().get(i).name().name());
+                constructor.visitMethodInsn(INVOKESTATIC, Importers.INTERNAL_NAME, IMPORT_TABLE_NAME, IMPORT_TABLE_DESCRIPTOR, false);
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableName(i), Table.DESCRIPTOR);
+            }
+
+            for (var i = 0; i < index.definedGlobals().size(); i++) {
+                constructor.visitVarInsn(ALOAD, 0);
+
+                var initialValue = index.definedGlobals().get(i).initialValue();
+
+                if (initialValue instanceof NullConstant) {
+                    constructor.visitInsn(ACONST_NULL);
+                }
+                else if (initialValue instanceof I32Constant i32Constant) {
+                    pushI32Constant(constructor, i32Constant.value());
+                }
+                else if (initialValue instanceof I64Constant i64Constant) {
+                    pushI64Constant(constructor, i64Constant.value());
+                }
+                else if (initialValue instanceof F32Constant f32Constant) {
+                    pushF32Constant(constructor, f32Constant.value());
+                }
+                else if (initialValue instanceof F64Constant f64Constant) {
+                    pushF64Constant(constructor, f64Constant.value());
+                }
+                else if (initialValue instanceof FunctionRefConstant functionRefConstant) {
+                    constructor.visitLdcInsn(new ConstantDynamic("_", METHOD_HANDLE_DESCRIPTOR, FUNCTION_REF_BOOTSTRAP, functionRefConstant.index()));
+                }
+                else {
+                    throw new ClassCastException();
+                }
+
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, globalName(index.importedGlobals().size() + i), index.definedGlobals().get(i).type().valueType().descriptor());
+            }
+
+            for (var i = 0; i < index.definedMemories().size(); i++) {
+                constructor.visitVarInsn(ALOAD, 0);
+                constructor.visitTypeInsn(NEW, Memory.INTERNAL_NAME);
+                constructor.visitInsn(DUP);
+                pushI32Constant(constructor, index.definedMemories().get(i).limits().unsignedMinimum());
+                pushI32Constant(constructor, index.definedMemories().get(i).limits().unsignedMaximum());
+                constructor.visitMethodInsn(INVOKESPECIAL, Memory.INTERNAL_NAME, "<init>", "(II)V", false);
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryName(index.importedMemories().size() + i), Memory.DESCRIPTOR);
+            }
+
+            for (var i = 0; i < index.definedTables().size(); i++) {
+                constructor.visitVarInsn(ALOAD, 0);
+                constructor.visitTypeInsn(NEW, Table.INTERNAL_NAME);
+                constructor.visitInsn(DUP);
+                pushI32Constant(constructor, index.definedTables().get(i).limits().unsignedMinimum());
+                pushI32Constant(constructor, index.definedTables().get(i).limits().unsignedMaximum());
+                constructor.visitMethodInsn(INVOKESPECIAL, Table.INTERNAL_NAME, "<init>", "(II)V", false);
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableName(index.importedTables().size() + i), Table.DESCRIPTOR);
+            }
+
+            for (var i = 0; i < index.dataSegments().size(); i++) {
+                constructor.visitVarInsn(ALOAD, 0);
+                constructor.visitLdcInsn(new ConstantDynamic("_", MEMORY_SEGMENT_DESCRIPTOR, DATA_BOOTSTRAP, i));
+
+                if (index.dataSegments().get(i).mode() == DataSegment.Mode.ACTIVE) {
+                    constructor.visitInsn(DUP);
+                    pushI32Constant(constructor, index.dataSegments().get(i).memoryOffset());
+                    constructor.visitVarInsn(ALOAD, 0);
+                    constructor.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, memoryName(index.dataSegments().get(i).memoryIndex()), Memory.DESCRIPTOR);
+                    constructor.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_FROM_ACTIVE_NAME, Memory.INIT_FROM_ACTIVE_DESCRIPTOR, false);
+                }
+
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, dataSegmentName(i), MEMORY_SEGMENT_DESCRIPTOR);
+            }
+
+            for (var i = 0; i < index.elementSegments().size(); i++) {
+                constructor.visitVarInsn(ALOAD, 0);
+                constructor.visitLdcInsn(new ConstantDynamic("_", OBJECT_ARRAY_DESCRIPTOR, ELEMENT_BOOTSTRAP, i));
+
+                if (index.elementSegments().get(i).mode() == ElementSegment.Mode.ACTIVE) {
+                    constructor.visitInsn(DUP);
+                    pushI32Constant(constructor, index.elementSegments().get(i).tableOffset());
+                    constructor.visitVarInsn(ALOAD, 0);
+                    constructor.visitFieldInsn(GETFIELD, GENERATED_INSTANCE_INTERNAL_NAME, tableName(index.elementSegments().get(i).tableIndex()), Table.DESCRIPTOR);
+                    constructor.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_FROM_ACTIVE_NAME, Table.INIT_FROM_ACTIVE_DESCRIPTOR, false);
+                }
+
+                constructor.visitFieldInsn(PUTFIELD, GENERATED_INSTANCE_INTERNAL_NAME, elementSegmentName(i), OBJECT_ARRAY_DESCRIPTOR);
+            }
+
+            if (index.startFunctionId() != null) {
+                constructor.visitVarInsn(ALOAD, 0);
+                constructor.visitInvokeDynamicInsn("_", index.functionType(index.startFunctionId()).descriptor(), FUNCTION_BOOTSTRAP, index.startFunctionId());
+            }
+
+            constructor.visitInsn(RETURN);
+            constructor.visitMaxs(0, 0);
+            constructor.visitEnd();
+
+            writer.visitEnd();
+            var bytes = writer.toByteArray();
+            return instanceLookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
         }
-
-        if (index.startFunctionId() != null) {
-            constructor.visitVarInsn(ALOAD, 0);
-            constructor.visitInvokeDynamicInsn("_", index.functionType(index.startFunctionId()).descriptor(), FUNCTION_BOOTSTRAP, index.startFunctionId());
+        catch (VirtualMachineError exception) {
+            throw exception;
         }
-
-        constructor.visitInsn(RETURN);
-        constructor.visitMaxs(0, 0);
-        constructor.visitEnd();
-
-        writer.visitEnd();
-        var bytes = writer.toByteArray();
-        return instanceLookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
+        catch (Throwable exception) {
+            throw new TranslationException(exception);
+        }
     }
 
-    private synchronized @NotNull MethodHandle getOrCreateFunction(int id) throws TranslationException, IllegalAccessException, NoSuchMethodException, NoSuchFieldException {
+    private synchronized @NotNull MethodHandle getOrCreateFunction(int id) throws TranslationException {
         if (functionHandles[id] != null) {
             return functionHandles[id];
         }
 
-        var type = index.functionType(id);
-        var methodType = type.methodType();
+        try {
+            var type = index.functionType(id);
+            var methodType = type.methodType();
 
-        if (id < index.importedFunctions().size()) {
-            var lookup = getOrCreateInstance();
+            if (id < index.importedFunctions().size()) {
+                var lookup = getOrCreateInstance();
 
-            var importInvoker = exactInvoker(type.methodType());
-            var importGetter = lookup.findGetter(lookup.lookupClass(), functionName(id), MethodHandle.class);
-            var erasedImportGetter = importGetter.asType(methodType(MethodHandle.class, ModuleInstance.class));
-            var handle = filterArguments(importInvoker, 0, erasedImportGetter);
+                var importInvoker = exactInvoker(type.methodType());
+                var importGetter = lookup.findGetter(lookup.lookupClass(), functionName(id), MethodHandle.class);
+                var erasedImportGetter = importGetter.asType(methodType(MethodHandle.class, ModuleInstance.class));
+                var handle = filterArguments(importInvoker, 0, erasedImportGetter);
 
-            var parameterCount = type.parameterTypes().size();
-            var permutationOrder = new int[parameterCount + 2];
-            permutationOrder[0] = parameterCount;
+                var parameterCount = type.parameterTypes().size();
+                var permutationOrder = new int[parameterCount + 2];
+                permutationOrder[0] = parameterCount;
 
-            for (var i = 0; i < parameterCount; i++) {
-                permutationOrder[i + 1] = i;
+                for (var i = 0; i < parameterCount; i++) {
+                    permutationOrder[i + 1] = i;
+                }
+
+                permutationOrder[parameterCount + 1] = parameterCount;
+                return functionHandles[id] = permuteArguments(handle, methodType, permutationOrder);
             }
 
-            permutationOrder[parameterCount + 1] = parameterCount;
-            return functionHandles[id] = permuteArguments(handle, methodType, permutationOrder);
+            var bytes = new FunctionTranslator().translate(index, id);
+            var lookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
+            return functionHandles[id] = lookup.findStatic(lookup.lookupClass(), FUNCTION_CLASS_ENTRY_NAME, methodType);
         }
-
-        var bytes = new FunctionTranslator().translate(index, id);
-        var lookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
-        return functionHandles[id] = lookup.findStatic(lookup.lookupClass(), FUNCTION_CLASS_ENTRY_NAME, methodType);
+        catch (TranslationException | VirtualMachineError exception) {
+            throw exception;
+        }
+        catch (Throwable exception) {
+            throw new TranslationException(exception);
+        }
     }
 
     private static final String INTERNAL_NAME = getInternalName(ModuleImpl.class);
 
     static final Handle FUNCTION_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "functionBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite functionBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, TranslationException, NoSuchFieldException, NoSuchMethodException {
+    @SuppressWarnings("unused") static @NotNull CallSite functionBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         return new ConstantCallSite(module.getOrCreateFunction(id));
     }
 
     static final Handle GLOBAL_GET_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "globalGetBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite globalGetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException {
+    @SuppressWarnings("unused") static @NotNull CallSite globalGetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getOrCreateInstance();
         var type = module.index.globalType(id).valueType().jvmType();
@@ -350,7 +381,7 @@ final class ModuleImpl implements Module {
     }
 
     static final Handle TABLE_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "tableFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite tableFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException {
+    @SuppressWarnings("unused") static @NotNull CallSite tableFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getOrCreateInstance();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), tableName(id), Table.class);
@@ -359,7 +390,7 @@ final class ModuleImpl implements Module {
     }
 
     static final Handle MEMORY_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "memoryFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite memoryFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException {
+    @SuppressWarnings("unused") static @NotNull CallSite memoryFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getOrCreateInstance();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), memoryName(id), Memory.class);
@@ -368,7 +399,7 @@ final class ModuleImpl implements Module {
     }
 
     static final Handle ELEMENT_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "elementFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite elementFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException {
+    @SuppressWarnings("unused") static @NotNull CallSite elementFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getOrCreateInstance();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), elementSegmentName(id), Object[].class);
@@ -377,7 +408,7 @@ final class ModuleImpl implements Module {
     }
 
     static final Handle DATA_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "dataFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite dataFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException {
+    @SuppressWarnings("unused") static @NotNull CallSite dataFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getOrCreateInstance();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), dataSegmentName(id), MemorySegment.class);
@@ -386,7 +417,7 @@ final class ModuleImpl implements Module {
     }
 
     static final Handle GLOBAL_SET_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "globalSetBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite globalSetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException {
+    @SuppressWarnings("unused") static @NotNull CallSite globalSetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var instanceLookup = module.getOrCreateInstance();
         var type = module.index.globalType(id).valueType().jvmType();
@@ -397,7 +428,7 @@ final class ModuleImpl implements Module {
     }
 
     static final Handle FUNCTION_REF_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "functionRefBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, Class.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull MethodHandle functionRefBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int id) throws IllegalAccessException, TranslationException, NoSuchFieldException, NoSuchMethodException {
+    @SuppressWarnings("unused") static @NotNull MethodHandle functionRefBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int id) throws IllegalAccessException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         return module.getOrCreateFunction(id);
     }
@@ -409,7 +440,7 @@ final class ModuleImpl implements Module {
     }
 
     private static final Handle ELEMENT_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "elementBootstrap", methodDescriptor(Object[].class, MethodHandles.Lookup.class, String.class, Class.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull Object[] elementBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int id) throws IllegalAccessException, NoSuchMethodException, TranslationException, NoSuchFieldException {
+    @SuppressWarnings("unused") static @NotNull Object[] elementBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int id) throws IllegalAccessException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var constantValues = module.index.elementSegments().get(id).values();
         var resolvedValues = new Object[constantValues.length];

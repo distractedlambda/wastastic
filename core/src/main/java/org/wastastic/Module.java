@@ -14,11 +14,13 @@ public sealed interface Module permits ModuleImpl {
 
     @NotNull ResourceScope scope();
 
-    @NotNull MethodHandle instantiationHandle();
+    void precompileFunctions() throws TranslationException;
+
+    @NotNull MethodHandle instantiationHandle() throws TranslationException;
 
     @NotNull MethodHandle exportedFunctionHandle(@NotNull String name) throws TranslationException;
 
-    @NotNull VarHandle exportedTableHandle(@NotNull String name);
+    @NotNull VarHandle exportedTableHandle(@NotNull String name) throws TranslationException;
 
-    @NotNull VarHandle exportedMemoryHandle(@NotNull String name);
+    @NotNull VarHandle exportedMemoryHandle(@NotNull String name) throws TranslationException;
 }
