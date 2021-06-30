@@ -1,6 +1,5 @@
 package org.wastastic;
 
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -8,29 +7,28 @@ import org.jetbrains.annotations.Unmodifiable;
 import java.lang.invoke.MethodType;
 import java.util.List;
 
-import static java.util.Collections.unmodifiableList;
-import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 
 final class FunctionType {
-    private final @NotNull List<ValueType> parameterTypes;
-    private final @NotNull List<ValueType> returnTypes;
+    private final @NotNull @Unmodifiable List<ValueType> parameterTypes;
+    private final @NotNull @Unmodifiable List<ValueType> returnTypes;
     private @Nullable String descriptor;
+    private @Nullable MethodType methodType;
 
     FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) {
-        this.parameterTypes = requireNonNull(parameterTypes);
-        this.returnTypes = requireNonNull(returnTypes);
+        this.parameterTypes = List.copyOf(parameterTypes);
+        this.returnTypes = List.copyOf(returnTypes);
     }
 
-    @Contract(pure = true) @NotNull @Unmodifiable List<ValueType> parameterTypes() {
-        return unmodifiableList(parameterTypes);
+    @NotNull @Unmodifiable List<ValueType> parameterTypes() {
+        return parameterTypes;
     }
 
-    @Contract(pure = true) @NotNull @Unmodifiable List<ValueType> returnTypes() {
-        return unmodifiableList(returnTypes);
+    @NotNull @Unmodifiable List<ValueType> returnTypes() {
+        return returnTypes;
     }
 
     int returnOpcode() {
@@ -53,6 +51,16 @@ final class FunctionType {
         }
 
         return descriptor;
+    }
+
+    @NotNull MethodType methodType() {
+        var type = this.methodType;
+
+        if (type == null) {
+            this.methodType = type = computeMethodType();
+        }
+
+        return type;
     }
 
     private @NotNull String computeDescriptor() {
@@ -78,7 +86,7 @@ final class FunctionType {
         return builder.toString();
     }
 
-    @NotNull MethodType methodType() {
+    private @NotNull MethodType computeMethodType() {
         var argumentTypes = new Class<?>[parameterTypes.size() + 1];
 
         for (var i = 0; i < parameterTypes.size(); i++) {
@@ -100,4 +108,12 @@ final class FunctionType {
 
         return MethodType.methodType(returnType, argumentTypes);
     }
+
+    private static final FunctionType EMPTY = new FunctionType(List.of(), List.of());
+    private static final FunctionType RETURNING_I32 = new FunctionType(List.of(), List.of(ValueType.I32));
+    private static final FunctionType RETURNING_I64 = new FunctionType(List.of(), List.of(ValueType.I64));
+    private static final FunctionType RETURNING_F32 = new FunctionType(List.of(), List.of(ValueType.F32));
+    private static final FunctionType RETURNING_F64 = new FunctionType(List.of(), List.of(ValueType.F64));
+    private static final FunctionType RETURNING_FUNCREF = new FunctionType(List.of(), List.of(ValueType.FUNCREF));
+    private static final FunctionType RETURNING_EXTERNREF = new FunctionType(List.of(), List.of(ValueType.FUNCREF));
 }

@@ -801,7 +801,7 @@ final class FunctionTranslator {
         operandStack.addAll(type.returnTypes());
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_NAME, Table.GET_DESCRIPTOR, false);
         function.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
 
         var calleeLocalIndex = firstScratchLocalIndex;
@@ -884,7 +884,7 @@ final class FunctionTranslator {
         operandStack.add(type);
 
         function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        function.visitInvokeDynamicInsn("_", type.globalGetDescriptor(), ModuleImpl.GLOBAL_GET_BOOTSTRAP, globalId);
+        function.visitInvokeDynamicInsn("_", type.globalGetterDescriptor(), ModuleImpl.GLOBAL_GET_BOOTSTRAP, globalId);
     }
 
     private void translateGlobalSet() throws TranslationException {
@@ -894,7 +894,7 @@ final class FunctionTranslator {
         popOperand(type);
 
         function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        function.visitInvokeDynamicInsn("_", type.globalSetDescriptor(), ModuleImpl.GLOBAL_SET_BOOTSTRAP, globalId);
+        function.visitInvokeDynamicInsn("_", type.globalSetterDescriptor(), ModuleImpl.GLOBAL_SET_BOOTSTRAP, globalId);
     }
 
     private void translateTableGet() throws TranslationException {
@@ -903,7 +903,7 @@ final class FunctionTranslator {
         applyUnaryOp(ValueType.I32, index.tableType(id).elementType());
 
         emitTableFieldLoad(id);
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_NAME, Table.GET_DESCRIPTOR, false);
     }
 
     private void translateTableSet() throws TranslationException {
@@ -911,7 +911,7 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_NAME, Table.SET_DESCRIPTOR, false);
     }
 
     private void translateLoad(@NotNull ValueType resultType, @NotNull String name, @NotNull String descriptor) throws TranslationException {
@@ -1855,7 +1855,7 @@ final class FunctionTranslator {
 
         emitElementFieldLoad(reader.nextUnsigned32());
         emitTableFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_METHOD_NAME, Table.INIT_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_NAME, Table.INIT_DESCRIPTOR, false);
     }
 
     private void translateElemDrop() {
@@ -1869,7 +1869,7 @@ final class FunctionTranslator {
 
         emitTableFieldLoad(reader.nextUnsigned32());
         emitTableFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_METHOD_NAME, Table.COPY_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_NAME, Table.COPY_DESCRIPTOR, false);
     }
 
     private void translateTableGrow() throws TranslationException {
@@ -1878,7 +1878,7 @@ final class FunctionTranslator {
         operandStack.add(ValueType.I32);
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_NAME, Table.GROW_DESCRIPTOR, false);
     }
 
     private void translateTableSize() {
@@ -1893,7 +1893,7 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_METHOD_NAME, Table.FILL_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_NAME, Table.FILL_DESCRIPTOR, false);
     }
 
     private void checkHasOperand() throws TranslationException {

@@ -241,7 +241,7 @@ final class ModuleImpl implements Module {
                     pushF64Constant(constructor, f64Constant.value());
                 }
                 else if (initialValue instanceof FunctionRefConstant functionRefConstant) {
-                    constructor.visitLdcInsn(new ConstantDynamic("_", METHOD_HANDLE_DESCRIPTOR, FUNCTION_REF_BOOTSTRAP, functionRefConstant.index()));
+                    constructor.visitLdcInsn(new ConstantDynamic("_", METHOD_HANDLE_DESCRIPTOR, FUNCTION_REF_BOOTSTRAP, functionRefConstant.functionId()));
                 }
                 else {
                     throw new ClassCastException();
@@ -443,12 +443,12 @@ final class ModuleImpl implements Module {
     @SuppressWarnings("unused") static @NotNull Object[] elementBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int id) throws IllegalAccessException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         var constantValues = module.index.elementSegments().get(id).values();
-        var resolvedValues = new Object[constantValues.length];
+        var resolvedValues = new Object[constantValues.size()];
         for (var i = 0; i < resolvedValues.length; i++) {
-            if (constantValues[i] instanceof FunctionRefConstant functionRefConstant) {
-                resolvedValues[i] = module.getOrCreateFunction(functionRefConstant.index());
+            if (constantValues.get(i) instanceof FunctionRefConstant functionRefConstant) {
+                resolvedValues[i] = module.getOrCreateFunction(functionRefConstant.functionId());
             }
-            else if (constantValues[i] != NullConstant.INSTANCE) {
+            else if (constantValues.get(i) != NullConstant.INSTANCE) {
                 throw new ClassCastException();
             }
         }

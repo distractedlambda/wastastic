@@ -1,3 +1,3 @@
 package org.wastastic;
 
-record FunctionRefConstant(int index) implements Constant {}
+record FunctionRefConstant(int functionId) implements Constant {}

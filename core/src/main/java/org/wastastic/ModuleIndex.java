@@ -366,7 +366,7 @@ record ModuleIndex(
                 default -> throw new AssertionError();
             };
 
-            elementSegments.add(new ElementSegment(values, mode, tableIndex, tableOffset));
+            elementSegments.add(new ElementSegment(List.of(values), mode, tableIndex, tableOffset));
         }
 
         private void readCodeSection(@NotNull WasmReader reader) {

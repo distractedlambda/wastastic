@@ -31,26 +31,34 @@ public final class Table {
         this(initialSize, -1);
     }
 
-    static final String GET_METHOD_NAME = "get";
-    static final String GET_METHOD_DESCRIPTOR = methodDescriptor(Object.class, int.class, Table.class);
+    static final String GET_NAME = "get";
+    static final String GET_DESCRIPTOR = methodDescriptor(Object.class, int.class, Table.class);
+
+    @SuppressWarnings("unused")
     static @Nullable Object get(int index, @NotNull Table self) {
         return self.storage[index];
     }
 
-    static final String SET_METHOD_NAME = "set";
-    static final String SET_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, Table.class);
+    static final String SET_NAME = "set";
+    static final String SET_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, Table.class);
+
+    @SuppressWarnings("unused")
     static void set(int index, @Nullable Object value, @NotNull Table self) {
         self.storage[index] = value;
     }
 
     static final String SIZE_METHOD_NAME = "size";
     static final String SIZE_METHOD_DESCRIPTOR = methodDescriptor(int.class, Table.class);
+
+    @SuppressWarnings("unused")
     static int size(@NotNull Table self) {
         return self.storage.length;
     }
 
-    static final String GROW_METHOD_NAME = "grow";
-    static final String GROW_METHOD_DESCRIPTOR = methodDescriptor(int.class, Object.class, int.class, Table.class);
+    static final String GROW_NAME = "grow";
+    static final String GROW_DESCRIPTOR = methodDescriptor(int.class, Object.class, int.class, Table.class);
+
+    @SuppressWarnings("unused")
     static int grow(@Nullable Object initialValue, int additionalEntries, @NotNull Table self) {
         var storage = self.storage;
 
@@ -77,28 +85,36 @@ public final class Table {
         return storage.length;
     }
 
-    static final String FILL_METHOD_NAME = "fill";
-    static final String FILL_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, int.class, Table.class);
+    static final String FILL_NAME = "fill";
+    static final String FILL_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, int.class, Table.class);
+
+    @SuppressWarnings("unused")
     static void fill(int startIndex, @Nullable Object fillValue, int count, @NotNull Table self) {
         var storage = self.storage;
         checkFromIndexSize(startIndex, count, storage.length);
         Arrays.fill(storage, startIndex, startIndex + count, fillValue);
     }
 
-    static final String COPY_METHOD_NAME = "copy";
-    static final String COPY_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Table.class, Table.class);
+    static final String COPY_NAME = "copy";
+    static final String COPY_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Table.class, Table.class);
+
+    @SuppressWarnings("unused")
     static void copy(int dstIndex, int srcIndex, int count, @NotNull Table src, @NotNull Table dst) {
         arraycopy(src.storage, srcIndex, dst.storage, dstIndex, count);
     }
 
-    static final String INIT_METHOD_NAME = "init";
-    static final String INIT_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Object[].class, Table.class);
+    static final String INIT_NAME = "init";
+    static final String INIT_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Object[].class, Table.class);
+
+    @SuppressWarnings("unused")
     static void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) {
         arraycopy(src, srcIndex, self.storage, dstIndex, count);
     }
 
     static final String INIT_FROM_ACTIVE_NAME = "initFromActive";
     static final String INIT_FROM_ACTIVE_DESCRIPTOR = methodDescriptor(void.class, Object[].class, int.class, Table.class);
+
+    @SuppressWarnings("unused")
     static void initFromActive(@Nullable Object @NotNull[] element, int offset, @NotNull Table self) {
         arraycopy(element, 0, self.storage, offset, element.length);
     }

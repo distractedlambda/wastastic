@@ -24,9 +24,7 @@ import static org.objectweb.asm.Opcodes.LCONST_0;
 import static org.objectweb.asm.Opcodes.LLOAD;
 import static org.objectweb.asm.Opcodes.LRETURN;
 import static org.objectweb.asm.Opcodes.LSTORE;
-import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
-import static org.wastastic.Names.MODULE_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 
 enum ValueType {
@@ -113,11 +111,25 @@ enum ValueType {
         };
     }
 
-    @NotNull String globalGetDescriptor() {
-        return "(L" + MODULE_INSTANCE_INTERNAL_NAME + ";)" + descriptor();
+    @NotNull String globalGetterDescriptor() {
+        return switch (this) {
+            case I32 -> "(Lorg/wastastic/GeneratedModuleInstance;)I";
+            case I64 -> "(Lorg/wastastic/GeneratedModuleInstance;)J";
+            case F32 -> "(Lorg/wastastic/GeneratedModuleInstance;)F";
+            case F64 -> "(Lorg/wastastic/GeneratedModuleInstance;)D";
+            case FUNCREF -> "(Lorg/wastastic/GeneratedModuleInstance;)Ljava/lang/invoke/MethodHandle;";
+            case EXTERNREF -> "(Lorg/wastastic/GeneratedModuleInstance;)Ljava/lang/Object;";
+        };
     }
 
-    @NotNull String globalSetDescriptor() {
-        return "(" + descriptor() + "L" + MODULE_INSTANCE_INTERNAL_NAME + ";)V";
+    @NotNull String globalSetterDescriptor() {
+        return switch (this) {
+            case I32 -> "(ILorg/wastastic/GeneratedModuleInstance;)V";
+            case I64 -> "(JLorg/wastastic/GeneratedModuleInstance;)V";
+            case F32 -> "(FLorg/wastastic/GeneratedModuleInstance;)V";
+            case F64 -> "(DLorg/wastastic/GeneratedModuleInstance;)V";
+            case FUNCREF -> "(Ljava/lang/invoke/MethodHandle;Lorg/wastastic/GeneratedModuleInstance;)V";
+            case EXTERNREF -> "(Ljava/lang/Object;Lorg/wastastic/GeneratedModuleInstance;)V";
+        };
     }
 }

@@ -17,7 +17,7 @@ final class Lists {
     }
 
     static void removeLast(@NotNull List<?> list, int count) {
-        list.subList(list.size() - count, list.size()).clear();;
+        list.subList(list.size() - count, list.size()).clear();
     }
 
     static <E> E removeLast(@NotNull List<E> list) {
