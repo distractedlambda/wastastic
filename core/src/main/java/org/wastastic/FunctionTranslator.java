@@ -364,32 +364,32 @@ final class FunctionTranslator {
     private final List<ValueType> operandStack = new ArrayList<>();
     private final List<Local> locals = new ArrayList<>();
 
-    private ParsedModule parsedModule;
+    private ModuleIndex index;
     private WasmReader reader;
-    private MethodVisitor functionWriter;
+    private MethodVisitor function;
 
     private int instanceArgumentLocalIndex;
     private int firstScratchLocalIndex;
 
-    byte @NotNull[] translate(@NotNull ParsedModule parsedModule, int functionIndex) throws TranslationException {
-        this.parsedModule = parsedModule;
+    byte @NotNull[] translate(@NotNull ModuleIndex index, int functionId) throws TranslationException {
+        this.index = index;
 
-        reader = new WasmReader(parsedModule.functionBodies().get(functionIndex - parsedModule.importedFunctions().size()));
+        reader = new WasmReader(index.functionBodies().get(functionId - index.importedFunctions().size()));
 
         var classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
         classWriter.visit(V17, ACC_FINAL, GENERATED_FUNCTION_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, null);
 
-        functionWriter = classWriter.visitMethod(
+        function = classWriter.visitMethod(
             ACC_PRIVATE | ACC_STATIC,
             FUNCTION_CLASS_ENTRY_NAME,
-            parsedModule.functionType(functionIndex).descriptor(),
+            index.functionType(functionId).descriptor(),
             null,
             null
         );
 
-        functionWriter.visitCode();
+        function.visitCode();
 
-        var type = parsedModule.functionType(functionIndex);
+        var type = index.functionType(functionId);
         var nextLocalIndex = 0;
 
         for (var parameterType : type.parameterTypes()) {
@@ -405,8 +405,8 @@ final class FunctionTranslator {
             var fieldType = reader.nextValueType();
             for (; fieldsRemaining != 0; fieldsRemaining--) {
                 locals.add(new Local(fieldType, nextLocalIndex));
-                functionWriter.visitInsn(fieldType.zeroConstantOpcode());
-                functionWriter.visitVarInsn(fieldType.localStoreOpcode(), nextLocalIndex);
+                function.visitInsn(fieldType.zeroConstantOpcode());
+                function.visitVarInsn(fieldType.localStoreOpcode(), nextLocalIndex);
                 nextLocalIndex += fieldType.width();
             }
         }
@@ -422,11 +422,11 @@ final class FunctionTranslator {
         }
 
         if (!functionScope.restUnreachable()) {
-            functionWriter.visitInsn(type.returnOpcode());
+            function.visitInsn(type.returnOpcode());
         }
 
-        functionWriter.visitMaxs(0, 0);
-        functionWriter.visitEnd();
+        function.visitMaxs(0, 0);
+        function.visitEnd();
 
         classWriter.visitEnd();
         return classWriter.toByteArray();
@@ -624,10 +624,10 @@ final class FunctionTranslator {
     }
 
     private void translateUnreachable() {
-        functionWriter.visitTypeInsn(NEW, UnreachableException.INTERNAL_NAME);
-        functionWriter.visitInsn(DUP);
-        functionWriter.visitMethodInsn(INVOKESPECIAL, UnreachableException.INTERNAL_NAME, "<init>", "()V", false);
-        functionWriter.visitInsn(ATHROW);
+        function.visitTypeInsn(NEW, UnreachableException.INTERNAL_NAME);
+        function.visitInsn(DUP);
+        function.visitMethodInsn(INVOKESPECIAL, UnreachableException.INTERNAL_NAME, "<init>", "()V", false);
+        function.visitInsn(ATHROW);
         last(controlStack).markRestUnreachable();
     }
 
@@ -648,7 +648,7 @@ final class FunctionTranslator {
         checkTopOperands(type.parameterTypes());
         controlStack.add(new LoopScope(startLabel, type, operandStack.size()));
 
-        functionWriter.visitLabel(startLabel);
+        function.visitLabel(startLabel);
     }
 
     private void translateIf() throws TranslationException {
@@ -661,13 +661,13 @@ final class FunctionTranslator {
         checkTopOperands(type.parameterTypes());
         controlStack.add(new IfScope(elseLabel, endLabel, type, operandStack.size()));
 
-        functionWriter.visitJumpInsn(IFEQ, elseLabel);
+        function.visitJumpInsn(IFEQ, elseLabel);
     }
 
     private @NotNull FunctionType nextBlockType() throws TranslationException {
         var code = reader.nextSigned33();
         if (code >= 0) {
-            return parsedModule.types().get((int) code);
+            return index.types().get((int) code);
         }
         else {
             return switch ((byte) (code & 0x7F)) {
@@ -701,8 +701,8 @@ final class FunctionTranslator {
         operandStack.addAll(ifScope.type().parameterTypes());
         controlStack.add(new BlockScope(ifScope.endLabel(), ifScope.type(), operandStack.size()));
 
-        functionWriter.visitJumpInsn(GOTO, ifScope.endLabel());
-        functionWriter.visitLabel(ifScope.elseLabel());
+        function.visitJumpInsn(GOTO, ifScope.endLabel());
+        function.visitLabel(ifScope.elseLabel());
     }
 
     private void translateEnd() throws TranslationException {
@@ -719,11 +719,11 @@ final class FunctionTranslator {
         operandStack.addAll(scope.type().returnTypes());
 
         if (scope instanceof IfScope ifScope) {
-            functionWriter.visitLabel(ifScope.elseLabel());
-            functionWriter.visitLabel(ifScope.endLabel());
+            function.visitLabel(ifScope.elseLabel());
+            function.visitLabel(ifScope.endLabel());
         }
         else if (scope instanceof BlockScope blockScope) {
-            functionWriter.visitLabel(blockScope.endLabel());
+            function.visitLabel(blockScope.endLabel());
         }
     }
 
@@ -736,9 +736,9 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
 
         var pastBranchLabel = new Label();
-        functionWriter.visitJumpInsn(IFEQ, pastBranchLabel);
+        function.visitJumpInsn(IFEQ, pastBranchLabel);
         emitBranch(reader.nextUnsigned32());
-        functionWriter.visitLabel(pastBranchLabel);
+        function.visitLabel(pastBranchLabel);
     }
 
     private void translateBrTable() throws TranslationException {
@@ -760,14 +760,14 @@ final class FunctionTranslator {
 
         var defaultAdapterLabel = new Label();
 
-        functionWriter.visitTableSwitchInsn(0, indexedTargetCount - 1, defaultAdapterLabel, indexedAdapterLabels);
+        function.visitTableSwitchInsn(0, indexedTargetCount - 1, defaultAdapterLabel, indexedAdapterLabels);
 
         for (var i = 0; i < indexedTargetCount; i++) {
-            functionWriter.visitLabel(indexedAdapterLabels[i]);
+            function.visitLabel(indexedAdapterLabels[i]);
             emitBranch(indexedTargets[i]);
         }
 
-        functionWriter.visitLabel(defaultAdapterLabel);
+        function.visitLabel(defaultAdapterLabel);
         emitBranch(defaultTarget);
 
         last(controlStack).markRestUnreachable();
@@ -776,24 +776,24 @@ final class FunctionTranslator {
     private void translateReturn() throws TranslationException {
         var functionScope = (BlockScope) first(controlStack);
         checkTopOperands(functionScope.type().returnTypes());
-        functionWriter.visitInsn(functionScope.type().returnOpcode());
+        function.visitInsn(functionScope.type().returnOpcode());
         last(controlStack).markRestUnreachable();
     }
 
     private void translateCall() throws TranslationException {
-        var index = reader.nextUnsigned32();
-        var type = parsedModule.functionType(index);
+        var id = reader.nextUnsigned32();
+        var type = index.functionType(id);
 
         checkTopOperands(type.parameterTypes());
         removeLast(operandStack, type.parameterTypes().size());
         operandStack.addAll(type.returnTypes());
 
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", type.descriptor(), ModuleImpl.FUNCTION_BOOTSTRAP, index);
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn("_", type.descriptor(), ModuleImpl.FUNCTION_BOOTSTRAP, id);
     }
 
     private void translateCallIndirect() throws TranslationException {
-        var type = parsedModule.types().get(reader.nextUnsigned32());
+        var type = index.types().get(reader.nextUnsigned32());
 
         popOperand(ValueType.I32);
         checkTopOperands(type.parameterTypes());
@@ -801,32 +801,32 @@ final class FunctionTranslator {
         operandStack.addAll(type.returnTypes());
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
-        functionWriter.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
+        function.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
 
         var calleeLocalIndex = firstScratchLocalIndex;
-        functionWriter.visitVarInsn(ASTORE, calleeLocalIndex);
+        function.visitVarInsn(ASTORE, calleeLocalIndex);
 
         var nextLocalIndex = calleeLocalIndex + 1;
         for (var i = type.parameterTypes().size() - 1; i >= 0; i--) {
             var parameterType = type.parameterTypes().get(i);
-            functionWriter.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
+            function.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
             nextLocalIndex += parameterType.width();
         }
 
-        functionWriter.visitVarInsn(ALOAD, calleeLocalIndex);
+        function.visitVarInsn(ALOAD, calleeLocalIndex);
 
         for (var parameterType : type.parameterTypes()) {
             nextLocalIndex -= parameterType.width();
-            functionWriter.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
+            function.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
     }
 
     private void translateDrop() throws TranslationException {
-        functionWriter.visitInsn(popAnyOperand().isDoubleWidth() ? POP2 : POP);
+        function.visitInsn(popAnyOperand().isDoubleWidth() ? POP2 : POP);
     }
 
     private void translateSelect() throws TranslationException {
@@ -835,18 +835,18 @@ final class FunctionTranslator {
         checkTopOperand(type);
 
         var pastSwapLabel = new Label();
-        functionWriter.visitJumpInsn(IFNE, pastSwapLabel);
+        function.visitJumpInsn(IFNE, pastSwapLabel);
 
         if (type.isDoubleWidth()) {
-            functionWriter.visitInsn(DUP2_X2);
-            functionWriter.visitInsn(POP2);
-            functionWriter.visitLabel(pastSwapLabel);
-            functionWriter.visitInsn(POP2);
+            function.visitInsn(DUP2_X2);
+            function.visitInsn(POP2);
+            function.visitLabel(pastSwapLabel);
+            function.visitInsn(POP2);
         }
         else {
-            functionWriter.visitInsn(SWAP);
-            functionWriter.visitLabel(pastSwapLabel);
-            functionWriter.visitInsn(POP);
+            function.visitInsn(SWAP);
+            function.visitLabel(pastSwapLabel);
+            function.visitInsn(POP);
         }
     }
 
@@ -861,49 +861,49 @@ final class FunctionTranslator {
     private void translateLocalGet() {
         var local = locals.get(reader.nextUnsigned32());
         operandStack.add(local.type());
-        functionWriter.visitVarInsn(local.type().localLoadOpcode(), local.index());
+        function.visitVarInsn(local.type().localLoadOpcode(), local.index());
     }
 
     private void translateLocalSet() throws TranslationException {
         var local = locals.get(reader.nextUnsigned32());
         popOperand(local.type());
-        functionWriter.visitVarInsn(local.type().localStoreOpcode(), local.index());
+        function.visitVarInsn(local.type().localStoreOpcode(), local.index());
     }
 
     private void translateLocalTee() throws TranslationException {
         var local = locals.get(reader.nextUnsigned32());
         applyUnaryOp(local.type());
-        functionWriter.visitInsn(local.type().isDoubleWidth() ? DUP2 : DUP);
-        functionWriter.visitVarInsn(local.type().localStoreOpcode(), local.index());
+        function.visitInsn(local.type().isDoubleWidth() ? DUP2 : DUP);
+        function.visitVarInsn(local.type().localStoreOpcode(), local.index());
     }
 
     private void translateGlobalGet() {
-        var globalIndex = reader.nextUnsigned32();
-        var type = parsedModule.globalType(globalIndex).valueType();
+        var globalId = reader.nextUnsigned32();
+        var type = index.globalType(globalId).valueType();
 
         operandStack.add(type);
 
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", type.globalGetDescriptor(), ModuleImpl.GLOBAL_GET_BOOTSTRAP, globalIndex);
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn("_", type.globalGetDescriptor(), ModuleImpl.GLOBAL_GET_BOOTSTRAP, globalId);
     }
 
     private void translateGlobalSet() throws TranslationException {
-        var globalIndex = reader.nextUnsigned32();
-        var type = parsedModule.globalType(globalIndex).valueType();
+        var globalId = reader.nextUnsigned32();
+        var type = index.globalType(globalId).valueType();
 
         popOperand(type);
 
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", type.globalSetDescriptor(), ModuleImpl.GLOBAL_SET_BOOTSTRAP, globalIndex);
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn("_", type.globalSetDescriptor(), ModuleImpl.GLOBAL_SET_BOOTSTRAP, globalId);
     }
 
     private void translateTableGet() throws TranslationException {
-        var index = reader.nextUnsigned32();
+        var id = reader.nextUnsigned32();
 
-        applyUnaryOp(ValueType.I32, parsedModule.tableType(index).elementType());
+        applyUnaryOp(ValueType.I32, index.tableType(id).elementType());
 
-        emitTableFieldLoad(index);
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
+        emitTableFieldLoad(id);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_METHOD_NAME, Table.GET_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableSet() throws TranslationException {
@@ -911,17 +911,17 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_METHOD_NAME, Table.SET_METHOD_DESCRIPTOR, false);
     }
 
     private void translateLoad(@NotNull ValueType resultType, @NotNull String name, @NotNull String descriptor) throws TranslationException {
         applyUnaryOp(ValueType.I32, resultType);
 
         reader.nextUnsigned32(); // expected alignment (ignored)
-        pushI32Constant(functionWriter, reader.nextUnsigned32()); // offset
+        pushI32Constant(function, reader.nextUnsigned32()); // offset
 
         emitMemoryFieldLoad(0);
-        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, name, descriptor, false);
+        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, name, descriptor, false);
     }
 
     private void translateI32Load() throws TranslationException {
@@ -985,10 +985,10 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
 
         reader.nextUnsigned32(); // expected alignment (ignored)
-        pushI32Constant(functionWriter, reader.nextUnsigned32()); // offset
+        pushI32Constant(function, reader.nextUnsigned32()); // offset
 
         emitMemoryFieldLoad(0);
-        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, name, descriptor, false);
+        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, name, descriptor, false);
     }
 
     private void translateI32Store() throws TranslationException {
@@ -1030,32 +1030,32 @@ final class FunctionTranslator {
     private void translateMemorySize() {
         operandStack.add(ValueType.I32);
         emitMemoryFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.SIZE_METHOD_NAME, Memory.SIZE_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.SIZE_METHOD_NAME, Memory.SIZE_METHOD_DESCRIPTOR, false);
     }
 
     private void translateMemoryGrow() throws TranslationException {
         applyUnaryOp(ValueType.I32);
         emitMemoryFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.GROW_METHOD_NAME, Memory.GROW_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.GROW_METHOD_NAME, Memory.GROW_METHOD_DESCRIPTOR, false);
     }
 
     private void translateI32Const() {
-        pushI32Constant(functionWriter, reader.nextSigned32());
+        pushI32Constant(function, reader.nextSigned32());
         operandStack.add(ValueType.I32);
     }
 
     private void translateI64Const() {
-        pushI64Constant(functionWriter, reader.nextSigned64());
+        pushI64Constant(function, reader.nextSigned64());
         operandStack.add(ValueType.I64);
     }
 
     private void translateF32Const() {
-        pushF32Constant(functionWriter, reader.nextFloat32());
+        pushF32Constant(function, reader.nextFloat32());
         operandStack.add(ValueType.F32);
     }
 
     private void translateF64Const() {
-        pushF64Constant(functionWriter, reader.nextFloat64());
+        pushF64Constant(function, reader.nextFloat64());
         operandStack.add(ValueType.F64);
     }
 
@@ -1063,14 +1063,14 @@ final class FunctionTranslator {
         var trueLabel = new Label();
         var mergeLabel = new Label();
 
-        functionWriter.visitJumpInsn(opcode, trueLabel);
-        functionWriter.visitInsn(ICONST_0);
-        functionWriter.visitJumpInsn(GOTO, mergeLabel);
+        function.visitJumpInsn(opcode, trueLabel);
+        function.visitInsn(ICONST_0);
+        function.visitJumpInsn(GOTO, mergeLabel);
 
-        functionWriter.visitLabel(trueLabel);
-        functionWriter.visitInsn(ICONST_1);
+        function.visitLabel(trueLabel);
+        function.visitInsn(ICONST_1);
 
-        functionWriter.visitLabel(mergeLabel);
+        function.visitLabel(mergeLabel);
     }
 
     private void translateI32Eqz() throws TranslationException {
@@ -1084,7 +1084,7 @@ final class FunctionTranslator {
     }
 
     private void translateI32ComparisonU(int opcode) throws TranslationException {
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "compareUnsigned", "(II)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "compareUnsigned", "(II)I", false);
         translateI32ComparisonS(opcode);
     }
 
@@ -1130,20 +1130,20 @@ final class FunctionTranslator {
 
     private void translateI64Eqz() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.I32);
-        functionWriter.visitInsn(LCONST_0);
-        functionWriter.visitInsn(LCMP);
+        function.visitInsn(LCONST_0);
+        function.visitInsn(LCMP);
         translateConditionalBoolean(IFEQ);
     }
 
     private void translateI64ComparisonS(int opcode) throws TranslationException {
         applyBinaryOp(ValueType.I64, ValueType.I32);
-        functionWriter.visitInsn(LCMP);
+        function.visitInsn(LCMP);
         translateConditionalBoolean(opcode);
     }
 
     private void translateI64ComparisonU(int opcode) throws TranslationException {
         applyBinaryOp(ValueType.I64, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "compareUnsigned", "(JJ)I", false);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "compareUnsigned", "(JJ)I", false);
         translateConditionalBoolean(opcode);
     }
 
@@ -1189,7 +1189,7 @@ final class FunctionTranslator {
 
     private void translateFpComparison(@NotNull ValueType type, int cmpOpcode, int branchOpcode) throws TranslationException {
         applyBinaryOp(type, ValueType.I32);
-        functionWriter.visitInsn(cmpOpcode);
+        function.visitInsn(cmpOpcode);
         translateConditionalBoolean(branchOpcode);
     }
 
@@ -1243,500 +1243,500 @@ final class FunctionTranslator {
 
     private void translateI32Clz() throws TranslationException {
         applyUnaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "numberOfLeadingZeros", "(I)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "numberOfLeadingZeros", "(I)I", false);
     }
 
     private void translateI32Ctz() throws TranslationException {
         applyUnaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "numberOfTrailingZeros", "(I)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "numberOfTrailingZeros", "(I)I", false);
     }
 
     private void translateI32Popcnt() throws TranslationException {
         applyUnaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "bitCount", "(I)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "bitCount", "(I)I", false);
     }
 
     private void translateI32Add() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(IADD);
+        function.visitInsn(IADD);
     }
 
     private void translateI32Sub() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(ISUB);
+        function.visitInsn(ISUB);
     }
 
     private void translateI32Mul() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(IMUL);
+        function.visitInsn(IMUL);
     }
 
     private void translateI32DivS() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_DIV_S_NAME, I32_DIV_S_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_DIV_S_NAME, I32_DIV_S_DESCRIPTOR, false);
     }
 
     private void translateI32DivU() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "divideUnsigned", "(II)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "divideUnsigned", "(II)I", false);
     }
 
     private void translateI32RemS() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(IREM);
+        function.visitInsn(IREM);
     }
 
     private void translateI32RemU() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "remainderUnsigned", "(II)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "remainderUnsigned", "(II)I", false);
     }
 
     private void translateI32And() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(IAND);
+        function.visitInsn(IAND);
     }
 
     private void translateI32Or() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(IOR);
+        function.visitInsn(IOR);
     }
 
     private void translateI32Xor() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(IXOR);
+        function.visitInsn(IXOR);
     }
 
     private void translateI32Shl() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(ISHL);
+        function.visitInsn(ISHL);
     }
 
     private void translateI32ShrS() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(ISHR);
+        function.visitInsn(ISHR);
     }
 
     private void translateI32ShrU() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitInsn(IUSHR);
+        function.visitInsn(IUSHR);
     }
 
     private void translateI32Rotl() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "rotateLeft", "(II)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "rotateLeft", "(II)I", false);
     }
 
     private void translateI32Rotr() throws TranslationException {
         applyBinaryOp(ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "rotateRight", "(II)I", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "rotateRight", "(II)I", false);
     }
 
     private void translateI64Clz() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfLeadingZeros", "(J)I", false);
-        functionWriter.visitInsn(I2L);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfLeadingZeros", "(J)I", false);
+        function.visitInsn(I2L);
     }
 
     private void translateI64Ctz() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfTrailingZeros", "(J)I", false);
-        functionWriter.visitInsn(I2L);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "numberOfTrailingZeros", "(J)I", false);
+        function.visitInsn(I2L);
     }
 
     private void translateI64Popcnt() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "bitCount", "(J)I", false);
-        functionWriter.visitInsn(I2L);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "bitCount", "(J)I", false);
+        function.visitInsn(I2L);
     }
 
     private void translateI64Add() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(LADD);
+        function.visitInsn(LADD);
     }
 
     private void translateI64Sub() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(LSUB);
+        function.visitInsn(LSUB);
     }
 
     private void translateI64Mul() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(LMUL);
+        function.visitInsn(LMUL);
     }
 
     private void translateI64DivS() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_DIV_S_NAME, I64_DIV_S_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_DIV_S_NAME, I64_DIV_S_DESCRIPTOR, false);
     }
 
     private void translateI64DivU() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "divideUnsigned", "(JJ)J", false);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "divideUnsigned", "(JJ)J", false);
     }
 
     private void translateI64RemS() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(LREM);
+        function.visitInsn(LREM);
     }
 
     private void translateI64RemU() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "remainderUnsigned", "(JJ)J", false);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "remainderUnsigned", "(JJ)J", false);
     }
 
     private void translateI64And() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(LAND);
+        function.visitInsn(LAND);
     }
 
     private void translateI64Or() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(LOR);
+        function.visitInsn(LOR);
     }
 
     private void translateI64Xor() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(LXOR);
+        function.visitInsn(LXOR);
     }
 
     private void translateI64Shl() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitInsn(LSHL);
+        function.visitInsn(L2I);
+        function.visitInsn(LSHL);
     }
 
     private void translateI64ShrS() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitInsn(LSHR);
+        function.visitInsn(L2I);
+        function.visitInsn(LSHR);
     }
 
     private void translateI64ShrU() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitInsn(LUSHR);
+        function.visitInsn(L2I);
+        function.visitInsn(LUSHR);
     }
 
     private void translateI64Rotl() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateLeft", "(JI)J", false);
+        function.visitInsn(L2I);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateLeft", "(JI)J", false);
     }
 
     private void translateI64Rotr() throws TranslationException {
         applyBinaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateRight", "(JI)J", false);
+        function.visitInsn(L2I);
+        function.visitMethodInsn(INVOKESTATIC, LONG_INTERNAL_NAME, "rotateRight", "(JI)J", false);
     }
 
     private void translateF32Abs() throws TranslationException {
         applyUnaryOp(ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "abs", "(F)F", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "abs", "(F)F", false);
     }
 
     private void translateF32Neg() throws TranslationException {
         applyUnaryOp(ValueType.F32);
-        functionWriter.visitInsn(FNEG);
+        function.visitInsn(FNEG);
     }
 
     private void translateF32Ceil() throws TranslationException {
         applyUnaryOp(ValueType.F32);
-        functionWriter.visitInsn(F2D);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "ceil", "(D)D", false);
-        functionWriter.visitInsn(D2F);
+        function.visitInsn(F2D);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "ceil", "(D)D", false);
+        function.visitInsn(D2F);
     }
 
     private void translateF32Floor() throws TranslationException {
         applyUnaryOp(ValueType.F32);
-        functionWriter.visitInsn(F2D);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "floor", "(D)D", false);
-        functionWriter.visitInsn(D2F);
+        function.visitInsn(F2D);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "floor", "(D)D", false);
+        function.visitInsn(D2F);
     }
 
     private void translateF32Trunc() throws TranslationException {
         applyUnaryOp(ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F32_TRUNC_NAME, F32_TRUNC_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F32_TRUNC_NAME, F32_TRUNC_DESCRIPTOR, false);
     }
 
     private void translateF32Nearest() throws TranslationException {
         applyUnaryOp(ValueType.F32);
-        functionWriter.visitInsn(F2D);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "rint", "(D)D", false);
-        functionWriter.visitInsn(D2F);
+        function.visitInsn(F2D);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "rint", "(D)D", false);
+        function.visitInsn(D2F);
     }
 
     private void translateF32Sqrt() throws TranslationException {
         applyUnaryOp(ValueType.F32);
-        functionWriter.visitInsn(F2D);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "sqrt", "(D)D", false);
-        functionWriter.visitInsn(D2F);
+        function.visitInsn(F2D);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "sqrt", "(D)D", false);
+        function.visitInsn(D2F);
     }
 
     private void translateF32Add() throws TranslationException {
         applyBinaryOp(ValueType.F32);
-        functionWriter.visitInsn(FADD);
+        function.visitInsn(FADD);
     }
 
     private void translateF32Sub() throws TranslationException {
         applyBinaryOp(ValueType.F32);
-        functionWriter.visitInsn(FSUB);
+        function.visitInsn(FSUB);
     }
 
     private void translateF32Mul() throws TranslationException {
         applyBinaryOp(ValueType.F32);
-        functionWriter.visitInsn(FMUL);
+        function.visitInsn(FMUL);
     }
 
     private void translateF32Div() throws TranslationException {
         applyBinaryOp(ValueType.F32);
-        functionWriter.visitInsn(FDIV);
+        function.visitInsn(FDIV);
     }
 
     private void translateF32Min() throws TranslationException {
         applyBinaryOp(ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(FF)F", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(FF)F", false);
     }
 
     private void translateF32Max() throws TranslationException {
         applyBinaryOp(ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(FF)F", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(FF)F", false);
     }
 
     private void translateF32Copysign() throws TranslationException {
         applyBinaryOp(ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(FF)F", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(FF)F", false);
     }
 
     private void translateF64Abs() throws TranslationException {
         applyUnaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "abs", "(D)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "abs", "(D)D", false);
     }
 
     private void translateF64Neg() throws TranslationException {
         applyUnaryOp(ValueType.F64);
-        functionWriter.visitInsn(DNEG);
+        function.visitInsn(DNEG);
     }
 
     private void translateF64Ceil() throws TranslationException {
         applyUnaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "ceil", "(D)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "ceil", "(D)D", false);
     }
 
     private void translateF64Floor() throws TranslationException {
         applyUnaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "floor", "(D)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "floor", "(D)D", false);
     }
 
     private void translateF64Trunc() throws TranslationException {
         applyUnaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F64_TRUNC_NAME, F64_TRUNC_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F64_TRUNC_NAME, F64_TRUNC_DESCRIPTOR, false);
     }
 
     private void translateF64Nearest() throws TranslationException {
         applyUnaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "rint", "(D)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "rint", "(D)D", false);
     }
 
     private void translateF64Sqrt() throws TranslationException {
         applyUnaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "sqrt", "(D)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "sqrt", "(D)D", false);
     }
 
     private void translateF64Add() throws TranslationException {
         applyBinaryOp(ValueType.F64);
-        functionWriter.visitInsn(DADD);
+        function.visitInsn(DADD);
     }
 
     private void translateF64Sub() throws TranslationException {
         applyBinaryOp(ValueType.F64);
-        functionWriter.visitInsn(DSUB);
+        function.visitInsn(DSUB);
     }
 
     private void translateF64Mul() throws TranslationException {
         applyBinaryOp(ValueType.F64);
-        functionWriter.visitInsn(DMUL);
+        function.visitInsn(DMUL);
     }
 
     private void translateF64Div() throws TranslationException {
         applyBinaryOp(ValueType.F64);
-        functionWriter.visitInsn(DDIV);
+        function.visitInsn(DDIV);
     }
 
     private void translateF64Min() throws TranslationException {
         applyBinaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(DD)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "min", "(DD)D", false);
     }
 
     private void translateF64Max() throws TranslationException {
         applyBinaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(DD)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "max", "(DD)D", false);
     }
 
     private void translateF64Copysign() throws TranslationException {
         applyBinaryOp(ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(DD)D", false);
+        function.visitMethodInsn(INVOKESTATIC, MATH_INTERNAL_NAME, "copySign", "(DD)D", false);
     }
 
     private void translateI32WrapI64() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.I32);
-        functionWriter.visitInsn(L2I);
+        function.visitInsn(L2I);
     }
 
     private void translateI32TruncF32S() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_S_NAME, I32_TRUNC_F32_S_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_S_NAME, I32_TRUNC_F32_S_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF32U() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_U_NAME, I32_TRUNC_F32_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F32_U_NAME, I32_TRUNC_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF64S() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_S_NAME, I32_TRUNC_F64_S_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_S_NAME, I32_TRUNC_F64_S_DESCRIPTOR, false);
     }
 
     private void translateI32TruncF64U() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_U_NAME, I32_TRUNC_F64_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_F64_U_NAME, I32_TRUNC_F64_U_DESCRIPTOR, false);
     }
 
     private void translateI64ExtendI32S() throws TranslationException {
         applyUnaryOp(ValueType.I32, ValueType.I64);
-        functionWriter.visitInsn(I2L);
+        function.visitInsn(I2L);
     }
 
     private void translateI64ExtendI32U() throws TranslationException {
         applyUnaryOp(ValueType.I32, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
     }
 
     private void translateI64TruncF32S() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_S_NAME, I64_TRUNC_F32_S_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_S_NAME, I64_TRUNC_F32_S_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF32U() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_U_NAME, I64_TRUNC_F32_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F32_U_NAME, I64_TRUNC_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF64S() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_S_NAME, I64_TRUNC_F64_S_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_S_NAME, I64_TRUNC_F64_S_DESCRIPTOR, false);
     }
 
     private void translateI64TruncF64U() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_U_NAME, I64_TRUNC_F64_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_F64_U_NAME, I64_TRUNC_F64_U_DESCRIPTOR, false);
     }
 
     private void translateF32ConvertI32S() throws TranslationException {
         applyUnaryOp(ValueType.I32, ValueType.F32);
-        functionWriter.visitInsn(I2F);
+        function.visitInsn(I2F);
     }
 
     private void translateF32ConvertI32U() throws TranslationException {
         applyUnaryOp(ValueType.I32, ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
-        functionWriter.visitInsn(L2F);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
+        function.visitInsn(L2F);
     }
 
     private void translateF32ConvertI64S() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.F32);
-        functionWriter.visitInsn(L2F);
+        function.visitInsn(L2F);
     }
 
     private void translateF32ConvertI64U() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F32_CONVERT_I64_U_NAME, F32_CONVERT_I64_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F32_CONVERT_I64_U_NAME, F32_CONVERT_I64_U_DESCRIPTOR, false);
     }
 
     private void translateF32DemoteF64() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.F32);
-        functionWriter.visitInsn(D2F);
+        function.visitInsn(D2F);
     }
 
     private void translateF64ConvertI32S() throws TranslationException {
         applyUnaryOp(ValueType.I32, ValueType.F64);
-        functionWriter.visitInsn(I2D);
+        function.visitInsn(I2D);
     }
 
     private void translateF64ConvertI32U() throws TranslationException {
         applyUnaryOp(ValueType.I32, ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
-        functionWriter.visitInsn(L2D);
+        function.visitMethodInsn(INVOKESTATIC, INTEGER_INTERNAL_NAME, "toUnsignedLong", "(I)J", false);
+        function.visitInsn(L2D);
     }
 
     private void translateF64ConvertI64S() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.F64);
-        functionWriter.visitInsn(L2D);
+        function.visitInsn(L2D);
     }
 
     private void translateF64ConvertI64U() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F64_CONVERT_I64_U_NAME, F64_CONVERT_I64_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, F64_CONVERT_I64_U_NAME, F64_CONVERT_I64_U_DESCRIPTOR, false);
     }
 
     private void translateF64PromoteF32() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.F64);
-        functionWriter.visitInsn(F2D);
+        function.visitInsn(F2D);
     }
 
     private void translateI32ReinterpretF32() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "floatToRawIntBits", "(F)I", false);
+        function.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "floatToRawIntBits", "(F)I", false);
     }
 
     private void translateI64ReinterpretF64() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "doubleToRawLongBits", "(D)J", false);
+        function.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "doubleToRawLongBits", "(D)J", false);
     }
 
     private void translateF32ReinterpretI32() throws TranslationException {
         applyUnaryOp(ValueType.I32, ValueType.F32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "intBitsToFloat", "(I)F", false);
+        function.visitMethodInsn(INVOKESTATIC, FLOAT_INTERNAL_NAME, "intBitsToFloat", "(I)F", false);
     }
 
     private void translateF64ReinterpretI64() throws TranslationException {
         applyUnaryOp(ValueType.I64, ValueType.F64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "longBitsToDouble", "(J)D", false);
+        function.visitMethodInsn(INVOKESTATIC, DOUBLE_INTERNAL_NAME, "longBitsToDouble", "(J)D", false);
     }
 
     private void translateI32Extend8S() throws TranslationException {
         applyUnaryOp(ValueType.I32);
-        functionWriter.visitInsn(I2B);
+        function.visitInsn(I2B);
     }
 
     private void translateI32Extend16S() throws TranslationException {
         applyUnaryOp(ValueType.I32);
-        functionWriter.visitInsn(I2S);
+        function.visitInsn(I2S);
     }
 
     private void translateI64Extend8S() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitInsn(I2B);
-        functionWriter.visitInsn(I2L);
+        function.visitInsn(L2I);
+        function.visitInsn(I2B);
+        function.visitInsn(I2L);
     }
 
     private void translateI64Extend16S() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitInsn(I2S);
-        functionWriter.visitInsn(L2I);
+        function.visitInsn(L2I);
+        function.visitInsn(I2S);
+        function.visitInsn(L2I);
     }
 
     private void translateI64Extend32S() throws TranslationException {
         applyUnaryOp(ValueType.I64);
-        functionWriter.visitInsn(L2I);
-        functionWriter.visitInsn(I2L);
+        function.visitInsn(L2I);
+        function.visitInsn(I2L);
     }
 
     private void translateRefNull() throws TranslationException {
         operandStack.add(reader.nextReferenceType());
-        functionWriter.visitInsn(ACONST_NULL);
+        function.visitInsn(ACONST_NULL);
     }
 
     private void translateRefIsNull() throws TranslationException {
@@ -1747,8 +1747,8 @@ final class FunctionTranslator {
 
     private void translateRefFunc() {
         operandStack.add(ValueType.FUNCREF);
-        var index = reader.nextUnsigned32();
-        functionWriter.visitLdcInsn(new ConstantDynamic("_", METHOD_HANDLE_DESCRIPTOR, ModuleImpl.FUNCTION_REF_BOOTSTRAP, index));
+        var id = reader.nextUnsigned32();
+        function.visitLdcInsn(new ConstantDynamic("_", METHOD_HANDLE_DESCRIPTOR, ModuleImpl.FUNCTION_REF_BOOTSTRAP, id));
     }
 
     private void translateCont() throws TranslationException {
@@ -1777,42 +1777,42 @@ final class FunctionTranslator {
 
     private void translateI32TruncSatF32S() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I32);
-        functionWriter.visitInsn(F2I);
+        function.visitInsn(F2I);
     }
 
     private void translateI32TruncSatF32U() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F32_U_NAME, I32_TRUNC_SAT_F32_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F32_U_NAME, I32_TRUNC_SAT_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI32TruncSatF64S() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I32);
-        functionWriter.visitInsn(D2I);
+        function.visitInsn(D2I);
     }
 
     private void translateI32TruncSatF64U() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I32);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F64_U_NAME, I32_TRUNC_SAT_F64_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I32_TRUNC_SAT_F64_U_NAME, I32_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncSatF32S() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I64);
-        functionWriter.visitInsn(F2L);
+        function.visitInsn(F2L);
     }
 
     private void translateI64TruncSatF32U() throws TranslationException {
         applyUnaryOp(ValueType.F32, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F32_U_NAME, I64_TRUNC_SAT_F32_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F32_U_NAME, I64_TRUNC_SAT_F32_U_DESCRIPTOR, false);
     }
 
     private void translateI64TruncSatF64S() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I64);
-        functionWriter.visitInsn(D2L);
+        function.visitInsn(D2L);
     }
 
     private void translateI64TruncSatF64U() throws TranslationException {
         applyUnaryOp(ValueType.F64, ValueType.I64);
-        functionWriter.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F64_U_NAME, I64_TRUNC_SAT_F64_U_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, InstructionImpls.INTERNAL_NAME, I64_TRUNC_SAT_F64_U_NAME, I64_TRUNC_SAT_F64_U_DESCRIPTOR, false);
     }
 
     private void translateMemoryInit() throws TranslationException {
@@ -1822,7 +1822,7 @@ final class FunctionTranslator {
 
         emitDataFieldLoad(reader.nextUnsigned32());
         emitMemoryFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_METHOD_NAME, Memory.INIT_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_METHOD_NAME, Memory.INIT_METHOD_DESCRIPTOR, false);
     }
 
     private void translateDataDrop() {
@@ -1836,7 +1836,7 @@ final class FunctionTranslator {
 
         emitMemoryFieldLoad(reader.nextUnsigned32());
         emitMemoryFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.COPY_METHOD_NAME, Memory.COPY_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.COPY_METHOD_NAME, Memory.COPY_METHOD_DESCRIPTOR, false);
     }
 
     private void translateMemoryFill() throws TranslationException {
@@ -1845,7 +1845,7 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
 
         emitMemoryFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.FILL_METHOD_NAME, Memory.FILL_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.FILL_METHOD_NAME, Memory.FILL_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableInit() throws TranslationException {
@@ -1855,7 +1855,7 @@ final class FunctionTranslator {
 
         emitElementFieldLoad(reader.nextUnsigned32());
         emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_METHOD_NAME, Table.INIT_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.INIT_METHOD_NAME, Table.INIT_METHOD_DESCRIPTOR, false);
     }
 
     private void translateElemDrop() {
@@ -1869,7 +1869,7 @@ final class FunctionTranslator {
 
         emitTableFieldLoad(reader.nextUnsigned32());
         emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_METHOD_NAME, Table.COPY_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.COPY_METHOD_NAME, Table.COPY_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableGrow() throws TranslationException {
@@ -1878,13 +1878,13 @@ final class FunctionTranslator {
         operandStack.add(ValueType.I32);
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GROW_METHOD_NAME, Table.GROW_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableSize() {
         operandStack.add(ValueType.I32);
         emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SIZE_METHOD_NAME, Table.SIZE_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SIZE_METHOD_NAME, Table.SIZE_METHOD_DESCRIPTOR, false);
     }
 
     private void translateTableFill() throws TranslationException {
@@ -1893,7 +1893,7 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
 
         emitTableFieldLoad(reader.nextUnsigned32());
-        functionWriter.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_METHOD_NAME, Table.FILL_METHOD_DESCRIPTOR, false);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.FILL_METHOD_NAME, Table.FILL_METHOD_DESCRIPTOR, false);
     }
 
     private void checkHasOperand() throws TranslationException {
@@ -1960,10 +1960,10 @@ final class FunctionTranslator {
         checkTopOperand(type);
     }
 
-    private void emitBranch(int index) throws TranslationException {
+    private void emitBranch(int id) throws TranslationException {
         // FIXME: stack fixup code isn't well-tested
 
-        var scope = controlStack.get(controlStack.size() - index - 1);
+        var scope = controlStack.get(controlStack.size() - id - 1);
 
         Label targetLabel;
         List<ValueType> labelParameterTypes;
@@ -1990,39 +1990,39 @@ final class FunctionTranslator {
 
         for (var i = labelParameterTypes.size() - 1; i >= 0; i--) {
             var parameterType = labelParameterTypes.get(i);
-            functionWriter.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
+            function.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
             nextLocalIndex += parameterType.width();
         }
 
         for (var i = operandStack.size() - labelParameterTypes.size() - 1; i > scope.baseOperandStackSize(); i--) {
-            functionWriter.visitInsn(operandStack.get(i).isDoubleWidth() ? POP2 : POP);
+            function.visitInsn(operandStack.get(i).isDoubleWidth() ? POP2 : POP);
         }
 
         for (var parameterType : labelParameterTypes) {
             nextLocalIndex -= parameterType.width();
-            functionWriter.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
+            function.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
-        functionWriter.visitJumpInsn(GOTO, targetLabel);
+        function.visitJumpInsn(GOTO, targetLabel);
     }
 
-    private void emitDataFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + MEMORY_SEGMENT_DESCRIPTOR, ModuleImpl.DATA_FIELD_BOOTSTRAP, index);
+    private void emitDataFieldLoad(int id) {
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + MEMORY_SEGMENT_DESCRIPTOR, ModuleImpl.DATA_FIELD_BOOTSTRAP, id);
     }
 
-    private void emitElementFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + OBJECT_ARRAY_DESCRIPTOR, ModuleImpl.ELEMENT_FIELD_BOOTSTRAP, index);
+    private void emitElementFieldLoad(int id) {
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + OBJECT_ARRAY_DESCRIPTOR, ModuleImpl.ELEMENT_FIELD_BOOTSTRAP, id);
     }
 
-    private void emitMemoryFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + Memory.DESCRIPTOR, ModuleImpl.MEMORY_FIELD_BOOTSTRAP, index);
+    private void emitMemoryFieldLoad(int id) {
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + Memory.DESCRIPTOR, ModuleImpl.MEMORY_FIELD_BOOTSTRAP, id);
     }
 
-    private void emitTableFieldLoad(int index) {
-        functionWriter.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        functionWriter.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + Table.DESCRIPTOR, ModuleImpl.TABLE_FIELD_BOOTSTRAP, index);
+    private void emitTableFieldLoad(int id) {
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + Table.DESCRIPTOR, ModuleImpl.TABLE_FIELD_BOOTSTRAP, id);
     }
 }

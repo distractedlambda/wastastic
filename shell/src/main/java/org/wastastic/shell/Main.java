@@ -12,7 +12,7 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) throws Throwable {
-        var module = Module.read(Path.of("/home/lucas/Documents/lexical-wasm-test/target/wasm32-unknown-unknown/debug/lexical_wasm_test.wasm"));
+        var module = Module.compile(Path.of("/home/lucas/Documents/lexical-wasm-test/target/wasm32-unknown-unknown/debug/lexical_wasm_test.wasm"));
         var instance = (ModuleInstance) module.instantiationHandle().invoke(Map.of());
 
         var memory = (Memory) module.exportedMemoryHandle("memory").get(instance);
