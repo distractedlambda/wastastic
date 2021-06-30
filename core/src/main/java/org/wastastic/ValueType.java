@@ -113,23 +113,23 @@ enum ValueType {
 
     @NotNull String globalGetterDescriptor() {
         return switch (this) {
-            case I32 -> "(Lorg/wastastic/GeneratedModuleInstance;)I";
-            case I64 -> "(Lorg/wastastic/GeneratedModuleInstance;)J";
-            case F32 -> "(Lorg/wastastic/GeneratedModuleInstance;)F";
-            case F64 -> "(Lorg/wastastic/GeneratedModuleInstance;)D";
-            case FUNCREF -> "(Lorg/wastastic/GeneratedModuleInstance;)Ljava/lang/invoke/MethodHandle;";
-            case EXTERNREF -> "(Lorg/wastastic/GeneratedModuleInstance;)Ljava/lang/Object;";
+            case I32 -> "(Lorg/wastastic/ModuleInstance;)I";
+            case I64 -> "(Lorg/wastastic/ModuleInstance;)J";
+            case F32 -> "(Lorg/wastastic/ModuleInstance;)F";
+            case F64 -> "(Lorg/wastastic/ModuleInstance;)D";
+            case FUNCREF -> "(Lorg/wastastic/ModuleInstance;)Ljava/lang/invoke/MethodHandle;";
+            case EXTERNREF -> "(Lorg/wastastic/ModuleInstance;)Ljava/lang/Object;";
         };
     }
 
     @NotNull String globalSetterDescriptor() {
         return switch (this) {
-            case I32 -> "(ILorg/wastastic/GeneratedModuleInstance;)V";
-            case I64 -> "(JLorg/wastastic/GeneratedModuleInstance;)V";
-            case F32 -> "(FLorg/wastastic/GeneratedModuleInstance;)V";
-            case F64 -> "(DLorg/wastastic/GeneratedModuleInstance;)V";
-            case FUNCREF -> "(Ljava/lang/invoke/MethodHandle;Lorg/wastastic/GeneratedModuleInstance;)V";
-            case EXTERNREF -> "(Ljava/lang/Object;Lorg/wastastic/GeneratedModuleInstance;)V";
+            case I32 -> "(ILorg/wastastic/ModuleInstance;)V";
+            case I64 -> "(JLorg/wastastic/ModuleInstance;)V";
+            case F32 -> "(FLorg/wastastic/ModuleInstance;)V";
+            case F64 -> "(DLorg/wastastic/ModuleInstance;)V";
+            case FUNCREF -> "(Ljava/lang/invoke/MethodHandle;Lorg/wastastic/ModuleInstance;)V";
+            case EXTERNREF -> "(Ljava/lang/Object;Lorg/wastastic/ModuleInstance;)V";
         };
     }
 }
