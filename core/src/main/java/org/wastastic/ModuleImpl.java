@@ -15,6 +15,8 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
 
 import static java.lang.invoke.MethodHandles.classData;
 import static java.lang.invoke.MethodHandles.exactInvoker;
@@ -144,6 +146,48 @@ final class ModuleImpl implements Module {
         catch (Throwable exception) {
             throw new TranslationException(exception);
         }
+    }
+
+    private static final StackWalker STACK_WALKER = StackWalker.getInstance(Set.of(StackWalker.Option.SHOW_HIDDEN_FRAMES, StackWalker.Option.RETAIN_CLASS_REFERENCE));
+    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
+
+    static @NotNull StackTraceElement @NotNull[] recoverStackTrace() {
+        return STACK_WALKER.walk(frames -> frames.flatMap(frame -> {
+            var clazz = frame.getDeclaringClass();
+
+            StackTraceElement element;
+            if (clazz.isHidden()) {
+                if (!GeneratedFunction.class.isAssignableFrom(clazz)) {
+                    return Stream.empty();
+                }
+
+                var moduleName = clazz.getAnnotation(GeneratedFunction.ModuleName.class);
+                var functionName = clazz.getAnnotation(GeneratedFunction.FunctionName.class);
+
+                String declaringClass;
+                if (moduleName != null) {
+                    declaringClass = "<WASM module '" + moduleName.value() + "'>";
+                }
+                else {
+                    declaringClass = "<WASM module>";
+                }
+
+                String methodName;
+                if (functionName != null) {
+                    methodName = functionName.value();
+                }
+                else {
+                    methodName = "<unknown>";
+                }
+
+                element = new StackTraceElement(declaringClass, methodName, null, -1);
+            }
+            else {
+                element = frame.toStackTraceElement();
+            }
+
+            return Stream.of(element);
+        }).toArray(StackTraceElement[]::new));
     }
 
     private synchronized @NotNull MethodHandles.Lookup getOrCreateInstance() throws TranslationException {
@@ -311,7 +355,7 @@ final class ModuleImpl implements Module {
 
             writer.visitEnd();
             var bytes = writer.toByteArray();
-            return instanceLookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
+            return instanceLookup = LOOKUP.defineHiddenClassWithClassData(bytes, this, false);
         }
         catch (VirtualMachineError exception) {
             throw exception;
@@ -351,7 +395,7 @@ final class ModuleImpl implements Module {
             }
 
             var bytes = new FunctionTranslator().translate(index, id);
-            var lookup = MethodHandles.lookup().defineHiddenClassWithClassData(bytes, this, false);
+            var lookup = LOOKUP.defineHiddenClassWithClassData(bytes, this, false);
             return functionHandles[id] = lookup.findStatic(lookup.lookupClass(), FUNCTION_CLASS_ENTRY_NAME, methodType);
         }
         catch (TranslationException | VirtualMachineError exception) {

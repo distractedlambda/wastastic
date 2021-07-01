@@ -19,7 +19,8 @@ public final class Main {
         try (var scope = ResourceScope.newConfinedScope()) {
             var path = Path.of("/home/lucas/Documents/lexical-wasm-test/target/wasm32-unknown-unknown/debug/lexical_wasm_test.wasm");
             var module = Module.compile(MemorySegment.mapFile(path, 0, Files.size(path), FileChannel.MapMode.READ_ONLY, scope));
-            // module.precompileFunctions();
+            module.precompileFunctions();
+
             var instance = (ModuleInstance) module.instantiationHandle().invoke(Map.of());
 
             var memory = (Memory) module.exportedMemoryHandle("memory").get(instance);
@@ -34,7 +35,7 @@ public final class Main {
             var dstPtr = (int) allocFn.invokeExact(4, instance);
 
             memory.setBytes(charsPtr, inputBytes);
-            var successful = (int) parseF32Fn.invokeExact(charsPtr, inputBytes.length, dstPtr, instance);
+            var successful = (int) parseF32Fn.invokeExact(charsPtr, inputBytes.length, -1, instance);
 
             System.out.println(memory.getFloat(dstPtr));
 

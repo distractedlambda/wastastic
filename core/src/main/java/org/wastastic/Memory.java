@@ -243,8 +243,13 @@ public final class Memory {
 
     static final String F32_STORE_NAME = "f32Store";
     static final String F32_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, float.class, int.class, Memory.class);
-    static void f32Store(int address, float value, int offset, @NotNull Memory self) {
-        VH_FLOAT.set(self.segment, effectiveAddress(address, offset), value);
+    static void f32Store(int address, float value, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            VH_FLOAT.set(self.segment, effectiveAddress(address, offset), value);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException("out-of-bounds memory access", exception);
+        }
     }
 
     static final String F64_STORE_NAME = "f64Store";

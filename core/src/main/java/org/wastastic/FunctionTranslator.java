@@ -64,7 +64,6 @@ import static org.objectweb.asm.Opcodes.IF_ICMPLE;
 import static org.objectweb.asm.Opcodes.IF_ICMPLT;
 import static org.objectweb.asm.Opcodes.IF_ICMPNE;
 import static org.objectweb.asm.Opcodes.IMUL;
-import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.IOR;
@@ -89,7 +88,6 @@ import static org.objectweb.asm.Opcodes.LSHR;
 import static org.objectweb.asm.Opcodes.LSUB;
 import static org.objectweb.asm.Opcodes.LUSHR;
 import static org.objectweb.asm.Opcodes.LXOR;
-import static org.objectweb.asm.Opcodes.NEW;
 import static org.objectweb.asm.Opcodes.POP;
 import static org.objectweb.asm.Opcodes.POP2;
 import static org.objectweb.asm.Opcodes.SWAP;
@@ -377,7 +375,19 @@ final class FunctionTranslator {
         reader = new WasmReader(index.functionBodies().get(functionId - index.importedFunctions().size()));
 
         var classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
-        classWriter.visit(V17, ACC_FINAL, GENERATED_FUNCTION_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, null);
+        classWriter.visit(V17, ACC_FINAL, GENERATED_FUNCTION_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, new String[]{GeneratedFunction.INTERNAL_NAME});
+
+        if (index.moduleName() != null) {
+            var nameAnnotation = classWriter.visitAnnotation(GeneratedFunction.ModuleName.DESCRIPTOR, true);
+            nameAnnotation.visit("value", index.moduleName());
+            nameAnnotation.visitEnd();
+        }
+
+        if (index.functionNames().get(functionId) != null) {
+            var nameAnnotation = classWriter.visitAnnotation(GeneratedFunction.FunctionName.DESCRIPTOR, true);
+            nameAnnotation.visit("value", index.functionNames().get(functionId));
+            nameAnnotation.visitEnd();
+        }
 
         function = classWriter.visitMethod(
             ACC_PRIVATE | ACC_STATIC,
@@ -624,9 +634,7 @@ final class FunctionTranslator {
     }
 
     private void translateUnreachable() {
-        function.visitTypeInsn(NEW, UnreachableException.INTERNAL_NAME);
-        function.visitInsn(DUP);
-        function.visitMethodInsn(INVOKESPECIAL, UnreachableException.INTERNAL_NAME, "<init>", "()V", false);
+        function.visitMethodInsn(INVOKESTATIC, TrapException.INTERNAL_NAME, TrapException.UNREACHABLE_NAME, TrapException.UNREACHABLE_DESCRIPTOR, false);
         function.visitInsn(ATHROW);
         last(controlStack).markRestUnreachable();
     }
