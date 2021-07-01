@@ -26,9 +26,6 @@ public final class Memory {
     static final VarHandle VH_FLOAT = MemoryHandles.varHandle(float.class, 1, LITTLE_ENDIAN);
     static final VarHandle VH_DOUBLE = MemoryHandles.varHandle(double.class, 1, LITTLE_ENDIAN);
 
-    static final String SEGMENT_FIELD_NAME = "segment";
-    static final String SEGMENT_FIELD_DESCRIPTOR = getDescriptor(MemorySegment.class);
-
     final int maxPageCount;
     @NotNull MemorySegment segment;
 
@@ -147,155 +144,260 @@ public final class Memory {
 
     static final String I32_LOAD_NAME = "i32Load";
     static final String I32_LOAD_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
-    static int i32Load(int address, int offset, @NotNull Memory self) {
-        return (int) VH_INT.get(self.segment, effectiveAddress(address, offset));
+
+    @SuppressWarnings("unused")
+    static int i32Load(int address, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            return (int) VH_INT.get(self.segment, effectiveAddress(address, offset));
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String I64_LOAD_NAME = "i64Load";
     static final String I64_LOAD_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
-    static long i64Load(int address, int offset, @NotNull Memory self) {
-        return (long) VH_LONG.get(self.segment, effectiveAddress(address, offset));
+
+    @SuppressWarnings("unused")
+    static long i64Load(int address, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            return (long) VH_LONG.get(self.segment, effectiveAddress(address, offset));
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String F32_LOAD_NAME = "f32Load";
     static final String F32_LOAD_DESCRIPTOR = methodDescriptor(float.class, int.class, int.class, Memory.class);
-    static float f32Load(int address, int offset, @NotNull Memory self) {
-        return (float) VH_FLOAT.get(self.segment, effectiveAddress(address, offset));
+
+    @SuppressWarnings("unused")
+    static float f32Load(int address, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            return (float) VH_FLOAT.get(self.segment, effectiveAddress(address, offset));
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String F64_LOAD_NAME = "f64Load";
     static final String F64_LOAD_DESCRIPTOR = methodDescriptor(double.class, int.class, int.class, Memory.class);
-    static double f64Load(int address, int offset, @NotNull Memory self) {
-        return (double) VH_DOUBLE.get(self.segment, effectiveAddress(address, offset));
+
+    @SuppressWarnings("unused")
+    static double f64Load(int address, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            return (double) VH_DOUBLE.get(self.segment, effectiveAddress(address, offset));
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String I32_LOAD_8_S_NAME = "i32Load8S";
     static final String I32_LOAD_8_S_DESCRIPTOR = methodDescriptor(byte.class, int.class, int.class, Memory.class);
-    static byte i32Load8S(int address, int offset, @NotNull Memory self) {
-        return (byte) VH_BYTE.get(self.segment, effectiveAddress(address, offset));
+
+    @SuppressWarnings("unused")
+    static byte i32Load8S(int address, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            return (byte) VH_BYTE.get(self.segment, effectiveAddress(address, offset));
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String I32_LOAD_8_U_NAME = "i32Load8U";
     static final String I32_LOAD_8_U_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
-    static int i32Load8U(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static int i32Load8U(int address, int offset, @NotNull Memory self) throws TrapException {
         return Byte.toUnsignedInt(i32Load8S(address, offset, self));
     }
 
     static final String I32_LOAD_16_S_NAME = "i32Load16S";
     static final String I32_LOAD_16_S_DESCRIPTOR = methodDescriptor(short.class, int.class, int.class, Memory.class);
-    static short i32Load16S(int address, int offset, @NotNull Memory self) {
-        return (short) VH_SHORT.get(self.segment, effectiveAddress(address, offset));
+
+    @SuppressWarnings("unused")
+    static short i32Load16S(int address, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            return (short) VH_SHORT.get(self.segment, effectiveAddress(address, offset));
+        }
+        catch (IndexOutOfBoundsException exception){
+            throw new TrapException(exception);
+        }
     }
 
     static final String I32_LOAD_16_U_NAME = "i32Load16U";
     static final String I32_LOAD_16_U_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
-    static int i32Load16U(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static int i32Load16U(int address, int offset, @NotNull Memory self) throws TrapException {
         return Short.toUnsignedInt(i32Load16S(address, offset, self));
     }
 
     static final String I64_LOAD_8_S_NAME = "i64Load8S";
     static final String I64_LOAD_8_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
-    static long i64Load8S(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static long i64Load8S(int address, int offset, @NotNull Memory self) throws TrapException {
         return i32Load8S(address, offset, self);
     }
 
     static final String I64_LOAD_8_U_NAME = "i64Load8U";
     static final String I64_LOAD_8_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
-    static long i64Load8U(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static long i64Load8U(int address, int offset, @NotNull Memory self) throws TrapException {
         return Byte.toUnsignedLong(i32Load8S(address, offset, self));
     }
 
     static final String I64_LOAD_16_S_NAME = "i64Load16S";
     static final String I64_LOAD_16_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
-    static long i64Load16S(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static long i64Load16S(int address, int offset, @NotNull Memory self) throws TrapException {
         return i32Load16S(address, offset, self);
     }
 
     static final String I64_LOAD_16_U_NAME = "i64Load16U";
     static final String I64_LOAD_16_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
-    static long i64Load16U(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static long i64Load16U(int address, int offset, @NotNull Memory self) throws TrapException {
         return Short.toUnsignedLong(i32Load16S(address, offset, self));
     }
 
     static final String I64_LOAD_32_S_NAME = "i64Load32S";
     static final String I64_LOAD_32_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
-    static long i64Load32S(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static long i64Load32S(int address, int offset, @NotNull Memory self) throws TrapException {
         return i32Load(address, offset, self);
     }
 
     static final String I64_LOAD_32_U_NAME = "i64Load32U";
     static final String I64_LOAD_32_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
-    static long i64Load32U(int address, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static long i64Load32U(int address, int offset, @NotNull Memory self) throws TrapException {
         return Integer.toUnsignedLong(i32Load(address, offset, self));
     }
 
     static final String I32_STORE_NAME = "i32Store";
     static final String I32_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Memory.class);
-    static void i32Store(int address, int value, int offset, @NotNull Memory self) {
-        VH_INT.set(self.segment, effectiveAddress(address, offset), value);
+
+    @SuppressWarnings("unused")
+    static void i32Store(int address, int value, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            VH_INT.set(self.segment, effectiveAddress(address, offset), value);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String I64_STORE_NAME = "i64Store";
     static final String I64_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
-    static void i64Store(int address, long value, int offset, @NotNull Memory self) {
-        VH_LONG.set(self.segment, effectiveAddress(address, offset), value);
+
+    @SuppressWarnings("unused")
+    static void i64Store(int address, long value, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            VH_LONG.set(self.segment, effectiveAddress(address, offset), value);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String F32_STORE_NAME = "f32Store";
     static final String F32_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, float.class, int.class, Memory.class);
+
+    @SuppressWarnings("unused")
     static void f32Store(int address, float value, int offset, @NotNull Memory self) throws TrapException {
         try {
             VH_FLOAT.set(self.segment, effectiveAddress(address, offset), value);
         }
         catch (IndexOutOfBoundsException exception) {
-            throw new TrapException("out-of-bounds memory access", exception);
+            throw new TrapException(exception);
         }
     }
 
     static final String F64_STORE_NAME = "f64Store";
     static final String F64_STORE_DESCRIPTOR = methodDescriptor(void.class, int.class, double.class, int.class, Memory.class);
-    static void f64Store(int address, double value, int offset, @NotNull Memory self) {
-        VH_DOUBLE.set(self.segment, effectiveAddress(address, offset), value);
+
+    @SuppressWarnings("unused")
+    static void f64Store(int address, double value, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            VH_DOUBLE.set(self.segment, effectiveAddress(address, offset), value);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String I32_STORE_8_NAME = "i32Store8";
     static final String I32_STORE_8_DESCRIPTOR = methodDescriptor(void.class, int.class, byte.class, int.class, Memory.class);
-    static void i32Store8(int address, byte value, int offset, @NotNull Memory self) {
-        VH_BYTE.set(self.segment, effectiveAddress(address, offset), value);
+
+    @SuppressWarnings("unused")
+    static void i32Store8(int address, byte value, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            VH_BYTE.set(self.segment, effectiveAddress(address, offset), value);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String I32_STORE_16_NAME = "i32Store16";
     static final String I32_STORE_16_DESCRIPTOR = methodDescriptor(void.class, int.class, short.class, int.class, Memory.class);
-    static void i32Store16(int address, short value, int offset, @NotNull Memory self) {
-        VH_SHORT.set(self.segment, effectiveAddress(address, offset), value);
+
+    @SuppressWarnings("unused")
+    static void i32Store16(int address, short value, int offset, @NotNull Memory self) throws TrapException {
+        try {
+            VH_SHORT.set(self.segment, effectiveAddress(address, offset), value);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String I64_STORE_8_NAME = "i64Store8";
     static final String I64_STORE_8_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
-    static void i64Store8(int address, long value, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static void i64Store8(int address, long value, int offset, @NotNull Memory self) throws TrapException {
         i32Store8(address, (byte) value, offset, self);
     }
 
     static final String I64_STORE_16_NAME = "i64Store16";
     static final String I64_STORE_16_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
-    static void i64Store16(int address, long value, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static void i64Store16(int address, long value, int offset, @NotNull Memory self) throws TrapException {
         i32Store16(address, (short) value, offset, self);
     }
 
     static final String I64_STORE_32_NAME = "i64Store32";
     static final String I64_STORE_32_DESCRIPTOR = methodDescriptor(void.class, int.class, long.class, int.class, Memory.class);
-    static void i64Store32(int address, long value, int offset, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static void i64Store32(int address, long value, int offset, @NotNull Memory self) throws TrapException {
         i32Store(address, (int) value, offset, self);
     }
 
     static final String SIZE_METHOD_NAME = "size";
     static final String SIZE_METHOD_DESCRIPTOR = methodDescriptor(int.class, Memory.class);
+
+    @SuppressWarnings("unused")
     static int size(@NotNull Memory self) {
         return (int) (self.segment.byteSize() / PAGE_SIZE);
     }
 
     static final String GROW_METHOD_NAME = "grow";
     static final String GROW_METHOD_DESCRIPTOR = methodDescriptor(int.class, int.class, Memory.class);
+
+    @SuppressWarnings("unused")
     static int grow(int additionalPages, @NotNull Memory self) {
         var segment = self.segment;
         var currentPageCount = segment.byteSize() / PAGE_SIZE;
@@ -325,30 +427,58 @@ public final class Memory {
 
     static final String INIT_METHOD_NAME = "init";
     static final String INIT_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, MemorySegment.class, Memory.class);
-    static void init(int dstAddress, int srcAddress, int size, @NotNull MemorySegment src, @NotNull Memory self) {
+
+    @SuppressWarnings("unused")
+    static void init(int dstAddress, int srcAddress, int size, @NotNull MemorySegment src, @NotNull Memory self) throws TrapException {
         var longSize = Integer.toUnsignedLong(size);
-        var dstSlice = self.segment.asSlice(Integer.toUnsignedLong(dstAddress), longSize);
-        var srcSlice = src.asSlice(Integer.toUnsignedLong(srcAddress), longSize);
-        dstSlice.copyFrom(srcSlice);
+        try {
+            var dstSlice = self.segment.asSlice(Integer.toUnsignedLong(dstAddress), longSize);
+            var srcSlice = src.asSlice(Integer.toUnsignedLong(srcAddress), longSize);
+            dstSlice.copyFrom(srcSlice);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String INIT_FROM_ACTIVE_NAME = "initFromActive";
     static final String INIT_FROM_ACTIVE_DESCRIPTOR = methodDescriptor(void.class, MemorySegment.class, int.class, Memory.class);
-    static void initFromActive(@NotNull MemorySegment data, int dstAddress, @NotNull Memory self) {
-        self.segment.asSlice(Integer.toUnsignedLong(dstAddress)).copyFrom(data);
+
+    @SuppressWarnings("unused")
+    static void initFromActive(@NotNull MemorySegment data, int dstAddress, @NotNull Memory self) throws TrapException {
+        try {
+            self.segment.asSlice(Integer.toUnsignedLong(dstAddress)).copyFrom(data);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String FILL_METHOD_NAME = "fill";
     static final String FILL_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, byte.class, int.class, Memory.class);
-    static void fill(int dstAddress, byte fillValue, int size, @NotNull Memory self) {
-        self.segment.asSlice(Integer.toUnsignedLong(dstAddress), Integer.toUnsignedLong(size)).fill(fillValue);
+
+    @SuppressWarnings("unused")
+    static void fill(int dstAddress, byte fillValue, int size, @NotNull Memory self) throws TrapException {
+        try {
+            self.segment.asSlice(Integer.toUnsignedLong(dstAddress), Integer.toUnsignedLong(size)).fill(fillValue);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String COPY_METHOD_NAME = "copy";
     static final String COPY_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Memory.class);
-    static void copy(int dstAddress, int srcAddress, int size, @NotNull Memory dst, @NotNull Memory src) {
-        var dstSegment = dst.segment.asSlice(Integer.toUnsignedLong(dstAddress));
-        var srcSegment = src.segment.asSlice(Integer.toUnsignedLong(srcAddress), Integer.toUnsignedLong(size));
-        dstSegment.copyFrom(srcSegment);
+
+    @SuppressWarnings("unused")
+    static void copy(int dstAddress, int srcAddress, int size, @NotNull Memory dst, @NotNull Memory src) throws TrapException {
+        try {
+            var dstSegment = dst.segment.asSlice(Integer.toUnsignedLong(dstAddress));
+            var srcSegment = src.segment.asSlice(Integer.toUnsignedLong(srcAddress), Integer.toUnsignedLong(size));
+            dstSegment.copyFrom(srcSegment);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 }

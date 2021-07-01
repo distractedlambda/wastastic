@@ -1,7 +1,6 @@
 package org.wastastic;
 
 import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
@@ -352,6 +351,7 @@ final class WasmReader {
     }
 
     void nextElementKind() throws TranslationException {
+        // FIXME this should be getting used somewhere
         if (nextByte() != 0) {
             throw new TranslationException("Unsupported elemkind");
         }

@@ -31,7 +31,7 @@ public final class Main {
 
             var input = "3.141592";
             var inputBytes = input.getBytes(StandardCharsets.UTF_8);
-            var charsPtr = (int) allocFn.invokeExact(inputBytes.length, instance);
+            var charsPtr = (int) allocFn.invokeExact(-1, instance);
             var dstPtr = (int) allocFn.invokeExact(4, instance);
 
             memory.setBytes(charsPtr, inputBytes);

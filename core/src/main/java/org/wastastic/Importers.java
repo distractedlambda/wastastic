@@ -32,6 +32,8 @@ final class Importers {
 
     static final String IMPORT_FUNCTION_NAME = "importFunction";
     static final String IMPORT_FUNCTION_DESCRIPTOR = methodDescriptor(MethodHandle.class, Map.class, String.class, String.class, MethodType.class);
+
+    @SuppressWarnings("unused")
     static @NotNull MethodHandle importFunction(
         @NotNull Map<QualifiedName, Object> imports,
         @NotNull String moduleName,
@@ -52,6 +54,8 @@ final class Importers {
 
     static final String IMPORT_TABLE_NAME = "importTable";
     static final String IMPORT_TABLE_DESCRIPTOR = methodDescriptor(Table.class, Map.class, String.class, String.class);
+
+    @SuppressWarnings("unused")
     static @NotNull Table importTable(
         @NotNull Map<QualifiedName, Object> imports,
         @NotNull String moduleName,
@@ -68,6 +72,8 @@ final class Importers {
 
     static final String IMPORT_MEMORY_NAME = "importMemory";
     static final String IMPORT_MEMORY_DESCRIPTOR = methodDescriptor(Memory.class, Map.class, String.class, String.class);
+
+    @SuppressWarnings("unused")
     static @NotNull Memory importMemory(
         @NotNull Map<QualifiedName, Object> imports,
         @NotNull String moduleName,

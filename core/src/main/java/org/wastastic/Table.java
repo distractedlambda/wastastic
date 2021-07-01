@@ -35,16 +35,26 @@ public final class Table {
     static final String GET_DESCRIPTOR = methodDescriptor(Object.class, int.class, Table.class);
 
     @SuppressWarnings("unused")
-    static @Nullable Object get(int index, @NotNull Table self) {
-        return self.storage[index];
+    static @Nullable Object get(int index, @NotNull Table self) throws TrapException {
+        try {
+            return self.storage[index];
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String SET_NAME = "set";
     static final String SET_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, Table.class);
 
     @SuppressWarnings("unused")
-    static void set(int index, @Nullable Object value, @NotNull Table self) {
-        self.storage[index] = value;
+    static void set(int index, @Nullable Object value, @NotNull Table self) throws TrapException {
+        try {
+            self.storage[index] = value;
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String SIZE_METHOD_NAME = "size";
@@ -89,33 +99,53 @@ public final class Table {
     static final String FILL_DESCRIPTOR = methodDescriptor(void.class, int.class, Object.class, int.class, Table.class);
 
     @SuppressWarnings("unused")
-    static void fill(int startIndex, @Nullable Object fillValue, int count, @NotNull Table self) {
+    static void fill(int startIndex, @Nullable Object fillValue, int count, @NotNull Table self) throws TrapException {
         var storage = self.storage;
-        checkFromIndexSize(startIndex, count, storage.length);
-        Arrays.fill(storage, startIndex, startIndex + count, fillValue);
+        try {
+            checkFromIndexSize(startIndex, count, storage.length);
+            Arrays.fill(storage, startIndex, startIndex + count, fillValue);
+        }
+        catch (IndexOutOfBoundsException | IllegalArgumentException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String COPY_NAME = "copy";
     static final String COPY_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Table.class, Table.class);
 
     @SuppressWarnings("unused")
-    static void copy(int dstIndex, int srcIndex, int count, @NotNull Table src, @NotNull Table dst) {
-        arraycopy(src.storage, srcIndex, dst.storage, dstIndex, count);
+    static void copy(int dstIndex, int srcIndex, int count, @NotNull Table src, @NotNull Table dst) throws TrapException {
+        try {
+            arraycopy(src.storage, srcIndex, dst.storage, dstIndex, count);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String INIT_NAME = "init";
     static final String INIT_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, Object[].class, Table.class);
 
     @SuppressWarnings("unused")
-    static void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) {
-        arraycopy(src, srcIndex, self.storage, dstIndex, count);
+    static void init(int dstIndex, int srcIndex, int count, @Nullable Object @NotNull[] src, @NotNull Table self) throws TrapException {
+        try {
+            arraycopy(src, srcIndex, self.storage, dstIndex, count);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 
     static final String INIT_FROM_ACTIVE_NAME = "initFromActive";
     static final String INIT_FROM_ACTIVE_DESCRIPTOR = methodDescriptor(void.class, Object[].class, int.class, Table.class);
 
     @SuppressWarnings("unused")
-    static void initFromActive(@Nullable Object @NotNull[] element, int offset, @NotNull Table self) {
-        arraycopy(element, 0, self.storage, offset, element.length);
+    static void initFromActive(@Nullable Object @NotNull[] element, int offset, @NotNull Table self) throws TrapException {
+        try {
+            arraycopy(element, 0, self.storage, offset, element.length);
+        }
+        catch (IndexOutOfBoundsException exception) {
+            throw new TrapException(exception);
+        }
     }
 }
