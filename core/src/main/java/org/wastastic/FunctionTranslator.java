@@ -922,70 +922,70 @@ final class FunctionTranslator {
         function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.SET_NAME, Table.SET_DESCRIPTOR, false);
     }
 
-    private void translateLoad(@NotNull ValueType resultType, @NotNull String name, @NotNull String descriptor) throws TranslationException {
+    private void translateLoad(@NotNull ValueType resultType, @NotNull String name) throws TranslationException {
         applyUnaryOp(ValueType.I32, resultType);
 
         reader.nextUnsigned32(); // expected alignment (ignored)
-        pushI32Constant(function, reader.nextUnsigned32()); // offset
+        var offset = reader.nextUnsigned32();
 
-        emitMemoryFieldLoad(0);
-        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, name, descriptor, false);
+        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
+        function.visitInvokeDynamicInsn(name, "(I" + MODULE_INSTANCE_DESCRIPTOR + ")" + resultType.descriptor(), ModuleImpl.MEMORY_LOAD_BOOTSTRAP, 0, offset);
     }
 
     private void translateI32Load() throws TranslationException {
-        translateLoad(ValueType.I32, Memory.I32_LOAD_NAME, Memory.I32_LOAD_DESCRIPTOR);
+        translateLoad(ValueType.I32, Memory.I32_LOAD_NAME);
     }
 
     private void translateI64Load() throws TranslationException {
-        translateLoad(ValueType.I64, Memory.I64_LOAD_NAME, Memory.I64_LOAD_DESCRIPTOR);
+        translateLoad(ValueType.I64, Memory.I64_LOAD_NAME);
     }
 
     private void translateF32Load() throws TranslationException {
-        translateLoad(ValueType.F32, Memory.F32_LOAD_NAME, Memory.F32_LOAD_DESCRIPTOR);
+        translateLoad(ValueType.F32, Memory.F32_LOAD_NAME);
     }
 
     private void translateF64Load() throws TranslationException {
-        translateLoad(ValueType.F64, Memory.F64_LOAD_NAME, Memory.F64_LOAD_DESCRIPTOR);
+        translateLoad(ValueType.F64, Memory.F64_LOAD_NAME);
     }
 
     private void translateI32Load8S() throws TranslationException {
-        translateLoad(ValueType.I32, Memory.I32_LOAD_8_S_NAME, Memory.I32_LOAD_8_S_DESCRIPTOR);
+        translateLoad(ValueType.I32, Memory.I32_LOAD_8_S_NAME);
     }
 
     private void translateI32Load8U() throws TranslationException {
-        translateLoad(ValueType.I32, Memory.I32_LOAD_8_U_NAME, Memory.I32_LOAD_8_U_DESCRIPTOR);
+        translateLoad(ValueType.I32, Memory.I32_LOAD_8_U_NAME);
     }
 
     private void translateI32Load16S() throws TranslationException {
-        translateLoad(ValueType.I32, Memory.I32_LOAD_16_S_NAME, Memory.I32_LOAD_16_S_DESCRIPTOR);
+        translateLoad(ValueType.I32, Memory.I32_LOAD_16_S_NAME);
     }
 
     private void translateI32Load16U() throws TranslationException {
-        translateLoad(ValueType.I32, Memory.I32_LOAD_16_U_NAME, Memory.I32_LOAD_16_U_DESCRIPTOR);
+        translateLoad(ValueType.I32, Memory.I32_LOAD_16_U_NAME);
     }
 
     private void translateI64Load8S() throws TranslationException {
-        translateLoad(ValueType.I64, Memory.I64_LOAD_8_S_NAME, Memory.I64_LOAD_8_S_DESCRIPTOR);
+        translateLoad(ValueType.I64, Memory.I64_LOAD_8_S_NAME);
     }
 
     private void translateI64Load8U() throws TranslationException {
-        translateLoad(ValueType.I64, Memory.I64_LOAD_8_U_NAME, Memory.I64_LOAD_8_U_DESCRIPTOR);
+        translateLoad(ValueType.I64, Memory.I64_LOAD_8_U_NAME);
     }
 
     private void translateI64Load16S() throws TranslationException {
-        translateLoad(ValueType.I64, Memory.I64_LOAD_16_S_NAME, Memory.I64_LOAD_16_S_DESCRIPTOR);
+        translateLoad(ValueType.I64, Memory.I64_LOAD_16_S_NAME);
     }
 
     private void translateI64Load16U() throws TranslationException {
-        translateLoad(ValueType.I64, Memory.I64_LOAD_16_U_NAME, Memory.I64_LOAD_16_U_DESCRIPTOR);
+        translateLoad(ValueType.I64, Memory.I64_LOAD_16_U_NAME);
     }
 
     private void translateI64Load32S() throws TranslationException {
-        translateLoad(ValueType.I64, Memory.I64_LOAD_32_S_NAME, Memory.I64_LOAD_32_S_DESCRIPTOR);
+        translateLoad(ValueType.I64, Memory.I64_LOAD_32_S_NAME);
     }
 
     private void translateI64Load32U() throws TranslationException {
-        translateLoad(ValueType.I64, Memory.I64_LOAD_32_U_NAME, Memory.I64_LOAD_32_U_DESCRIPTOR);
+        translateLoad(ValueType.I64, Memory.I64_LOAD_32_U_NAME);
     }
 
     private void translateStore(@NotNull ValueType operandType, @NotNull String name, @NotNull String descriptor) throws TranslationException {

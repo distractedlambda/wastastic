@@ -19,6 +19,7 @@ import java.util.Map;
 import static java.lang.invoke.MethodHandles.classData;
 import static java.lang.invoke.MethodHandles.exactInvoker;
 import static java.lang.invoke.MethodHandles.filterArguments;
+import static java.lang.invoke.MethodHandles.insertArguments;
 import static java.lang.invoke.MethodHandles.permuteArguments;
 import static java.lang.invoke.MethodType.methodType;
 import static java.util.Objects.requireNonNull;
@@ -433,6 +434,15 @@ final class ModuleImpl implements Module {
     @SuppressWarnings("unused") static @NotNull MethodHandle functionRefBootstrap(@NotNull MethodHandles.Lookup lookup, String name, Class<?> clazz, int id) throws IllegalAccessException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
         return module.getOrCreateFunction(id);
+    }
+
+    static final Handle MEMORY_LOAD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "memoryLoadBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class, int.class), false);
+    @SuppressWarnings("unused") static @NotNull CallSite memoryLoadBootstrap(@NotNull MethodHandles.Lookup lookup, @NotNull String name, @NotNull MethodType expectedMethodType, int memoryId, int offset) throws IllegalAccessException, TranslationException, NoSuchFieldException, NoSuchMethodException {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var instanceLookup = module.getOrCreateInstance();
+        var fieldGetter = instanceLookup.findGetter(instanceLookup.lookupClass(), memoryName(memoryId), Memory.class).asType(methodType(Memory.class, ModuleInstance.class));
+        var accessor = lookup.findStatic(Memory.class, name, methodType(expectedMethodType.returnType(), int.class, int.class, Memory.class));
+        return new ConstantCallSite(insertArguments(filterArguments(accessor, 2, fieldGetter), 1, offset));
     }
 
     private static final Handle DATA_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "dataBootstrap", methodDescriptor(MemorySegment.class, MethodHandles.Lookup.class, String.class, Class.class, int.class), false);

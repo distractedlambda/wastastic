@@ -143,7 +143,6 @@ public final class Memory {
     }
 
     static final String I32_LOAD_NAME = "i32Load";
-    static final String I32_LOAD_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static int i32Load(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -156,7 +155,6 @@ public final class Memory {
     }
 
     static final String I64_LOAD_NAME = "i64Load";
-    static final String I64_LOAD_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static long i64Load(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -169,7 +167,6 @@ public final class Memory {
     }
 
     static final String F32_LOAD_NAME = "f32Load";
-    static final String F32_LOAD_DESCRIPTOR = methodDescriptor(float.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static float f32Load(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -182,7 +179,6 @@ public final class Memory {
     }
 
     static final String F64_LOAD_NAME = "f64Load";
-    static final String F64_LOAD_DESCRIPTOR = methodDescriptor(double.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static double f64Load(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -195,7 +191,6 @@ public final class Memory {
     }
 
     static final String I32_LOAD_8_S_NAME = "i32Load8S";
-    static final String I32_LOAD_8_S_DESCRIPTOR = methodDescriptor(byte.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static byte i32Load8S(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -208,7 +203,6 @@ public final class Memory {
     }
 
     static final String I32_LOAD_8_U_NAME = "i32Load8U";
-    static final String I32_LOAD_8_U_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static int i32Load8U(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -216,7 +210,6 @@ public final class Memory {
     }
 
     static final String I32_LOAD_16_S_NAME = "i32Load16S";
-    static final String I32_LOAD_16_S_DESCRIPTOR = methodDescriptor(short.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static short i32Load16S(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -229,7 +222,6 @@ public final class Memory {
     }
 
     static final String I32_LOAD_16_U_NAME = "i32Load16U";
-    static final String I32_LOAD_16_U_DESCRIPTOR = methodDescriptor(int.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static int i32Load16U(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -237,7 +229,6 @@ public final class Memory {
     }
 
     static final String I64_LOAD_8_S_NAME = "i64Load8S";
-    static final String I64_LOAD_8_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static long i64Load8S(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -245,7 +236,6 @@ public final class Memory {
     }
 
     static final String I64_LOAD_8_U_NAME = "i64Load8U";
-    static final String I64_LOAD_8_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static long i64Load8U(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -253,7 +243,6 @@ public final class Memory {
     }
 
     static final String I64_LOAD_16_S_NAME = "i64Load16S";
-    static final String I64_LOAD_16_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static long i64Load16S(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -261,7 +250,6 @@ public final class Memory {
     }
 
     static final String I64_LOAD_16_U_NAME = "i64Load16U";
-    static final String I64_LOAD_16_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static long i64Load16U(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -269,7 +257,6 @@ public final class Memory {
     }
 
     static final String I64_LOAD_32_S_NAME = "i64Load32S";
-    static final String I64_LOAD_32_S_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static long i64Load32S(int address, int offset, @NotNull Memory self) throws TrapException {
@@ -277,7 +264,6 @@ public final class Memory {
     }
 
     static final String I64_LOAD_32_U_NAME = "i64Load32U";
-    static final String I64_LOAD_32_U_DESCRIPTOR = methodDescriptor(long.class, int.class, int.class, Memory.class);
 
     @SuppressWarnings("unused")
     static long i64Load32U(int address, int offset, @NotNull Memory self) throws TrapException {
