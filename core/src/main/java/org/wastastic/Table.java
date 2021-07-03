@@ -17,6 +17,7 @@ public final class Table {
 
     static final String INTERNAL_NAME = getInternalName(Table.class);
     static final String DESCRIPTOR = getDescriptor(Table.class);
+    static final String FIELD_GETTER_DESCRIPTOR = methodDescriptor(Table.class, ModuleInstance.class);
 
     public Table(int initialSize, int maxSize) {
         if (Integer.compareUnsigned(initialSize, maxSize) > 0) {

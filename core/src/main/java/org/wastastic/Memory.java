@@ -26,8 +26,8 @@ public final class Memory {
     static final VarHandle VH_FLOAT = MemoryHandles.varHandle(float.class, 1, LITTLE_ENDIAN);
     static final VarHandle VH_DOUBLE = MemoryHandles.varHandle(double.class, 1, LITTLE_ENDIAN);
 
-    final int maxPageCount;
-    @NotNull MemorySegment segment;
+    private final int maxPageCount;
+    private @NotNull MemorySegment segment;
 
     public Memory(int minPageCount, int maxPageCount) {
         if (compareUnsigned(minPageCount, maxPageCount) > 0) {

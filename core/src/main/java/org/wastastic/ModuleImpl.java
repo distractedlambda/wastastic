@@ -7,6 +7,7 @@ import org.jetbrains.annotations.Nullable;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.ConstantDynamic;
 import org.objectweb.asm.Handle;
+import org.objectweb.asm.Label;
 
 import java.lang.invoke.CallSite;
 import java.lang.invoke.ConstantCallSite;
@@ -25,13 +26,19 @@ import static java.lang.invoke.MethodType.methodType;
 import static java.util.Objects.requireNonNull;
 import static org.objectweb.asm.Opcodes.ACC_FINAL;
 import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
+import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACONST_NULL;
 import static org.objectweb.asm.Opcodes.ALOAD;
+import static org.objectweb.asm.Opcodes.ATHROW;
+import static org.objectweb.asm.Opcodes.CHECKCAST;
 import static org.objectweb.asm.Opcodes.DUP;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.H_INVOKESTATIC;
+import static org.objectweb.asm.Opcodes.IFNULL;
+import static org.objectweb.asm.Opcodes.ILOAD;
 import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
+import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.NEW;
 import static org.objectweb.asm.Opcodes.PUTFIELD;
 import static org.objectweb.asm.Opcodes.RETURN;
@@ -49,13 +56,16 @@ import static org.wastastic.Importers.IMPORT_MEMORY_NAME;
 import static org.wastastic.Importers.IMPORT_TABLE_DESCRIPTOR;
 import static org.wastastic.Importers.IMPORT_TABLE_NAME;
 import static org.wastastic.Names.FUNCTION_CLASS_ENTRY_NAME;
+import static org.wastastic.Names.GENERATED_FUNCTION_INTERNAL_NAME;
 import static org.wastastic.Names.GENERATED_INSTANCE_CONSTRUCTOR_DESCRIPTOR;
 import static org.wastastic.Names.GENERATED_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
+import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
 import static org.wastastic.Names.MODULE_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
+import static org.wastastic.Names.WRONG_METHOD_TYPE_EXCEPTION_INTERNAL_NAME;
 import static org.wastastic.Names.dataSegmentName;
 import static org.wastastic.Names.elementSegmentName;
 import static org.wastastic.Names.functionName;
@@ -305,7 +315,7 @@ final class ModuleImpl implements Module {
 
             if (index.startFunctionId() != null) {
                 constructor.visitVarInsn(ALOAD, 0);
-                constructor.visitInvokeDynamicInsn("_", index.functionType(index.startFunctionId()).descriptor(), FUNCTION_BOOTSTRAP, index.startFunctionId());
+                constructor.visitInvokeDynamicInsn("_", index.functionType(index.startFunctionId()).descriptor(), DIRECT_CALL_BOOTSTRAP, index.startFunctionId());
             }
 
             constructor.visitInsn(RETURN);
@@ -367,10 +377,120 @@ final class ModuleImpl implements Module {
 
     private static final String INTERNAL_NAME = getInternalName(ModuleImpl.class);
 
-    static final Handle FUNCTION_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "functionBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite functionBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, TranslationException {
+    //------------------------------------------------------------------------------------------------------------------
+    static final Handle DIRECT_CALL_BOOTSTRAP = new Handle(
+        H_INVOKESTATIC, INTERNAL_NAME, "directCallBootstrap",
+        methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class),
+        false
+    );
+
+    @SuppressWarnings("unused")
+    static @NotNull CallSite directCallBootstrap(
+        @NotNull MethodHandles.Lookup lookup,
+        @NotNull String name,
+        @NotNull MethodType expectedType,
+        int functionId
+    ) throws Throwable {
         var module = classData(lookup, "_", ModuleImpl.class);
-        return new ConstantCallSite(module.getOrCreateFunction(id));
+        return new ConstantCallSite(module.getOrCreateFunction(functionId));
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    static final Handle INDIRECT_CALL_BOOTSTRAP = new Handle(
+        H_INVOKESTATIC, INTERNAL_NAME, "indirectCallBootstrap",
+        methodDescriptor(
+            CallSite.class,
+            MethodHandles.Lookup.class, String.class, MethodType.class, int.class, int.class
+        ),
+        false
+    );
+
+    @SuppressWarnings("unused")
+    static @NotNull CallSite indirectCallBootstrap(
+        @NotNull MethodHandles.Lookup lookup,
+        @NotNull String name,
+        @NotNull MethodType expectedType,
+        int typeId,
+        int tableId
+    ) throws Throwable {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var functionType = module.index.types().get(typeId);
+
+        var writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        writer.visit(V17, ACC_FINAL, GENERATED_FUNCTION_INTERNAL_NAME, null, OBJECT_INTERNAL_NAME, null);
+
+        var function = writer.visitMethod(
+            ACC_PRIVATE | ACC_STATIC,
+            "_",
+            expectedType.descriptorString(),
+            null,
+            TrapException.INTERNAL_NAME_ARRAY
+        );
+
+        function.visitCode();
+
+        var trailingArgumentsLocalIndex = 0;
+        for (var type : functionType.parameterTypes()) {
+            trailingArgumentsLocalIndex += type.width();
+        }
+
+        var nullRefHandler = new Label();
+
+        function.visitVarInsn(ILOAD, trailingArgumentsLocalIndex);
+        function.visitVarInsn(ALOAD, trailingArgumentsLocalIndex + 1);
+        function.visitInvokeDynamicInsn("_", Table.FIELD_GETTER_DESCRIPTOR, TABLE_FIELD_BOOTSTRAP, tableId);
+        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_NAME, Table.GET_DESCRIPTOR, false);
+        function.visitInsn(DUP);
+        function.visitJumpInsn(IFNULL, nullRefHandler);
+        function.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
+
+        var argumentLocalIndex = 0;
+        for (var type : functionType.parameterTypes()) {
+            function.visitVarInsn(type.localLoadOpcode(), argumentLocalIndex);
+            argumentLocalIndex += type.width();
+        }
+
+        function.visitVarInsn(ALOAD, trailingArgumentsLocalIndex + 1);
+
+        var invokeLabel = new Label();
+        var returnLabel = new Label();
+        var wrongTypeHandler = new Label();
+        function.visitTryCatchBlock(
+            invokeLabel, returnLabel, wrongTypeHandler,
+            WRONG_METHOD_TYPE_EXCEPTION_INTERNAL_NAME
+        );
+
+        function.visitLabel(invokeLabel);
+        function.visitMethodInsn(
+            INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact",
+            functionType.descriptor(),
+            false
+        );
+        function.visitLabel(returnLabel);
+        function.visitInsn(functionType.returnOpcode());
+
+        function.visitLabel(nullRefHandler);
+        function.visitMethodInsn(
+            INVOKESTATIC, TrapException.INTERNAL_NAME, TrapException.CALL_INDIRECT_NULL_REF_NAME,
+            TrapException.CALL_INDIRECT_NULL_REF_DESCRIPTOR,
+            false
+        );
+        function.visitInsn(ATHROW);
+
+        function.visitLabel(wrongTypeHandler);
+        function.visitMethodInsn(
+            INVOKESTATIC, TrapException.INTERNAL_NAME, TrapException.CALL_INDIRECT_TYPE_MISMATCH_NAME,
+            TrapException.CALL_INDIRECT_TYPE_MISMATCH_DESCRIPTOR,
+            false
+        );
+        function.visitInsn(ATHROW);
+
+        function.visitMaxs(0, 0);
+        function.visitEnd();
+
+        writer.visitEnd();
+        var trampolineLookup = lookup.defineHiddenClassWithClassData(writer.toByteArray(), module, false);
+        return new ConstantCallSite(trampolineLookup.findStatic(trampolineLookup.lookupClass(), "_", expectedType));
     }
 
     static final Handle GLOBAL_GET_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "globalGetBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);

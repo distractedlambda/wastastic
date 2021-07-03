@@ -3,6 +3,7 @@ package org.wastastic;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.lang.invoke.WrongMethodTypeException;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -13,6 +14,10 @@ public final class TrapException extends Exception {
     TrapException(@Nullable String message, @Nullable Throwable cause, int stackTraceSkipCount) {
         super(message, cause);
         setStackTrace(recoverStackTrace(stackTraceSkipCount));
+    }
+
+    TrapException(@Nullable String message, @Nullable Throwable cause) {
+        this(message, cause, 3);
     }
 
     TrapException(@Nullable String message) {
@@ -27,8 +32,16 @@ public final class TrapException extends Exception {
         this(null, null, 3);
     }
 
-    static final String INTERNAL_NAME = getInternalName(TrapException.class);
+    //------------------------------------------------------------------------------------------------------------------
+    @Override public synchronized Throwable fillInStackTrace() {
+        return this;
+    }
 
+    //------------------------------------------------------------------------------------------------------------------
+    static final String INTERNAL_NAME = getInternalName(TrapException.class);
+    static final String[] INTERNAL_NAME_ARRAY = new String[]{INTERNAL_NAME};
+
+    //------------------------------------------------------------------------------------------------------------------
     static final String UNREACHABLE_NAME = "unreachable";
     static final String UNREACHABLE_DESCRIPTOR = methodDescriptor(TrapException.class);
 
@@ -37,11 +50,34 @@ public final class TrapException extends Exception {
         return new TrapException("unreachable instruction executed");
     }
 
-    @Override public synchronized Throwable fillInStackTrace() {
-        return this;
+    //------------------------------------------------------------------------------------------------------------------
+    static final String CALL_INDIRECT_TYPE_MISMATCH_NAME = "callIndirectTypeMismatch";
+    static final String CALL_INDIRECT_TYPE_MISMATCH_DESCRIPTOR = methodDescriptor(
+        TrapException.class,
+        WrongMethodTypeException.class
+    );
+
+    @SuppressWarnings("unused")
+    static @NotNull TrapException callIndirectTypeMismatch(@NotNull WrongMethodTypeException cause) {
+        return new TrapException("call_indirect type mismatch", cause);
     }
 
-    private static final StackWalker STACK_WALKER = StackWalker.getInstance(Set.of(StackWalker.Option.SHOW_HIDDEN_FRAMES, StackWalker.Option.RETAIN_CLASS_REFERENCE));
+    //------------------------------------------------------------------------------------------------------------------
+    static final String CALL_INDIRECT_NULL_REF_NAME = "callIndirectNullRef";
+    static final String CALL_INDIRECT_NULL_REF_DESCRIPTOR = methodDescriptor(TrapException.class);
+
+    @SuppressWarnings("unused")
+    static @NotNull TrapException callIndirectNullRef() {
+        return new TrapException("call_indirect with null funref");
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    private static final StackWalker STACK_WALKER = StackWalker.getInstance(
+        Set.of(
+            StackWalker.Option.SHOW_HIDDEN_FRAMES,
+            StackWalker.Option.RETAIN_CLASS_REFERENCE
+        )
+    );
 
     private static @NotNull StackTraceElement @NotNull[] recoverStackTrace(int skipCount) {
         return STACK_WALKER.walk(frames -> {

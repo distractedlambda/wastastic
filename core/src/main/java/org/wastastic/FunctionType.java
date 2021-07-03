@@ -53,6 +53,28 @@ final class FunctionType {
         return descriptor;
     }
 
+    @NotNull String indirectDescriptor() {
+        var builder = new StringBuilder("(");
+
+        for (var parameterType : parameterTypes) {
+            builder.append(parameterType.descriptor());
+        }
+
+        builder.append("I").append(MODULE_INSTANCE_DESCRIPTOR).append(")");
+
+        if (returnTypes.isEmpty()) {
+            builder.append('V');
+        }
+        else if (returnTypes.size() == 1) {
+            builder.append(returnTypes.get(0).descriptor());
+        }
+        else {
+            builder.append(OBJECT_ARRAY_DESCRIPTOR);
+        }
+
+        return builder.toString();
+    }
+
     @NotNull MethodType methodType() {
         var type = this.methodType;
 

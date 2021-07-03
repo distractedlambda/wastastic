@@ -4,6 +4,7 @@ import jdk.incubator.foreign.MemorySegment;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.invoke.MethodHandle;
+import java.lang.invoke.WrongMethodTypeException;
 import java.util.Map;
 
 import static org.objectweb.asm.Type.getDescriptor;
@@ -57,6 +58,7 @@ final class Names {
     static final String METHOD_HANDLE_INTERNAL_NAME = getInternalName(MethodHandle.class);
     static final String MODULE_INSTANCE_INTERNAL_NAME = getInternalName(ModuleInstance.class);
     static final String OBJECT_INTERNAL_NAME = getInternalName(Object.class);
+    static final String WRONG_METHOD_TYPE_EXCEPTION_INTERNAL_NAME = getInternalName(WrongMethodTypeException.class);
 
     static final String MEMORY_SEGMENT_DESCRIPTOR = getDescriptor(MemorySegment.class);
     static final String METHOD_HANDLE_DESCRIPTOR = getDescriptor(MethodHandle.class);

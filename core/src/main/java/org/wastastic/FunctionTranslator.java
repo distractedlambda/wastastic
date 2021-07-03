@@ -14,9 +14,7 @@ import static org.objectweb.asm.Opcodes.ACC_PRIVATE;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACONST_NULL;
 import static org.objectweb.asm.Opcodes.ALOAD;
-import static org.objectweb.asm.Opcodes.ASTORE;
 import static org.objectweb.asm.Opcodes.ATHROW;
-import static org.objectweb.asm.Opcodes.CHECKCAST;
 import static org.objectweb.asm.Opcodes.D2F;
 import static org.objectweb.asm.Opcodes.D2I;
 import static org.objectweb.asm.Opcodes.D2L;
@@ -65,7 +63,6 @@ import static org.objectweb.asm.Opcodes.IF_ICMPLT;
 import static org.objectweb.asm.Opcodes.IF_ICMPNE;
 import static org.objectweb.asm.Opcodes.IMUL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
-import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.IOR;
 import static org.objectweb.asm.Opcodes.IREM;
 import static org.objectweb.asm.Opcodes.ISHL;
@@ -144,7 +141,6 @@ import static org.wastastic.Names.LONG_INTERNAL_NAME;
 import static org.wastastic.Names.MATH_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
-import static org.wastastic.Names.METHOD_HANDLE_INTERNAL_NAME;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
@@ -797,40 +793,24 @@ final class FunctionTranslator {
         operandStack.addAll(type.returnTypes());
 
         function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        function.visitInvokeDynamicInsn("_", type.descriptor(), ModuleImpl.FUNCTION_BOOTSTRAP, id);
+        function.visitInvokeDynamicInsn("_", type.descriptor(), ModuleImpl.DIRECT_CALL_BOOTSTRAP, id);
     }
 
     private void translateCallIndirect() throws TranslationException {
-        var type = index.types().get(reader.nextUnsigned32());
+        var typeId = reader.nextUnsigned32();
+        var tableId = reader.nextUnsigned32();
 
+        var type = index.types().get(typeId);
         popOperand(ValueType.I32);
         checkTopOperands(type.parameterTypes());
         removeLast(operandStack, type.parameterTypes().size());
         operandStack.addAll(type.returnTypes());
 
-        emitTableFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Table.INTERNAL_NAME, Table.GET_NAME, Table.GET_DESCRIPTOR, false);
-        function.visitTypeInsn(CHECKCAST, METHOD_HANDLE_INTERNAL_NAME);
-
-        var calleeLocalIndex = firstScratchLocalIndex;
-        function.visitVarInsn(ASTORE, calleeLocalIndex);
-
-        var nextLocalIndex = calleeLocalIndex + 1;
-        for (var i = type.parameterTypes().size() - 1; i >= 0; i--) {
-            var parameterType = type.parameterTypes().get(i);
-            function.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
-            nextLocalIndex += parameterType.width();
-        }
-
-        function.visitVarInsn(ALOAD, calleeLocalIndex);
-
-        for (var parameterType : type.parameterTypes()) {
-            nextLocalIndex -= parameterType.width();
-            function.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
-        }
-
         function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        function.visitMethodInsn(INVOKEVIRTUAL, METHOD_HANDLE_INTERNAL_NAME, "invokeExact", type.descriptor(), false);
+        function.visitInvokeDynamicInsn(
+            "_", type.indirectDescriptor(), ModuleImpl.INDIRECT_CALL_BOOTSTRAP,
+            typeId, tableId
+        );
     }
 
     private void translateDrop() throws TranslationException {
@@ -2031,6 +2011,6 @@ final class FunctionTranslator {
 
     private void emitTableFieldLoad(int id) {
         function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        function.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + Table.DESCRIPTOR, ModuleImpl.TABLE_FIELD_BOOTSTRAP, id);
+        function.visitInvokeDynamicInsn("_", Table.FIELD_GETTER_DESCRIPTOR, ModuleImpl.TABLE_FIELD_BOOTSTRAP, id);
     }
 }
