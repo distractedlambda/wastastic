@@ -18,11 +18,49 @@ import static org.objectweb.asm.Opcodes.ICONST_3;
 import static org.objectweb.asm.Opcodes.ICONST_4;
 import static org.objectweb.asm.Opcodes.ICONST_5;
 import static org.objectweb.asm.Opcodes.ICONST_M1;
+import static org.objectweb.asm.Opcodes.IFEQ;
+import static org.objectweb.asm.Opcodes.IFGE;
+import static org.objectweb.asm.Opcodes.IFGT;
+import static org.objectweb.asm.Opcodes.IFLE;
+import static org.objectweb.asm.Opcodes.IFLT;
+import static org.objectweb.asm.Opcodes.IFNE;
+import static org.objectweb.asm.Opcodes.IFNONNULL;
+import static org.objectweb.asm.Opcodes.IFNULL;
+import static org.objectweb.asm.Opcodes.IF_ACMPEQ;
+import static org.objectweb.asm.Opcodes.IF_ACMPNE;
+import static org.objectweb.asm.Opcodes.IF_ICMPEQ;
+import static org.objectweb.asm.Opcodes.IF_ICMPGE;
+import static org.objectweb.asm.Opcodes.IF_ICMPGT;
+import static org.objectweb.asm.Opcodes.IF_ICMPLE;
+import static org.objectweb.asm.Opcodes.IF_ICMPLT;
+import static org.objectweb.asm.Opcodes.IF_ICMPNE;
 import static org.objectweb.asm.Opcodes.LCONST_0;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 
 final class CodegenUtils {
     private CodegenUtils() {}
+
+    static int oppositeBranchOpcode(int opcode) {
+        return switch (opcode) {
+            case IFEQ -> IFNE;
+            case IFNE -> IFEQ;
+            case IFGE -> IFLT;
+            case IFLT -> IFGE;
+            case IFGT -> IFLE;
+            case IFLE -> IFGT;
+            case IFNONNULL -> IFNULL;
+            case IFNULL -> IFNONNULL;
+            case IF_ICMPEQ -> IF_ICMPNE;
+            case IF_ICMPNE -> IF_ICMPEQ;
+            case IF_ICMPGE -> IF_ICMPLT;
+            case IF_ICMPLT -> IF_ICMPGE;
+            case IF_ICMPGT -> IF_ICMPLE;
+            case IF_ICMPLE -> IF_ICMPGT;
+            case IF_ACMPEQ -> IF_ACMPNE;
+            case IF_ACMPNE -> IF_ACMPEQ;
+            default -> throw new IllegalArgumentException();
+        };
+    }
 
     static void pushI32Constant(@NotNull MethodVisitor visitor, int value) {
         if (value >= -1 && value <= 5) {

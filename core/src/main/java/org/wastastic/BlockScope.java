@@ -3,6 +3,8 @@ package org.wastastic;
 import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.Label;
 
+import java.util.List;
+
 import static java.util.Objects.requireNonNull;
 
 final class BlockScope extends ControlScope {
@@ -15,5 +17,13 @@ final class BlockScope extends ControlScope {
 
     @NotNull Label endLabel() {
         return endLabel;
+    }
+
+    @Override @NotNull Label branchTargetLabel() {
+        return endLabel;
+    }
+
+    @Override @NotNull List<ValueType> branchTargetParameterTypes() {
+        return type().returnTypes();
     }
 }

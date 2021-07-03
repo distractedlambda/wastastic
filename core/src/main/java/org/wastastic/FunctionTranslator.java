@@ -89,6 +89,7 @@ import static org.objectweb.asm.Opcodes.POP;
 import static org.objectweb.asm.Opcodes.POP2;
 import static org.objectweb.asm.Opcodes.SWAP;
 import static org.objectweb.asm.Opcodes.V17;
+import static org.wastastic.CodegenUtils.oppositeBranchOpcode;
 import static org.wastastic.CodegenUtils.pushF32Constant;
 import static org.wastastic.CodegenUtils.pushF64Constant;
 import static org.wastastic.CodegenUtils.pushI32Constant;
@@ -139,7 +140,6 @@ import static org.wastastic.Names.GENERATED_FUNCTION_INTERNAL_NAME;
 import static org.wastastic.Names.INTEGER_INTERNAL_NAME;
 import static org.wastastic.Names.LONG_INTERNAL_NAME;
 import static org.wastastic.Names.MATH_INTERNAL_NAME;
-import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.MODULE_INSTANCE_INTERNAL_NAME;
@@ -737,13 +737,25 @@ final class FunctionTranslator {
         last(controlStack).markRestUnreachable();
     }
 
-    private void translateBrIf() throws TranslationException {
+    private void translateFusedBranch(int branchOpcode) throws TranslationException {
         popOperand(ValueType.I32);
+        var targetIndex = reader.nextUnsigned32();
+        var targetScope = controlStack.get(controlStack.size() - 1 - targetIndex);
 
-        var pastBranchLabel = new Label();
-        function.visitJumpInsn(IFEQ, pastBranchLabel);
-        emitBranch(reader.nextUnsigned32());
-        function.visitLabel(pastBranchLabel);
+        if (operandStack.size() == targetScope.baseOperandStackSize() + targetScope.branchTargetParameterTypes().size()) {
+            // FIXME check types on stack yotta yotta
+            function.visitJumpInsn(branchOpcode, targetScope.branchTargetLabel());
+        }
+        else {
+            var pastBranchLabel = new Label();
+            function.visitJumpInsn(oppositeBranchOpcode(branchOpcode), pastBranchLabel);
+            emitBranch(targetIndex);
+            function.visitLabel(pastBranchLabel);
+        }
+    }
+
+    private void translateBrIf() throws TranslationException {
+        translateFusedBranch(IFNE);
     }
 
     private void translateBrTable() throws TranslationException {
@@ -758,22 +770,43 @@ final class FunctionTranslator {
 
         var defaultTarget = reader.nextUnsigned32();
 
-        var indexedAdapterLabels = new Label[indexedTargetCount];
-        for (var i = 0; i < indexedTargetCount; i++) {
-            indexedAdapterLabels[i] = new Label();
-        }
-
-        var defaultAdapterLabel = new Label();
-
-        function.visitTableSwitchInsn(0, indexedTargetCount - 1, defaultAdapterLabel, indexedAdapterLabels);
+        var targetLabels = new Label[indexedTargetCount];
+        var adapterLabels = new Label[indexedTargetCount];
 
         for (var i = 0; i < indexedTargetCount; i++) {
-            function.visitLabel(indexedAdapterLabels[i]);
-            emitBranch(indexedTargets[i]);
+            var targetScope = controlStack.get(controlStack.size() - 1 - indexedTargets[i]);
+            if (operandStack.size() == targetScope.baseOperandStackSize() + targetScope.branchTargetParameterTypes().size()) {
+                // FIXME: check operand stack types and such
+                targetLabels[i] = targetScope.branchTargetLabel();
+            }
+            else {
+                targetLabels[i] = adapterLabels[i] = new Label();
+            }
         }
 
-        function.visitLabel(defaultAdapterLabel);
-        emitBranch(defaultTarget);
+        Label defaultTargetLabel, defaultAdapterLabel;
+        var defaultTargetScope = controlStack.get(controlStack.size() - 1 - defaultTarget);
+        if (operandStack.size() == defaultTargetScope.baseOperandStackSize() + defaultTargetScope.branchTargetParameterTypes().size()) {
+            defaultTargetLabel = defaultTargetScope.branchTargetLabel();
+            defaultAdapterLabel = null;
+        }
+        else {
+            defaultTargetLabel = defaultAdapterLabel = new Label();
+        }
+
+        function.visitTableSwitchInsn(0, indexedTargetCount - 1, defaultTargetLabel, targetLabels);
+
+        for (var i = 0; i < indexedTargetCount; i++) {
+            if (adapterLabels[i] != null) {
+                function.visitLabel(adapterLabels[i]);
+                emitBranch(indexedTargets[i]);
+            }
+        }
+
+        if (defaultAdapterLabel != null) {
+            function.visitLabel(defaultAdapterLabel);
+            emitBranch(defaultTarget);
+        }
 
         last(controlStack).markRestUnreachable();
     }
@@ -1048,18 +1081,24 @@ final class FunctionTranslator {
         operandStack.add(ValueType.F64);
     }
 
-    private void translateConditionalBoolean(int opcode) {
-        var trueLabel = new Label();
-        var mergeLabel = new Label();
+    private void translateConditionalBoolean(int branchOpcode) throws TranslationException {
+        if (reader.peekByte() == OP_BR_IF) {
+            reader.nextByte();
+            translateFusedBranch(branchOpcode);
+        }
+        else {
+            var trueLabel = new Label();
+            var mergeLabel = new Label();
 
-        function.visitJumpInsn(opcode, trueLabel);
-        function.visitInsn(ICONST_0);
-        function.visitJumpInsn(GOTO, mergeLabel);
+            function.visitJumpInsn(branchOpcode, trueLabel);
+            function.visitInsn(ICONST_0);
+            function.visitJumpInsn(GOTO, mergeLabel);
 
-        function.visitLabel(trueLabel);
-        function.visitInsn(ICONST_1);
+            function.visitLabel(trueLabel);
+            function.visitInsn(ICONST_1);
 
-        function.visitLabel(mergeLabel);
+            function.visitLabel(mergeLabel);
+        }
     }
 
     private void translateI32Eqz() throws TranslationException {
@@ -1958,45 +1997,26 @@ final class FunctionTranslator {
 
         var scope = controlStack.get(controlStack.size() - id - 1);
 
-        Label targetLabel;
-        List<ValueType> labelParameterTypes;
-
-        if (scope instanceof BlockScope blockScope) {
-            targetLabel = blockScope.endLabel();
-            labelParameterTypes = blockScope.type().returnTypes();
-        }
-        else if (scope instanceof IfScope ifScope) {
-            targetLabel = ifScope.endLabel();
-            labelParameterTypes = ifScope.type().returnTypes();
-        }
-        else if (scope instanceof LoopScope loopScope) {
-            targetLabel = loopScope.startLabel();
-            labelParameterTypes = loopScope.type().parameterTypes();
-        }
-        else {
-            throw new ClassCastException();
-        }
-
-        checkTopOperands(labelParameterTypes);
+        checkTopOperands(scope.branchTargetParameterTypes());
 
         var nextLocalIndex = firstScratchLocalIndex;
 
-        for (var i = labelParameterTypes.size() - 1; i >= 0; i--) {
-            var parameterType = labelParameterTypes.get(i);
+        for (var i = scope.branchTargetParameterTypes().size() - 1; i >= 0; i--) {
+            var parameterType = scope.branchTargetParameterTypes().get(i);
             function.visitVarInsn(parameterType.localStoreOpcode(), nextLocalIndex);
             nextLocalIndex += parameterType.width();
         }
 
-        for (var i = operandStack.size() - labelParameterTypes.size() - 1; i > scope.baseOperandStackSize(); i--) {
+        for (var i = operandStack.size() - scope.branchTargetParameterTypes().size() - 1; i > scope.baseOperandStackSize(); i--) {
             function.visitInsn(operandStack.get(i).isDoubleWidth() ? POP2 : POP);
         }
 
-        for (var parameterType : labelParameterTypes) {
+        for (var parameterType : scope.branchTargetParameterTypes()) {
             nextLocalIndex -= parameterType.width();
             function.visitVarInsn(parameterType.localLoadOpcode(), nextLocalIndex);
         }
 
-        function.visitJumpInsn(GOTO, targetLabel);
+        function.visitJumpInsn(GOTO, scope.branchTargetLabel());
     }
 
     private void emitElementFieldLoad(int id) {

@@ -32,6 +32,10 @@ final class WasmReader {
         return (byte) Memory.VH_BYTE.get(input, offset++);
     }
 
+    byte peekByte() {
+        return (byte) Memory.VH_BYTE.get(input, offset);
+    }
+
     int nextUnsigned32() {
         byte b;
         var total = 0;
