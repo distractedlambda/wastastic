@@ -676,13 +676,13 @@ final class FunctionTranslator {
         }
         else {
             return switch ((byte) (code & 0x7F)) {
-                case 0x40 -> new FunctionType(List.of(), List.of());
-                case TYPE_I32 -> new FunctionType(List.of(), List.of(ValueType.I32));
-                case TYPE_I64 -> new FunctionType(List.of(), List.of(ValueType.I64));
-                case TYPE_F32 -> new FunctionType(List.of(), List.of(ValueType.F32));
-                case TYPE_F64 -> new FunctionType(List.of(), List.of(ValueType.F64));
-                case TYPE_EXTERNREF -> new FunctionType(List.of(), List.of(ValueType.EXTERNREF));
-                case TYPE_FUNCREF -> new FunctionType(List.of(), List.of(ValueType.FUNCREF));
+                case 0x40 -> FunctionType.RET_NONE;
+                case TYPE_I32 -> FunctionType.RET_I32;
+                case TYPE_I64 -> FunctionType.RET_I64;
+                case TYPE_F32 -> FunctionType.RET_F32;
+                case TYPE_F64 -> FunctionType.RET_F64;
+                case TYPE_EXTERNREF -> FunctionType.RET_EXTERNREF;
+                case TYPE_FUNCREF -> FunctionType.RET_FUNCREF;
                 default -> throw new TranslationException("Invalid block type");
             };
         }

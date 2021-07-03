@@ -11,17 +11,32 @@ import static org.objectweb.asm.Opcodes.ARETURN;
 import static org.objectweb.asm.Opcodes.RETURN;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
+import static org.wastastic.ValueType.EXTERNREF;
+import static org.wastastic.ValueType.F32;
+import static org.wastastic.ValueType.F64;
+import static org.wastastic.ValueType.FUNCREF;
+import static org.wastastic.ValueType.I32;
+import static org.wastastic.ValueType.I64;
 
 final class FunctionType {
     private final @NotNull @Unmodifiable List<ValueType> parameterTypes;
     private final @NotNull @Unmodifiable List<ValueType> returnTypes;
     private @Nullable String descriptor;
+    private @Nullable String indirectDescriptor;
     private @Nullable MethodType methodType;
 
     FunctionType(@NotNull List<ValueType> parameterTypes, @NotNull List<ValueType> returnTypes) {
         this.parameterTypes = List.copyOf(parameterTypes);
         this.returnTypes = List.copyOf(returnTypes);
     }
+
+    static final @NotNull FunctionType RET_NONE = new FunctionType(List.of(), List.of()).initAll();
+    static final @NotNull FunctionType RET_I32 = new FunctionType(List.of(), List.of(I32)).initAll();
+    static final @NotNull FunctionType RET_I64 = new FunctionType(List.of(), List.of(I64)).initAll();
+    static final @NotNull FunctionType RET_F32 = new FunctionType(List.of(), List.of(F32)).initAll();
+    static final @NotNull FunctionType RET_F64 = new FunctionType(List.of(), List.of(F64)).initAll();
+    static final @NotNull FunctionType RET_FUNCREF = new FunctionType(List.of(), List.of(FUNCREF)).initAll();
+    static final @NotNull FunctionType RET_EXTERNREF = new FunctionType(List.of(), List.of(EXTERNREF)).initAll();
 
     @NotNull @Unmodifiable List<ValueType> parameterTypes() {
         return parameterTypes;
@@ -54,25 +69,13 @@ final class FunctionType {
     }
 
     @NotNull String indirectDescriptor() {
-        var builder = new StringBuilder("(");
+        var descriptor = this.indirectDescriptor;
 
-        for (var parameterType : parameterTypes) {
-            builder.append(parameterType.descriptor());
+        if (descriptor == null) {
+            this.indirectDescriptor = descriptor = computeIndirectDescriptor();
         }
 
-        builder.append("I").append(MODULE_INSTANCE_DESCRIPTOR).append(")");
-
-        if (returnTypes.isEmpty()) {
-            builder.append('V');
-        }
-        else if (returnTypes.size() == 1) {
-            builder.append(returnTypes.get(0).descriptor());
-        }
-        else {
-            builder.append(OBJECT_ARRAY_DESCRIPTOR);
-        }
-
-        return builder.toString();
+        return descriptor;
     }
 
     @NotNull MethodType methodType() {
@@ -92,8 +95,29 @@ final class FunctionType {
             builder.append(parameterType.descriptor());
         }
 
-        builder.append(MODULE_INSTANCE_DESCRIPTOR);
-        builder.append(')');
+        builder.append(MODULE_INSTANCE_DESCRIPTOR).append(')');
+
+        if (returnTypes.isEmpty()) {
+            builder.append('V');
+        }
+        else if (returnTypes.size() == 1) {
+            builder.append(returnTypes.get(0).descriptor());
+        }
+        else {
+            builder.append(OBJECT_ARRAY_DESCRIPTOR);
+        }
+
+        return builder.toString();
+    }
+
+    private @NotNull String computeIndirectDescriptor() {
+        var builder = new StringBuilder("(");
+
+        for (var parameterType : parameterTypes) {
+            builder.append(parameterType.descriptor());
+        }
+
+        builder.append('I').append(MODULE_INSTANCE_DESCRIPTOR).append(')');
 
         if (returnTypes.isEmpty()) {
             builder.append('V');
@@ -131,11 +155,10 @@ final class FunctionType {
         return MethodType.methodType(returnType, argumentTypes);
     }
 
-    private static final FunctionType EMPTY = new FunctionType(List.of(), List.of());
-    private static final FunctionType RETURNING_I32 = new FunctionType(List.of(), List.of(ValueType.I32));
-    private static final FunctionType RETURNING_I64 = new FunctionType(List.of(), List.of(ValueType.I64));
-    private static final FunctionType RETURNING_F32 = new FunctionType(List.of(), List.of(ValueType.F32));
-    private static final FunctionType RETURNING_F64 = new FunctionType(List.of(), List.of(ValueType.F64));
-    private static final FunctionType RETURNING_FUNCREF = new FunctionType(List.of(), List.of(ValueType.FUNCREF));
-    private static final FunctionType RETURNING_EXTERNREF = new FunctionType(List.of(), List.of(ValueType.FUNCREF));
+    private @NotNull FunctionType initAll() {
+        descriptor();
+        indirectDescriptor();
+        methodType();
+        return this;
+    }
 }
