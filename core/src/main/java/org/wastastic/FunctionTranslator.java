@@ -142,6 +142,7 @@ import static org.wastastic.Names.MATH_INTERNAL_NAME;
 import static org.wastastic.Names.MEMORY_SEGMENT_DESCRIPTOR;
 import static org.wastastic.Names.METHOD_HANDLE_DESCRIPTOR;
 import static org.wastastic.Names.MODULE_INSTANCE_DESCRIPTOR;
+import static org.wastastic.Names.MODULE_INSTANCE_INTERNAL_NAME;
 import static org.wastastic.Names.OBJECT_ARRAY_DESCRIPTOR;
 import static org.wastastic.Names.OBJECT_INTERNAL_NAME;
 import static org.wastastic.WasmOpcodes.OP_BLOCK;
@@ -1808,9 +1809,13 @@ final class FunctionTranslator {
         popOperand(ValueType.I32);
         popOperand(ValueType.I32);
 
-        emitDataFieldLoad(reader.nextUnsigned32());
-        emitMemoryFieldLoad(reader.nextUnsigned32());
-        function.visitMethodInsn(INVOKESTATIC, Memory.INTERNAL_NAME, Memory.INIT_METHOD_NAME, Memory.INIT_METHOD_DESCRIPTOR, false);
+        var dataId = reader.nextUnsigned32();
+        var memoryId = reader.nextUnsigned32();
+        function.visitInvokeDynamicInsn(
+            "_", "(III" + MODULE_INSTANCE_INTERNAL_NAME + ")V",
+            ModuleImpl.MEMORY_INIT_BOOTSTRAP,
+            dataId, memoryId
+        );
     }
 
     private void translateDataDrop() {
@@ -1992,11 +1997,6 @@ final class FunctionTranslator {
         }
 
         function.visitJumpInsn(GOTO, targetLabel);
-    }
-
-    private void emitDataFieldLoad(int id) {
-        function.visitVarInsn(ALOAD, instanceArgumentLocalIndex);
-        function.visitInvokeDynamicInsn("_", "(" + MODULE_INSTANCE_DESCRIPTOR + ")" + MEMORY_SEGMENT_DESCRIPTOR, ModuleImpl.DATA_FIELD_BOOTSTRAP, id);
     }
 
     private void emitElementFieldLoad(int id) {

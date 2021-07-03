@@ -493,6 +493,49 @@ final class ModuleImpl implements Module {
         return new ConstantCallSite(trampolineLookup.findStatic(trampolineLookup.lookupClass(), "_", expectedType));
     }
 
+    //------------------------------------------------------------------------------------------------------------------
+    static final Handle MEMORY_INIT_BOOTSTRAP = new Handle(
+        H_INVOKESTATIC, INTERNAL_NAME, "memoryInitBootstrap",
+        methodDescriptor(
+            CallSite.class,
+            MethodHandles.Lookup.class, String.class, MethodType.class, int.class, int.class
+        ),
+        false
+    );
+
+    @SuppressWarnings("unused")
+    static @NotNull CallSite memoryInitBootstrap(
+        @NotNull MethodHandles.Lookup lookup,
+        @NotNull String name,
+        @NotNull MethodType expectedType,
+        int dataId,
+        int memoryId
+    ) throws Throwable {
+        var module = classData(lookup, "_", ModuleImpl.class);
+        var instanceLookup = module.getOrCreateInstance();
+        return new ConstantCallSite(
+            permuteArguments(
+                filterArguments(
+                    Memory.INIT_HANDLE, 3,
+
+                    instanceLookup.findGetter(
+                        instanceLookup.lookupClass(),
+                        dataSegmentName(dataId),
+                        MemorySegment.class
+                    ).asType(methodType(MemorySegment.class, ModuleInstance.class)),
+
+                    instanceLookup.findGetter(
+                        instanceLookup.lookupClass(),
+                        memoryName(memoryId),
+                        Memory.class
+                    ).asType(methodType(Memory.class, ModuleInstance.class))
+                ),
+
+                expectedType, 0, 1, 2, 3, 3
+            )
+        );
+    }
+
     static final Handle GLOBAL_GET_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "globalGetBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
     @SuppressWarnings("unused") static @NotNull CallSite globalGetBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
         var module = classData(lookup, "_", ModuleImpl.class);
@@ -527,15 +570,6 @@ final class ModuleImpl implements Module {
         var instanceLookup = module.getOrCreateInstance();
         var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), elementSegmentName(id), Object[].class);
         handle = handle.asType(methodType(Object[].class, ModuleInstance.class));
-        return new ConstantCallSite(handle);
-    }
-
-    static final Handle DATA_FIELD_BOOTSTRAP = new Handle(H_INVOKESTATIC, INTERNAL_NAME, "dataFieldBootstrap", methodDescriptor(CallSite.class, MethodHandles.Lookup.class, String.class, MethodType.class, int.class), false);
-    @SuppressWarnings("unused") static @NotNull CallSite dataFieldBootstrap(@NotNull MethodHandles.Lookup lookup, String name, MethodType methodType, int id) throws IllegalAccessException, NoSuchFieldException, TranslationException {
-        var module = classData(lookup, "_", ModuleImpl.class);
-        var instanceLookup = module.getOrCreateInstance();
-        var handle = instanceLookup.findGetter(instanceLookup.lookupClass(), dataSegmentName(id), MemorySegment.class);
-        handle = handle.asType(methodType(MemorySegment.class, ModuleInstance.class));
         return new ConstantCallSite(handle);
     }
 

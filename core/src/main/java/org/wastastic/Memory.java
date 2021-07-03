@@ -4,9 +4,13 @@ import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemorySegment;
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
 
 import static java.lang.Integer.compareUnsigned;
+import static java.lang.invoke.MethodType.methodType;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static jdk.incubator.foreign.ResourceScope.newImplicitScope;
 import static org.objectweb.asm.Type.getDescriptor;
@@ -411,11 +415,23 @@ public final class Memory {
         return (int) currentPageCount;
     }
 
-    static final String INIT_METHOD_NAME = "init";
-    static final String INIT_METHOD_DESCRIPTOR = methodDescriptor(void.class, int.class, int.class, int.class, MemorySegment.class, Memory.class);
+    static final MethodHandle INIT_HANDLE;
 
-    @SuppressWarnings("unused")
-    static void init(int dstAddress, int srcAddress, int size, @NotNull MemorySegment src, @NotNull Memory self) throws TrapException {
+    static {
+        var lookup = MethodHandles.lookup();
+
+        try {
+            INIT_HANDLE = lookup.findStatic(
+                Memory.class, "init",
+                methodType(void.class, int.class, int.class, int.class, MemorySegment.class, Memory.class)
+            );
+        }
+        catch (Throwable exception) {
+            throw new UnsupportedOperationException(exception);
+        }
+    }
+
+    private static void init(int dstAddress, int srcAddress, int size, @NotNull MemorySegment src, @NotNull Memory self) throws TrapException {
         var longSize = Integer.toUnsignedLong(size);
         try {
             var dstSlice = self.segment.asSlice(Integer.toUnsignedLong(dstAddress), longSize);
