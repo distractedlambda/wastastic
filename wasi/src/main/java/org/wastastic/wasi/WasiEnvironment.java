@@ -18,7 +18,9 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
@@ -438,9 +440,9 @@ public final class WasiEnvironment {
         memory.setByte(filestatAddress + 16, file.type);
         memory.setLong(filestatAddress + 24, 0); // 'nlink', not implemented
         memory.setLong(filestatAddress + 32, size);
-        memory.setLong(filestatAddress + 40, attributes.lastAccessTime().toMillis() * 1_000_000);
-        memory.setLong(filestatAddress + 48, attributes.lastModifiedTime().toMillis() * 1_000_000);
-        memory.setLong(filestatAddress + 56, attributes.lastModifiedTime().toMillis() * 1_000_000);
+        memory.setLong(filestatAddress + 40, attributes.lastAccessTime().to(TimeUnit.NANOSECONDS));
+        memory.setLong(filestatAddress + 48, attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS));
+        memory.setLong(filestatAddress + 56, attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS));
 
         return ERRNO_SUCCESS;
     }
@@ -807,23 +809,9 @@ public final class WasiEnvironment {
                 memory.setLong(outAddress + 8, 0); // 'd_ino', not implemented
                 memory.setInt(outAddress + 16, bytes.length);
 
-                byte filetype;
                 var attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                memory.setByte(outAddress + 20, detectFiletype(attributes));
 
-                if (attributes.isSymbolicLink()) {
-                    filetype = FILETYPE_SYMBOLIC_LINK;
-                }
-                else if (attributes.isDirectory()) {
-                    filetype = FILETYPE_DIRECTORY;
-                }
-                else if (attributes.isRegularFile()) {
-                    filetype = FILETYPE_REGULAR_FILE;
-                }
-                else {
-                    filetype = FILETYPE_UNKNOWN;
-                }
-
-                memory.setByte(outAddress + 20, filetype);
                 outAddress += 24;
 
                 if (Integer.compareUnsigned(endAddress - outAddress, bytes.length) < 0) {
@@ -844,6 +832,21 @@ public final class WasiEnvironment {
         }
 
         return ERRNO_SUCCESS;
+    }
+
+    private static byte detectFiletype(@NotNull BasicFileAttributes attributes) {
+        if (attributes.isSymbolicLink()) {
+            return FILETYPE_SYMBOLIC_LINK;
+        }
+        else if (attributes.isDirectory()) {
+            return FILETYPE_DIRECTORY;
+        }
+        else if (attributes.isRegularFile()) {
+            return FILETYPE_REGULAR_FILE;
+        }
+        else {
+            return FILETYPE_UNKNOWN;
+        }
     }
 
     private int fdRenumber(int fdFrom, int fdTo, @NotNull ModuleInstance module) {
@@ -1043,7 +1046,84 @@ public final class WasiEnvironment {
             return ERRNO_NOTCAPABLE;
         }
 
-        var pathStr = memory.getUtf8(pathPtr, pathLen);
+        Path path;
+        try {
+            path = Path.of(memory.getUtf8(pathPtr, pathLen));
+        }
+        catch (InvalidPathException ignored) {
+            return ERRNO_INVAL;
+        }
+
+        if (path.isAbsolute() || path.getRoot() != null) {
+            return ERRNO_INVAL;
+        }
+
+        try {
+            Files.createDirectory(file.path.resolve(path));
+        }
+        catch (FileAlreadyExistsException ignored) {
+            return ERRNO_EXIST;
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int pathFilestatGet(int fd, int lookupflags, int pathPtr, int pathLen, int outPtr, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_PATH_FILESTAT_GET) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        Path path;
+        try {
+            path = Path.of(memory.getUtf8(pathPtr, pathLen));
+        }
+        catch (InvalidPathException ignored) {
+            return ERRNO_INVAL;
+        }
+
+        if (path.isAbsolute() || path.getRoot() != null) {
+            return ERRNO_INVAL;
+        }
+
+        LinkOption[] linkOptions;
+        if (lookupflags == LOOKUPFLAGS_SYMLINK_FOLLOW) {
+            linkOptions = new LinkOption[]{LinkOption.NOFOLLOW_LINKS};
+        }
+        else if (lookupflags != 0) {
+            return ERRNO_INVAL;
+        }
+        else {
+            linkOptions = new LinkOption[0];
+        }
+
+        BasicFileAttributes attributes;
+        try {
+            attributes = Files.readAttributes(path, BasicFileAttributes.class, linkOptions);
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        memory.setLong(outPtr, 0); // 'dev', unimplemented
+        memory.setLong(outPtr + 8, 0); // 'ino', unimplemented
+        memory.setByte(outPtr + 16, detectFiletype(attributes));
+        memory.setLong(outPtr + 24, 0); // 'nlink', unimplemented
+        memory.setLong(outPtr + 32, attributes.size());
+        memory.setLong(outPtr + 40, attributes.lastAccessTime().to(TimeUnit.NANOSECONDS));
+        memory.setLong(outPtr + 48, attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS));
+        memory.setLong(outPtr + 56, attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS));
+
+        return ERRNO_SUCCESS;
     }
 
     private static final class OpenFile {
