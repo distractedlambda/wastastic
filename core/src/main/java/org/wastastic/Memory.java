@@ -8,6 +8,8 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 import static java.lang.Integer.compareUnsigned;
 import static java.lang.invoke.MethodType.methodType;
@@ -44,6 +46,10 @@ public final class Memory {
 
     public Memory(int minPageCount) {
         this(minPageCount, -1);
+    }
+
+    public @NotNull MemorySegment segment() {
+        return segment;
     }
 
     public long byteSize() {
@@ -98,6 +104,14 @@ public final class Memory {
             .copyFrom(segment.asSlice(Integer.toUnsignedLong(address), destination.length));
 
         return destination;
+    }
+
+    public byte @NotNull[] getBytes(int address, int length) {
+        return getBytes(address, new byte[length]);
+    }
+
+    public @NotNull String getUtf8(int address, int length) {
+        return new String(getBytes(address, length), StandardCharsets.UTF_8);
     }
 
     public void setByte(int address, byte value) {

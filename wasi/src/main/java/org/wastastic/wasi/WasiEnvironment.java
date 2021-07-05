@@ -8,21 +8,29 @@ import org.wastastic.ModuleInstance;
 import org.wastastic.QualifiedName;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.nio.ByteBuffer;
 import java.nio.channels.Channel;
 import java.nio.channels.FileChannel;
+import java.nio.channels.GatheringByteChannel;
+import java.nio.channels.ScatteringByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static java.lang.System.arraycopy;
 import static java.lang.invoke.MethodType.methodType;
@@ -123,6 +131,9 @@ public final class WasiEnvironment {
         }
     }
 
+    private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocateDirect(0);
+    private static final ByteBuffer ZEROS_BUFFER = ByteBuffer.allocateDirect(4096);
+
     private @Nullable OpenFile openFile(int fd) {
         if (fd >= fileDescriptorTable.size()) {
             return null;
@@ -204,8 +215,13 @@ public final class WasiEnvironment {
     }
 
     private int fdAdvise(int fd, long offset, long length, int advice, @NotNull ModuleInstance module) {
-        if (openFile(fd) == null) {
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
             return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_ADVISE) == 0) {
+            return ERRNO_NOTCAPABLE;
         }
 
         return switch (advice) {
@@ -227,6 +243,10 @@ public final class WasiEnvironment {
             return ERRNO_BADF;
         }
 
+        if ((file.baseRights & RIGHTS_FD_ALLOCATE) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
         if (!(file.channel instanceof FileChannel channel)) {
             return ERRNO_NODEV;
         }
@@ -235,7 +255,14 @@ public final class WasiEnvironment {
             return ERRNO_INVAL;
         }
 
-        return ERRNO_NOTSUP;
+        try {
+            channel.write(EMPTY_BUFFER, offset + length);
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        return ERRNO_SUCCESS;
     }
 
     private int fdClose(int fd, @NotNull ModuleInstance module) {
@@ -245,11 +272,13 @@ public final class WasiEnvironment {
             return ERRNO_BADF;
         }
 
-        try {
-            file.channel.close();
-        }
-        catch (IOException exception) {
-            return ERRNO_IO;
+        if (file.channel != null) {
+            try {
+                file.channel.close();
+            }
+            catch (IOException exception) {
+                return ERRNO_IO;
+            }
         }
 
         fileDescriptorTable.set(fd, null);
@@ -263,6 +292,10 @@ public final class WasiEnvironment {
 
         if ((file = openFile(fd)) == null) {
             return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_DATASYNC) == 0) {
+            return ERRNO_NOTCAPABLE;
         }
 
         if (!(file.channel instanceof FileChannel channel)) {
@@ -301,6 +334,14 @@ public final class WasiEnvironment {
             return ERRNO_BADF;
         }
 
+        if ((file.baseRights & RIGHTS_FD_FDSTAT_SET_FLAGS) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof FileChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
         if (newFlags == file.flags) {
             return ERRNO_SUCCESS;
         }
@@ -337,7 +378,7 @@ public final class WasiEnvironment {
         }
 
         try {
-            file.channel.close();
+            channel.close();
             file.channel = FileChannel.open(file.path, options.toArray(OpenOption[]::new));
         }
         catch (IOException ignored) {
@@ -371,6 +412,10 @@ public final class WasiEnvironment {
             return ERRNO_BADF;
         }
 
+        if ((file.baseRights & RIGHTS_FD_FILESTAT_GET) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
         BasicFileAttributes attributes;
         long size;
 
@@ -400,27 +445,618 @@ public final class WasiEnvironment {
         return ERRNO_SUCCESS;
     }
 
-    // private int fdFilestatSetSize(int fd, long size, @NotNull ModuleInstance module) {
-    //     OpenFile file;
-    //     if ((file = openFile(fd)) == null) {
-    //         return ERRNO_BADF;
-    //     }
+    private int fdFilestatSetSize(int fd, long size, @NotNull ModuleInstance module) {
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
 
-    //     if (!(file.channel instanceof FileChannel channel)) {
-    //         return ERRNO_NODEV;
-    //     }
-    // }
+        if ((file.baseRights & RIGHTS_FD_FILESTAT_SET_SIZE) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof FileChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        try {
+            var lastSize = channel.size();
+            if (size < lastSize) {
+                channel.truncate(size);
+            }
+            else if (size > lastSize) {
+                var offset = lastSize;
+                while (offset < size) {
+                    offset += channel.write(ZEROS_BUFFER.slice(0, (int) Long.min(ZEROS_BUFFER.remaining(), size - offset)), offset);
+                }
+            }
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdFilestatSetTimes(int fd, long accessTime, long modificationTime, short fstFlags, @NotNull ModuleInstance module) {
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_FILESTAT_SET_TIMES) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if ((fstFlags & FSTFLAGS_ATIM) != 0 && (fstFlags & FSTFLAGS_ATIM_NOW) != 0) {
+            return ERRNO_INVAL;
+        }
+
+        if ((fstFlags & FSTFLAGS_MTIM) != 0 && (fstFlags & FSTFLAGS_MTIM_NOW) != 0) {
+            return ERRNO_INVAL;
+        }
+
+        var attributesView = Files.getFileAttributeView(file.path, BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+
+        try {
+            var attributes = attributesView.readAttributes();
+
+            FileTime newLastAccessTime, newLastModificationTime;
+
+            var now = System.currentTimeMillis();
+
+            if ((fstFlags & FSTFLAGS_ATIM) != 0) {
+                newLastAccessTime = FileTime.from(accessTime, TimeUnit.NANOSECONDS);
+            }
+            else if ((fstFlags & FSTFLAGS_ATIM_NOW) != 0) {
+                newLastAccessTime = FileTime.from(now, TimeUnit.MILLISECONDS);
+            }
+            else {
+                newLastAccessTime = attributes.lastAccessTime();
+            }
+
+            if ((fstFlags & FSTFLAGS_MTIM) != 0) {
+                newLastModificationTime = FileTime.from(modificationTime, TimeUnit.NANOSECONDS);
+            }
+            else if ((fstFlags & FSTFLAGS_MTIM_NOW) != 0) {
+                newLastModificationTime = FileTime.from(now, TimeUnit.MILLISECONDS);
+            }
+            else {
+                newLastModificationTime = attributes.lastModifiedTime();
+            }
+
+            attributesView.setTimes(newLastModificationTime, newLastAccessTime, attributes.creationTime());
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdPread(int fd, int iovsAddress, int iovsCount, long offset, int bytesReadAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        if (offset < 0) {
+            return ERRNO_INVAL;
+        }
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_READ) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof FileChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        if (iovsCount == 0) {
+            memory.setInt(bytesReadAddress, 0);
+            return ERRNO_SUCCESS;
+        }
+
+        var buffers = new ByteBuffer[iovsCount];
+        var totalLen = 0L;
+
+        for (var i = 0; i < iovsCount; i++) {
+            var ptr = memory.getInt(iovsAddress + 8*i);
+            var len = memory.getInt(iovsAddress + 8*i + 4);
+
+            if (len < 0) {
+                return ERRNO_INVAL;
+            }
+
+            totalLen += len;
+            if (totalLen > Integer.toUnsignedLong(-1)) {
+                return ERRNO_INVAL;
+            }
+
+            try {
+                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
+            }
+            catch (IndexOutOfBoundsException exception) {
+                return ERRNO_FAULT;
+            }
+        }
+
+        int bytesRead;
+        try {
+            if (iovsCount == 1) {
+                bytesRead = Integer.max(0, channel.read(buffers[0], offset));
+            }
+            else {
+                var lastPosition = channel.position();
+                channel.position(offset);
+                bytesRead = (int) Long.max(0, channel.read(buffers));
+                channel.position(lastPosition);
+            }
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        memory.setInt(bytesReadAddress, bytesRead);
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdPrestatGet(int fd, int prestatAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if (!file.isPreopened) {
+            return ERRNO_BADF;
+        }
+
+        memory.setByte(prestatAddress, PREOPENTYPE_DIR);
+        memory.setInt(prestatAddress + 4, file.path.toString().getBytes(StandardCharsets.UTF_8).length);
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdPrestatDirName(int fd, int outAddress, int outLength, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if (!file.isPreopened) {
+            return ERRNO_BADF;
+        }
+
+        var bytes = file.path.toString().getBytes(StandardCharsets.UTF_8);
+
+        if (bytes.length != outLength) {
+            return ERRNO_INVAL;
+        }
+
+        memory.setBytes(outAddress, bytes);
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdPwrite(int fd, int iovsAddress, int iovsCount, long offset, int bytesWrittenAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        if (offset < 0) {
+            return ERRNO_INVAL;
+        }
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_WRITE) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof FileChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        if (iovsCount == 0) {
+            memory.setInt(bytesWrittenAddress, 0);
+            return ERRNO_SUCCESS;
+        }
+
+        var buffers = new ByteBuffer[iovsCount];
+        var totalLen = 0L;
+
+        for (var i = 0; i < iovsCount; i++) {
+            var ptr = memory.getInt(iovsAddress + 8*i);
+            var len = memory.getInt(iovsAddress + 8*i + 4);
+
+            if (len < 0) {
+                return ERRNO_INVAL;
+            }
+
+            totalLen += len;
+            if (totalLen > Integer.toUnsignedLong(-1)) {
+                return ERRNO_INVAL;
+            }
+
+            try {
+                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
+            }
+            catch (IndexOutOfBoundsException exception) {
+                return ERRNO_FAULT;
+            }
+        }
+
+        int bytesWritten;
+        try {
+            if (iovsCount == 1) {
+                bytesWritten = Integer.max(0, channel.write(buffers[0], offset));
+            }
+            else {
+                var lastPosition = channel.position();
+                channel.position(offset);
+                bytesWritten = (int) Long.max(0, channel.write(buffers));
+                channel.position(lastPosition);
+            }
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        memory.setInt(bytesWrittenAddress, bytesWritten);
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdRead(int fd, int iovsAddress, int iovsCount, int bytesReadAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_READ) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof ScatteringByteChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        if (iovsCount == 0) {
+            memory.setInt(bytesReadAddress, 0);
+            return ERRNO_SUCCESS;
+        }
+
+        var buffers = new ByteBuffer[iovsCount];
+        var totalLen = 0L;
+
+        for (var i = 0; i < iovsCount; i++) {
+            var ptr = memory.getInt(iovsAddress + 8*i);
+            var len = memory.getInt(iovsAddress + 8*i + 4);
+
+            if (len < 0) {
+                return ERRNO_INVAL;
+            }
+
+            totalLen += len;
+            if (totalLen > Integer.toUnsignedLong(-1)) {
+                return ERRNO_INVAL;
+            }
+
+            try {
+                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
+            }
+            catch (IndexOutOfBoundsException exception) {
+                return ERRNO_FAULT;
+            }
+        }
+
+        int bytesRead;
+        try {
+            bytesRead = (int) Long.max(0, channel.read(buffers));
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        memory.setInt(bytesReadAddress, bytesRead);
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdReaddir(int fd, int buf, int bufLen, long cookie, int sizeAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_READDIR) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (cookie < 0) {
+            return ERRNO_INVAL;
+        }
+
+        try (var entries = Files.list(file.path)) {
+            var paths = entries.skip(cookie).toArray(Path[]::new);
+
+            var outAddress = buf;
+            var endAddress = buf + bufLen;
+
+            for (var i = 0; i < paths.length; i++) {
+                outAddress = (outAddress + 7) & ~7;
+
+                if (Integer.compareUnsigned(endAddress - outAddress, 24) < 0) {
+                    outAddress = endAddress;
+                    break;
+                }
+
+                var path = paths[i];
+                var bytes = path.getFileName().toString().getBytes(StandardCharsets.UTF_8);
+
+                memory.setLong(outAddress, cookie + i);
+                memory.setLong(outAddress + 8, 0); // 'd_ino', not implemented
+                memory.setInt(outAddress + 16, bytes.length);
+
+                byte filetype;
+                var attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+
+                if (attributes.isSymbolicLink()) {
+                    filetype = FILETYPE_SYMBOLIC_LINK;
+                }
+                else if (attributes.isDirectory()) {
+                    filetype = FILETYPE_DIRECTORY;
+                }
+                else if (attributes.isRegularFile()) {
+                    filetype = FILETYPE_REGULAR_FILE;
+                }
+                else {
+                    filetype = FILETYPE_UNKNOWN;
+                }
+
+                memory.setByte(outAddress + 20, filetype);
+                outAddress += 24;
+
+                if (Integer.compareUnsigned(endAddress - outAddress, bytes.length) < 0) {
+                    memory.setBytes(outAddress, bytes, 0, endAddress - outAddress);
+                    outAddress = endAddress;
+                    break;
+                }
+                else {
+                    memory.setBytes(outAddress, bytes);
+                    outAddress += bytes.length;
+                }
+            }
+
+            memory.setInt(sizeAddress, outAddress - buf);
+        }
+        catch (IOException | UncheckedIOException ignored) {
+            return ERRNO_IO;
+        }
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdRenumber(int fdFrom, int fdTo, @NotNull ModuleInstance module) {
+        OpenFile from;
+        if ((from = openFile(fdFrom)) == null) {
+            return ERRNO_BADF;
+        }
+
+        OpenFile to;
+        if ((to = openFile(fdTo)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if (to.channel != null) {
+            try {
+                to.channel.close();
+            }
+            catch (IOException exception) {
+                return ERRNO_IO;
+            }
+        }
+
+        fileDescriptorTable.set(fdFrom, null);
+        fileDescriptorTable.set(fdTo, from);
+        recycledFileDescriptors.addLast(fdFrom);
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdSeek(int fd, long delta, byte whence, int newOffsetAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_SEEK) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof FileChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        long newPosition;
+
+        try {
+            switch (whence) {
+                case WHENCE_SET -> {
+                    newPosition = delta;
+                }
+
+                case WHENCE_CUR -> {
+                    newPosition = channel.position() + delta;
+                }
+
+                case WHENCE_END -> {
+                    newPosition = channel.size() + delta;
+                }
+
+                default -> {
+                    return ERRNO_INVAL;
+                }
+            }
+
+            channel.position(newPosition);
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        memory.setLong(newOffsetAddress, newPosition);
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdSync(int fd, @NotNull ModuleInstance module) {
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_SYNC) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof FileChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        try {
+            channel.force(true);
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdTell(int fd, int resultAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_TELL) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof FileChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        long result;
+
+        try {
+            result = channel.position();
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        memory.setLong(resultAddress, result);
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdWrite(int fd, int iovsAddress, int iovsCount, int bytesWrittenAddress, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_FD_WRITE) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        if (!(file.channel instanceof GatheringByteChannel channel)) {
+            return ERRNO_NODEV;
+        }
+
+        if (iovsCount == 0) {
+            memory.setInt(bytesWrittenAddress, 0);
+            return ERRNO_SUCCESS;
+        }
+
+        var buffers = new ByteBuffer[iovsCount];
+        var totalLen = 0L;
+
+        for (var i = 0; i < iovsCount; i++) {
+            var ptr = memory.getInt(iovsAddress + 8*i);
+            var len = memory.getInt(iovsAddress + 8*i + 4);
+
+            if (len < 0) {
+                return ERRNO_INVAL;
+            }
+
+            totalLen += len;
+            if (totalLen > Integer.toUnsignedLong(-1)) {
+                return ERRNO_INVAL;
+            }
+
+            try {
+                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
+            }
+            catch (IndexOutOfBoundsException exception) {
+                return ERRNO_FAULT;
+            }
+        }
+
+        int bytesWritten;
+        try {
+            bytesWritten = (int) Long.max(0, channel.write(buffers));
+        }
+        catch (IOException ignored) {
+            return ERRNO_IO;
+        }
+
+        memory.setInt(bytesWrittenAddress, bytesWritten);
+        return ERRNO_SUCCESS;
+    }
+
+    private int pathCreateDirectory(int fd, int pathPtr, int pathLen, @NotNull ModuleInstance module) {
+        var memory = (Memory) memoryHandle.get(module);
+
+        OpenFile file;
+        if ((file = openFile(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights & RIGHTS_PATH_CREATE_DIRECTORY) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        var pathStr = memory.getUtf8(pathPtr, pathLen);
+    }
 
     private static final class OpenFile {
         private Path path;
-        private Channel channel;
+        private @Nullable Channel channel;
         private byte type;
         private short flags;
         private long baseRights;
         private long inheritingRights;
+        private boolean isPreopened;
     }
 
-    private static final int PREOPENTYPE_DIR = 0;
+    private static final byte PREOPENTYPE_DIR = 0;
 
     private static final int SDFLAGS_RD = 1;
     private static final int SDFLAGS_WR = 1 << 1;
@@ -497,9 +1133,9 @@ public final class WasiEnvironment {
     private static final int FILETYPE_SOCKET_STREAM = 0;
     private static final int FILETYPE_SYMBOLIC_LINK = 0;
 
-    private static final int WHENCE_SET = 0;
-    private static final int WHENCE_CUR = 1;
-    private static final int WHENCE_END = 2;
+    private static final byte WHENCE_SET = 0;
+    private static final byte WHENCE_CUR = 1;
+    private static final byte WHENCE_END = 2;
 
     private static final long RIGHTS_FD_DATASYNC = 1;
     private static final long RIGHTS_FD_READ = 1 << 1;
