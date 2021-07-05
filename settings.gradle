@@ -2,3 +2,4 @@ rootProject.name = 'wastastic'
 
 include 'core'
 include 'shell'
+include 'wasi'
