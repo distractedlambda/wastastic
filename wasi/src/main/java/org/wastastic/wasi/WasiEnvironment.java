@@ -1,7 +1,9 @@
 package org.wastastic.wasi;
 
+import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
+import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import org.wastastic.Memory;
 import org.wastastic.ModuleInstance;
@@ -13,7 +15,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channel;
 import java.nio.channels.FileChannel;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.ScatteringByteChannel;
@@ -30,10 +31,13 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static java.lang.Math.addExact;
+import static java.lang.Math.multiplyExact;
 import static java.lang.System.arraycopy;
 import static java.lang.invoke.MethodType.methodType;
 import static java.nio.file.Files.readAttributes;
@@ -44,9 +48,11 @@ public final class WasiEnvironment {
     private final @NotNull VarHandle memoryHandle;
     private final int @NotNull[] argOffsets;
     private final byte @NotNull[] argBytes;
+    private final int @NotNull[] envOffsets;
+    private final byte @NotNull[] envBytes;
 
-    private final ArrayList<OpenFile> fileDescriptorTable = new ArrayList<>();
-    private final ArrayDeque<Integer> recycledFileDescriptors = new ArrayDeque<>();
+    private final Map<Integer, OpenFile> fdTable = new HashMap<>();
+    private final ArrayDeque<Integer> retiredFds = new ArrayDeque<>();
 
     private static final String MODULE_NAME = "wasi_snapshot_preview1";
 
@@ -70,6 +76,8 @@ public final class WasiEnvironment {
             arraycopy(arg, 0, argBytes, offset, argBytes.length);
             offset += arg.length + 1;
         }
+
+        throw new UnsupportedOperationException("TODO");
     }
 
     public @NotNull @Unmodifiable Map<QualifiedName, Object> makeImports() {
@@ -136,14 +144,6 @@ public final class WasiEnvironment {
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocateDirect(0);
     private static final ByteBuffer ZEROS_BUFFER = ByteBuffer.allocateDirect(4096);
 
-    private @Nullable OpenFile openFile(int fd) {
-        if (fd >= fileDescriptorTable.size()) {
-            return null;
-        }
-
-        return fileDescriptorTable.get(fd);
-    }
-
     private int argsGet(int argvAddress, int argvBufAddress, @NotNull ModuleInstance module) {
         var memory = (Memory) memoryHandle.get(module);
 
@@ -163,48 +163,105 @@ public final class WasiEnvironment {
     }
 
     private int environGet(int ptrsAddress, int dataAddress, @NotNull ModuleInstance module) {
-        // TODO
-        return ERRNO_NOTSUP;
+        var memory = (Memory) memoryHandle.get(module);
+
+        for (var i = 0; i < envOffsets.length; i++) {
+            memory.setInt(ptrsAddress + i*4, dataAddress + envOffsets[i]);
+        }
+
+        memory.setBytes(dataAddress, envBytes);
+        return ERRNO_SUCCESS;
     }
 
     private int environSizesGet(int numVarsAddress, int dataSizeAddress, @NotNull ModuleInstance module) {
-        // TODO
-        return ERRNO_NOTSUP;
+        var memory = (Memory) memoryHandle.get(module);
+        memory.setInt(numVarsAddress, envOffsets.length);
+        memory.setInt(dataSizeAddress, envBytes.length);
+        return ERRNO_SUCCESS;
     }
 
-    private int clockResGet(int clockId, int resolutionOut, @NotNull ModuleInstance module) {
+    private int clockResGet(int clockId, int resolutionOut, @NotNull ModuleInstance module) throws Throwable {
         var memory = (Memory) memoryHandle.get(module);
+
+        if (clockId < 0 || clockId > CLOCKID_THREAD_CPUTIME_ID) {
+            return ERRNO_INVAL;
+        }
+
         long resolution;
+        try (var scope = ResourceScope.newConfinedScope()) {
+            var timespec = MemorySegment.allocateNative(Linux.timespec, scope);
 
-        switch (clockId) {
-            case CLOCKID_REALTIME -> {
-                resolution = 1_000_000L;
+            if ((int) Linux.clock_getres.invoke(clockId, timespec.address()) != 0) {
+                return translateErrno(Linux.errno());
             }
 
-            case CLOCKID_MONOTONIC -> {
-                resolution = 1L;
-            }
-
-            default -> {
-                return ERRNO_INVAL;
-            }
+            var sec = (long) Linux.tv_sec.get(timespec);
+            var nsec = (long) Linux.tv_nsec.get(timespec);
+            resolution = addExact(multiplyExact(sec, 1_000_000_000L), nsec);
         }
 
         memory.setLong(resolutionOut, resolution);
         return ERRNO_SUCCESS;
     }
 
-    private int clockTimeGet(int clockId, long precision, int timeOut, @NotNull ModuleInstance module) {
+    private int clockTimeGet(int clockId, long precision, int timeOut, @NotNull ModuleInstance module) throws Throwable {
         var memory = (Memory) memoryHandle.get(module);
-        long time;
 
-        switch (clockId) {
-            case CLOCKID_REALTIME -> {
-                time = System.currentTimeMillis() * 1_000_000L;
+        if (clockId < 0 || clockId > CLOCKID_THREAD_CPUTIME_ID) {
+            return ERRNO_INVAL;
+        }
+
+        long time;
+        try (var scope = ResourceScope.newConfinedScope()) {
+            var timespec = MemorySegment.allocateNative(Linux.timespec, scope);
+
+            if ((int) Linux.clock_gettime.invoke(clockId, timespec.address()) != 0) {
+                return translateErrno(Linux.errno());
             }
 
-            case CLOCKID_MONOTONIC -> {
-                time = System.nanoTime();
+            var sec = (long) Linux.tv_sec.get(timespec);
+            var nsec = (long) Linux.tv_nsec.get(timespec);
+            time = addExact(multiplyExact(sec, 1_000_000_000L), nsec);
+        }
+
+        memory.setLong(timeOut, time);
+        return ERRNO_SUCCESS;
+    }
+
+    private int fdAdvise(int fd, long offset, long length, int advice, @NotNull ModuleInstance module) throws Throwable {
+        OpenFile file;
+        if ((file = fdTable.get(fd)) == null) {
+            return ERRNO_BADF;
+        }
+
+        if ((file.baseRights() & RIGHTS_FD_ADVISE) == 0) {
+            return ERRNO_NOTCAPABLE;
+        }
+
+        int linuxAdvice;
+        switch (advice) {
+            case ADVICE_NORMAL -> {
+                linuxAdvice = Linux.POSIX_FADV_NORMAL;
+            }
+
+            case ADVICE_SEQUENTIAL -> {
+                linuxAdvice = Linux.POSIX_FADV_SEQUENTIAL;
+            }
+
+            case ADVICE_RANDOM -> {
+                linuxAdvice = Linux.POSIX_FADV_RANDOM;
+            }
+
+            case ADVICE_WILLNEED -> {
+                linuxAdvice = Linux.POSIX_FADV_WILLNEED;
+            }
+
+            case ADVICE_DONTNEED -> {
+                linuxAdvice = Linux.POSIX_FADV_DONTNEED;
+            }
+
+            case ADVICE_NOREUSE -> {
+                linuxAdvice = Linux.POSIX_FADV_NOREUSE;
             }
 
             default -> {
@@ -212,103 +269,49 @@ public final class WasiEnvironment {
             }
         }
 
-        memory.setLong(timeOut, time);
-        return ERRNO_SUCCESS;
+        return translateErrno((int) Linux.posix_fadvise.invoke(file.nativeFd(), offset, length, linuxAdvice));
     }
 
-    private int fdAdvise(int fd, long offset, long length, int advice, @NotNull ModuleInstance module) {
+    private int fdAllocate(int fd, long offset, long length, @NotNull ModuleInstance module) throws Throwable {
         OpenFile file;
-        if ((file = openFile(fd)) == null) {
+        if ((file = fdTable.get(fd)) == null) {
             return ERRNO_BADF;
         }
 
-        if ((file.baseRights & RIGHTS_FD_ADVISE) == 0) {
+        if ((file.baseRights() & RIGHTS_FD_ALLOCATE) == 0) {
             return ERRNO_NOTCAPABLE;
         }
 
-        return switch (advice) {
-            case ADVICE_NORMAL,
-                ADVICE_SEQUENTIAL,
-                ADVICE_RANDOM,
-                ADVICE_WILLNEED,
-                ADVICE_DONTNEED,
-                ADVICE_NOREUSE -> ERRNO_SUCCESS;
-
-            default -> ERRNO_INVAL;
-        };
+        return translateErrno((int) Linux.posix_fallocate.invoke(file.nativeFd(), offset, length));
     }
 
-    private int fdAllocate(int fd, long offset, long length, @NotNull ModuleInstance module) {
+    private int fdClose(int fd, @NotNull ModuleInstance module) throws Throwable {
         OpenFile file;
-
-        if ((file = openFile(fd)) == null) {
+        if ((file = fdTable.get(fd)) == null) {
             return ERRNO_BADF;
         }
 
-        if ((file.baseRights & RIGHTS_FD_ALLOCATE) == 0) {
-            return ERRNO_NOTCAPABLE;
+        if ((int) Linux.close.invoke(file.nativeFd()) != 0) {
+            return translateErrno(Linux.errno());
         }
 
-        if (!(file.channel instanceof FileChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
-        if (offset < 0 || length <= 0 || offset + length < 0) {
-            return ERRNO_INVAL;
-        }
-
-        try {
-            channel.write(EMPTY_BUFFER, offset + length);
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
+        fdTable.remove(fd);
+        retiredFds.addLast(fd);
         return ERRNO_SUCCESS;
     }
 
-    private int fdClose(int fd, @NotNull ModuleInstance module) {
+    private int fdDatasync(int fd, @NotNull ModuleInstance module) throws Throwable {
         OpenFile file;
-
-        if ((file = openFile(fd)) == null) {
+        if ((file = fdTable.get(fd)) == null) {
             return ERRNO_BADF;
         }
 
-        if (file.channel != null) {
-            try {
-                file.channel.close();
-            }
-            catch (IOException exception) {
-                return ERRNO_IO;
-            }
-        }
-
-        fileDescriptorTable.set(fd, null);
-        recycledFileDescriptors.addLast(fd);
-
-        return ERRNO_SUCCESS;
-    }
-
-    private int fdDatasync(int fd, @NotNull ModuleInstance module) {
-        OpenFile file;
-
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_DATASYNC) == 0) {
+        if ((file.baseRights() & RIGHTS_FD_DATASYNC) == 0) {
             return ERRNO_NOTCAPABLE;
         }
 
-        if (!(file.channel instanceof FileChannel channel)) {
-            return ERRNO_INVAL;
-        }
-
-        try {
-            channel.force(true);
-        }
-        catch (IOException exception) {
-            return ERRNO_IO;
+        if ((int) Linux.fdatasync.invoke(file.nativeFd()) != 0) {
+            return translateErrno(Linux.errno());
         }
 
         return ERRNO_SUCCESS;
@@ -1126,16 +1129,6 @@ public final class WasiEnvironment {
         return ERRNO_SUCCESS;
     }
 
-    private static final class OpenFile {
-        private Path path;
-        private @Nullable Channel channel;
-        private byte type;
-        private short flags;
-        private long baseRights;
-        private long inheritingRights;
-        private boolean isPreopened;
-    }
-
     private static final byte PREOPENTYPE_DIR = 0;
 
     private static final int SDFLAGS_RD = 1;
@@ -1259,6 +1252,88 @@ public final class WasiEnvironment {
     private static final int CLOCKID_PROCESS_CPUTIME_ID = 2;
     private static final int CLOCKID_THREAD_CPUTIME_ID = 3;
 
+    private static int translateErrno(int linuxValue) {
+        return switch (linuxValue) {
+            case 0 -> ERRNO_SUCCESS;
+            case Linux.EPERM -> ERRNO_PERM;
+            case Linux.ENOENT -> ERRNO_NOENT;
+            case Linux.ESRCH -> ERRNO_SRCH;
+            case Linux.EINTR -> ERRNO_INTR;
+            case Linux.EIO -> ERRNO_IO;
+            case Linux.ENXIO -> ERRNO_NXIO;
+            case Linux.E2BIG -> ERRNO_2BIG;
+            case Linux.ENOEXEC -> ERRNO_NOEXEC;
+            case Linux.EBADF -> ERRNO_BADF;
+            case Linux.ECHILD -> ERRNO_CHILD;
+            case Linux.EAGAIN -> ERRNO_AGAIN;
+            case Linux.ENOMEM -> ERRNO_NOMEM;
+            case Linux.EACCES -> ERRNO_ACCES;
+            case Linux.EFAULT -> ERRNO_FAULT;
+            case Linux.EBUSY -> ERRNO_BUSY;
+            case Linux.EEXIST -> ERRNO_EXIST;
+            case Linux.EXDEV -> ERRNO_XDEV;
+            case Linux.ENODEV -> ERRNO_NODEV;
+            case Linux.ENOTDIR -> ERRNO_NOTDIR;
+            case Linux.EISDIR -> ERRNO_ISDIR;
+            case Linux.EINVAL -> ERRNO_INVAL;
+            case Linux.ENFILE -> ERRNO_NFILE;
+            case Linux.EMFILE -> ERRNO_MFILE;
+            case Linux.ENOTTY -> ERRNO_NOTTY;
+            case Linux.ETXTBSY -> ERRNO_TXTBSY;
+            case Linux.EFBIG -> ERRNO_FBIG;
+            case Linux.ENOSPC -> ERRNO_NOSPC;
+            case Linux.ESPIPE -> ERRNO_SPIPE;
+            case Linux.EROFS -> ERRNO_ROFS;
+            case Linux.EMLINK -> ERRNO_MLINK;
+            case Linux.EPIPE -> ERRNO_PIPE;
+            case Linux.EDOM -> ERRNO_DOM;
+            case Linux.ERANGE -> ERRNO_RANGE;
+            case Linux.EDEADLK -> ERRNO_DEADLK;
+            case Linux.ENAMETOOLONG -> ERRNO_NAMETOOLONG;
+            case Linux.ENOLCK -> ERRNO_NOLCK;
+            case Linux.ENOSYS -> ERRNO_NOSYS;
+            case Linux.ENOTEMPTY -> ERRNO_NOTEMPTY;
+            case Linux.ELOOP -> ERRNO_LOOP;
+            case Linux.ENOMSG -> ERRNO_NOMSG;
+            case Linux.EIDRM -> ERRNO_IDRM;
+            case Linux.ENOLINK -> ERRNO_NOLINK;
+            case Linux.EPROTO -> ERRNO_PROTO;
+            case Linux.EMULTIHOP -> ERRNO_MULTIHOP;
+            case Linux.EBADMSG -> ERRNO_BADMSG;
+            case Linux.EOVERFLOW -> ERRNO_OVERFLOW;
+            case Linux.EILSEQ -> ERRNO_ILSEQ;
+            case Linux.ENOTSOCK -> ERRNO_NOTSOCK;
+            case Linux.EDESTADDRREQ -> ERRNO_DESTADDRREQ;
+            case Linux.EMSGSIZE -> ERRNO_MSGSIZE;
+            case Linux.EPROTOTYPE -> ERRNO_PROTOTYPE;
+            case Linux.ENOPROTOOPT -> ERRNO_NOPROTOOPT;
+            case Linux.EPROTONOSUPPORT -> ERRNO_PROTONOSUPPORT;
+            case Linux.ENOTSUP -> ERRNO_NOTSUP;
+            case Linux.EAFNOSUPPORT -> ERRNO_AFNOSUPPORT;
+            case Linux.EADDRINUSE -> ERRNO_ADDRINUSE;
+            case Linux.EADDRNOTAVAIL -> ERRNO_ADDRNOTAVAIL;
+            case Linux.ENETDOWN -> ERRNO_NETDOWN;
+            case Linux.ENETUNREACH -> ERRNO_NETUNREACH;
+            case Linux.ENETRESET -> ERRNO_NETRESET;
+            case Linux.ECONNABORTED -> ERRNO_CONNABORTED;
+            case Linux.ECONNRESET -> ERRNO_CONNRESET;
+            case Linux.ENOBUFS -> ERRNO_NOBUFS;
+            case Linux.EISCONN -> ERRNO_ISCONN;
+            case Linux.ENOTCONN -> ERRNO_NOTCONN;
+            case Linux.ETIMEDOUT -> ERRNO_TIMEDOUT;
+            case Linux.ECONNREFUSED -> ERRNO_CONNREFUSED;
+            case Linux.EHOSTUNREACH -> ERRNO_HOSTUNREACH;
+            case Linux.EALREADY -> ERRNO_ALREADY;
+            case Linux.EINPROGRESS -> ERRNO_INPROGRESS;
+            case Linux.ESTALE -> ERRNO_STALE;
+            case Linux.EDQUOT -> ERRNO_DQUOT;
+            case Linux.ECANCELED -> ERRNO_CANCELED;
+            case Linux.EOWNERDEAD -> ERRNO_OWNERDEAD;
+            case Linux.ENOTRECOVERABLE -> ERRNO_NOTRECOVERABLE;
+            default -> ERRNO_IO;
+        };
+    }
+
     private static final int ERRNO_SUCCESS = 0;
     private static final int ERRNO_2BIG = 1;
     private static final int ERRNO_ACCES = 2;
@@ -1333,7 +1408,7 @@ public final class WasiEnvironment {
     private static final int ERRNO_SRCH = 71;
     private static final int ERRNO_STALE = 72;
     private static final int ERRNO_TIMEDOUT = 73;
-    private static final int ERRNO_TXTBUSY = 74;
+    private static final int ERRNO_TXTBSY = 74;
     private static final int ERRNO_XDEV = 75;
     private static final int ERRNO_NOTCAPABLE = 76;
 }

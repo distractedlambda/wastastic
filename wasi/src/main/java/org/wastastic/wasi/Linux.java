@@ -2,8 +2,10 @@ package org.wastastic.wasi;
 
 import jdk.incubator.foreign.CLinker;
 import jdk.incubator.foreign.FunctionDescriptor;
+import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryLayout;
+import jdk.incubator.foreign.ResourceScope;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
@@ -71,6 +73,82 @@ final class Linux {
     static final VarHandle st_ctim_sec = stat.varHandle(long.class, groupElement("ctim"), groupElement("sec"));
     static final VarHandle st_ctim_nsec = stat.varHandle(long.class, groupElement("ctim"), groupElement("nsec"));
 
+    static final int EPERM = 1;
+    static final int ENOENT = 2;
+    static final int ESRCH = 3;
+    static final int EINTR = 4;
+    static final int EIO = 5;
+    static final int ENXIO = 6;
+    static final int E2BIG = 7;
+    static final int ENOEXEC = 8;
+    static final int EBADF = 9;
+    static final int ECHILD = 10;
+    static final int EAGAIN = 11;
+    static final int ENOMEM = 12;
+    static final int EACCES = 13;
+    static final int EFAULT = 14;
+    static final int EBUSY = 16;
+    static final int EEXIST = 17;
+    static final int EXDEV = 18;
+    static final int ENODEV = 19;
+    static final int ENOTDIR = 20;
+    static final int EISDIR = 21;
+    static final int EINVAL = 22;
+    static final int ENFILE = 23;
+    static final int EMFILE = 24;
+    static final int ENOTTY = 25;
+    static final int ETXTBSY = 26;
+    static final int EFBIG = 27;
+    static final int ENOSPC = 28;
+    static final int ESPIPE = 29;
+    static final int EROFS = 30;
+    static final int EMLINK = 31;
+    static final int EPIPE = 32;
+    static final int EDOM = 33;
+    static final int ERANGE = 34;
+    static final int EDEADLK = 35;
+    static final int ENAMETOOLONG = 36;
+    static final int ENOLCK = 37;
+    static final int ENOSYS = 38;
+    static final int ENOTEMPTY = 39;
+    static final int ELOOP = 40;
+    static final int ENOMSG = 42;
+    static final int EIDRM = 43;
+    static final int ENOLINK = 67;
+    static final int EPROTO = 71;
+    static final int EMULTIHOP = 72;
+    static final int EBADMSG = 74;
+    static final int EOVERFLOW = 75;
+    static final int EILSEQ = 84;
+    static final int ENOTSOCK = 88;
+    static final int EDESTADDRREQ = 89;
+    static final int EMSGSIZE = 90;
+    static final int EPROTOTYPE = 91;
+    static final int ENOPROTOOPT = 92;
+    static final int EPROTONOSUPPORT = 93;
+    static final int ENOTSUP = 95;
+    static final int EAFNOSUPPORT = 97;
+    static final int EADDRINUSE = 98;
+    static final int EADDRNOTAVAIL = 99;
+    static final int ENETDOWN = 100;
+    static final int ENETUNREACH = 101;
+    static final int ENETRESET = 102;
+    static final int ECONNABORTED = 103;
+    static final int ECONNRESET = 104;
+    static final int ENOBUFS = 105;
+    static final int EISCONN = 106;
+    static final int ENOTCONN = 107;
+    static final int ETIMEDOUT = 110;
+    static final int ECONNREFUSED = 111;
+    static final int EHOSTUNREACH = 113;
+    static final int EALREADY = 114;
+    static final int EINPROGRESS = 115;
+    static final int ESTALE = 116;
+    static final int EDQUOT = 122;
+    static final int ECANCELED = 125;
+    static final int EOWNERDEAD = 130;
+    static final int ENOTRECOVERABLE = 131;
+
     static final int CLOCK_REALTIME = 0;
     static final int CLOCK_MONOTONIC = 1;
     static final int CLOCK_PROCESS_CPUTIME_ID = 2;
@@ -83,6 +161,7 @@ final class Linux {
     static final int POSIX_FADV_DONTNEED = 4;
     static final int POSIX_FADV_NOREUSE = 5;
 
+    static final MethodHandle __errno_location;
     static final MethodHandle clock_getres;
     static final MethodHandle clock_gettime;
     static final MethodHandle posix_fadvise;
@@ -97,6 +176,12 @@ final class Linux {
     static {
         var linker = CLinker.getInstance();
         var lib = CLinker.systemLookup();
+
+        __errno_location = linker.downcallHandle(
+            lib.lookup("__errno_location").orElseThrow(),
+            methodType(MemoryAddress.class),
+            FunctionDescriptor.of(C_POINTER)
+        );
 
         clock_getres = linker.downcallHandle(
             lib.lookup("clock_getres").orElseThrow(),
@@ -157,5 +242,10 @@ final class Linux {
             methodType(int.class, int.class, long.class),
             FunctionDescriptor.of(C_INT, C_INT, off_t)
         );
+    }
+
+    static int errno() throws Throwable {
+        var location = (MemoryAddress) __errno_location.invoke();
+        return MemoryAccess.getInt(location.asSegment(4, ResourceScope.globalScope()));
     }
 }
