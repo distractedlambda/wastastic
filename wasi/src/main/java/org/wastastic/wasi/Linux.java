@@ -32,6 +32,7 @@ final class Linux {
     static final MemoryLayout gid_t = C_INT;
     static final MemoryLayout blksize_t = C_LONG;
     static final MemoryLayout blkcnt_t = C_LONG;
+    static final MemoryLayout socklen_t = C_INT;
 
     static final MemoryLayout timespec = cStructLayout(
         time_t.withName("sec"),
@@ -161,6 +162,37 @@ final class Linux {
     static final int POSIX_FADV_DONTNEED = 4;
     static final int POSIX_FADV_NOREUSE = 5;
 
+    static final int F_GETFL = 3;
+
+    static final int O_CREAT = 1 << 6;
+    static final int O_EXCL = 1 << 7;
+    static final int O_APPEND = 1 << 10;
+    static final int O_NONBLOCK = 1 << 11;
+    static final int O_DSYNC = 1 << 12;
+    static final int O_ASYNC = 1 << 13;
+    static final int O_DIRECT = 1 << 14;
+    static final int O_DIRECTORY = 1 << 16;
+    static final int O_NOFOLLOW = 1 << 17;
+    static final int O_NOATIME = 1 << 18;
+    static final int O_CLOEXEC = 1 << 19;
+    static final int O_SYNC = (1 << 20) | O_DSYNC;
+    static final int O_PATH = 1 << 21;
+
+    static final int S_IFIFO = 0x1000;
+    static final int S_IFCHR = 0x2000;
+    static final int S_IFDIR = 0x4000;
+    static final int S_IFBLK = 0x6000;
+    static final int S_IFREG = 0x8000;
+    static final int S_IFLNK = 0xa000;
+    static final int S_IFSOCK = 0xc000;
+
+    static final int SOL_SOCKET = 1;
+
+    static final int SO_TYPE = 3;
+
+    static final int SOCK_STREAM = 1;
+    static final int SOCK_DGRAM = 2;
+
     static final MethodHandle __errno_location;
     static final MethodHandle clock_getres;
     static final MethodHandle clock_gettime;
@@ -172,6 +204,7 @@ final class Linux {
     static final MethodHandle fcntl_int;
     static final MethodHandle fstat;
     static final MethodHandle ftruncate;
+    static final MethodHandle getsockopt;
 
     static {
         var linker = CLinker.getInstance();
@@ -241,6 +274,12 @@ final class Linux {
             lib.lookup("ftruncate").orElseThrow(),
             methodType(int.class, int.class, long.class),
             FunctionDescriptor.of(C_INT, C_INT, off_t)
+        );
+
+        getsockopt = linker.downcallHandle(
+            lib.lookup("getsockopt").orElseThrow(),
+            methodType(int.class, int.class, int.class, int.class, MemoryAddress.class, MemoryAddress.class),
+            FunctionDescriptor.of(C_INT, C_INT, C_INT, C_INT, C_POINTER, C_POINTER)
         );
     }
 

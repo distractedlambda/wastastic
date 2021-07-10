@@ -1,5 +1,7 @@
 package org.wastastic.wasi;
 
+import jdk.incubator.foreign.MemoryAccess;
+import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import jdk.incubator.foreign.SegmentAllocator;
@@ -9,11 +11,13 @@ import org.wastastic.Memory;
 import org.wastastic.ModuleInstance;
 import org.wastastic.QualifiedName;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.reflect.WildcardType;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.GatheringByteChannel;
@@ -188,8 +192,8 @@ public final class WasiEnvironment {
         }
 
         long resolution;
-        try (var scope = ResourceScope.newConfinedScope()) {
-            var timespec = MemorySegment.allocateNative(Linux.timespec, scope);
+        try (var frame = MemoryStack.getFrame()) {
+            var timespec = frame.allocate(Linux.timespec);
 
             if ((int) Linux.clock_getres.invoke(clockId, timespec.address()) != 0) {
                 return translateErrno(Linux.errno());
@@ -212,8 +216,8 @@ public final class WasiEnvironment {
         }
 
         long time;
-        try (var scope = ResourceScope.newConfinedScope()) {
-            var timespec = MemorySegment.allocateNative(Linux.timespec, scope);
+        try (var frame = MemoryStack.getFrame()) {
+            var timespec = frame.allocate(Linux.timespec);
 
             if ((int) Linux.clock_gettime.invoke(clockId, timespec.address()) != 0) {
                 return translateErrno(Linux.errno());
@@ -317,18 +321,106 @@ public final class WasiEnvironment {
         return ERRNO_SUCCESS;
     }
 
-    private int fdFdstatGet(int fd, int statAddress, @NotNull ModuleInstance module) {
+    private int fdFdstatGet(int fd, int statAddress, @NotNull ModuleInstance module) throws Throwable {
+        var stack = MemoryStack.get();
         var memory = (Memory) memoryHandle.get(module);
 
         OpenFile file;
-        if ((file = openFile(fd)) == null) {
+        if ((file = fdTable.get(fd)) == null) {
             return ERRNO_BADF;
         }
 
-        memory.setByte(statAddress, file.type);
-        memory.setShort(statAddress + 2, file.flags);
-        memory.setLong(statAddress + 8, file.baseRights);
-        memory.setLong(statAddress + 16, file.inheritingRights);
+        int linuxFlags;
+        if ((linuxFlags = (int) Linux.fcntl_void.invoke(file.nativeFd(), Linux.F_GETFL)) == -1) {
+            return translateErrno(Linux.errno());
+        }
+
+        short flags = 0;
+
+        if ((linuxFlags & Linux.O_APPEND) != 0) {
+            flags |= FDFLAGS_APPEND;
+        }
+
+        if ((linuxFlags & Linux.O_SYNC) == Linux.O_SYNC) {
+            flags |= FDFLAGS_SYNC | FDFLAGS_RSYNC;
+        }
+
+        if ((linuxFlags & Linux.O_DSYNC) != 0) {
+            flags |= FDFLAGS_DSYNC;
+        }
+
+        if ((linuxFlags & Linux.O_NONBLOCK) != 0) {
+            flags |= FDFLAGS_NONBLOCK;
+        }
+
+        int linuxType;
+        try (var frame = stack.frame()) {
+            var stat = frame.allocate(Linux.stat);
+
+            if ((int) Linux.fstat.invoke(file.nativeFd(), stat.address()) != 0) {
+                return translateErrno(Linux.errno());
+            }
+
+            linuxType = ((int) Linux.st_mode.get(stat) >> 12) & 0xf;
+        }
+
+        byte type;
+        switch (linuxType) {
+            case Linux.S_IFCHR -> {
+                type = FILETYPE_CHARACTER_DEVICE;
+            }
+
+            case Linux.S_IFDIR -> {
+                type = FILETYPE_DIRECTORY;
+            }
+
+            case Linux.S_IFBLK -> {
+                type = FILETYPE_BLOCK_DEVICE;
+            }
+
+            case Linux.S_IFREG -> {
+                type = FILETYPE_REGULAR_FILE;
+            }
+
+            case Linux.S_IFLNK -> {
+                type = FILETYPE_SYMBOLIC_LINK;
+            }
+
+            case Linux.S_IFSOCK -> {
+                try (var frame = stack.frame()) {
+                    var optval = frame.allocate(MemoryLayouts.JAVA_INT);
+                    var optlen = frame.allocate(Linux.socklen_t);
+                    MemoryAccess.setInt(optlen, 4);
+
+                    if ((int) Linux.getsockopt.invoke(file.nativeFd(), Linux.SOL_SOCKET, Linux.SO_TYPE, optval.address(), optlen.address()) != 0) {
+                        return translateErrno(Linux.errno());
+                    }
+
+                    switch (MemoryAccess.getInt(optval)) {
+                        case Linux.SOCK_STREAM -> {
+                            type = FILETYPE_SOCKET_STREAM;
+                        }
+
+                        case Linux.SOCK_DGRAM -> {
+                            type = FILETYPE_SOCKET_DGRAM;
+                        }
+
+                        default -> {
+                            type = FILETYPE_UNKNOWN;
+                        }
+                    }
+                }
+            }
+
+            default -> {
+                type = FILETYPE_UNKNOWN;
+            }
+        }
+
+        memory.setByte(statAddress, type);
+        memory.setShort(statAddress + 2, flags);
+        memory.setLong(statAddress + 8, file.baseRights());
+        memory.setLong(statAddress + 16, file.inheritingRights());
 
         return ERRNO_SUCCESS;
     }
@@ -1198,13 +1290,13 @@ public final class WasiEnvironment {
     private static final int FDFLAGS_SYNC = 1 << 4;
 
     private static final int FILETYPE_UNKNOWN = 0;
-    private static final int FILETYPE_BLOCK_DEVICE = 0;
-    private static final int FILETYPE_CHARACTER_DEVICE = 0;
-    private static final int FILETYPE_DIRECTORY = 0;
-    private static final int FILETYPE_REGULAR_FILE = 0;
-    private static final int FILETYPE_SOCKET_DGRAM = 0;
-    private static final int FILETYPE_SOCKET_STREAM = 0;
-    private static final int FILETYPE_SYMBOLIC_LINK = 0;
+    private static final int FILETYPE_BLOCK_DEVICE = 1;
+    private static final int FILETYPE_CHARACTER_DEVICE = 2;
+    private static final int FILETYPE_DIRECTORY = 3;
+    private static final int FILETYPE_REGULAR_FILE = 4;
+    private static final int FILETYPE_SOCKET_DGRAM = 5;
+    private static final int FILETYPE_SOCKET_STREAM = 6;
+    private static final int FILETYPE_SYMBOLIC_LINK = 7;
 
     private static final byte WHENCE_SET = 0;
     private static final byte WHENCE_CUR = 1;
