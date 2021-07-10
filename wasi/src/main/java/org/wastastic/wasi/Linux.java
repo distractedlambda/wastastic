@@ -5,11 +5,18 @@ import jdk.incubator.foreign.FunctionDescriptor;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryLayout;
+import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 
+import static java.lang.Math.addExact;
+import static java.lang.Math.multiplyExact;
+import static java.lang.invoke.MethodHandles.filterReturnValue;
+import static java.lang.invoke.MethodHandles.insertArguments;
 import static java.lang.invoke.MethodType.methodType;
 import static jdk.incubator.foreign.CLinker.C_INT;
 import static jdk.incubator.foreign.CLinker.C_LONG;
@@ -18,6 +25,82 @@ import static jdk.incubator.foreign.CLinker.asVarArg;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 import static jdk.incubator.foreign.MemoryLayout.paddingLayout;
 import static org.wastastic.wasi.LayoutUtils.cStructLayout;
+import static org.wastastic.wasi.WasiConstants.ERRNO_2BIG;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ACCES;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ADDRINUSE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ADDRNOTAVAIL;
+import static org.wastastic.wasi.WasiConstants.ERRNO_AFNOSUPPORT;
+import static org.wastastic.wasi.WasiConstants.ERRNO_AGAIN;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ALREADY;
+import static org.wastastic.wasi.WasiConstants.ERRNO_BADF;
+import static org.wastastic.wasi.WasiConstants.ERRNO_BADMSG;
+import static org.wastastic.wasi.WasiConstants.ERRNO_BUSY;
+import static org.wastastic.wasi.WasiConstants.ERRNO_CANCELED;
+import static org.wastastic.wasi.WasiConstants.ERRNO_CHILD;
+import static org.wastastic.wasi.WasiConstants.ERRNO_CONNABORTED;
+import static org.wastastic.wasi.WasiConstants.ERRNO_CONNREFUSED;
+import static org.wastastic.wasi.WasiConstants.ERRNO_CONNRESET;
+import static org.wastastic.wasi.WasiConstants.ERRNO_DEADLK;
+import static org.wastastic.wasi.WasiConstants.ERRNO_DESTADDRREQ;
+import static org.wastastic.wasi.WasiConstants.ERRNO_DOM;
+import static org.wastastic.wasi.WasiConstants.ERRNO_DQUOT;
+import static org.wastastic.wasi.WasiConstants.ERRNO_EXIST;
+import static org.wastastic.wasi.WasiConstants.ERRNO_FAULT;
+import static org.wastastic.wasi.WasiConstants.ERRNO_FBIG;
+import static org.wastastic.wasi.WasiConstants.ERRNO_HOSTUNREACH;
+import static org.wastastic.wasi.WasiConstants.ERRNO_IDRM;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ILSEQ;
+import static org.wastastic.wasi.WasiConstants.ERRNO_INPROGRESS;
+import static org.wastastic.wasi.WasiConstants.ERRNO_INTR;
+import static org.wastastic.wasi.WasiConstants.ERRNO_INVAL;
+import static org.wastastic.wasi.WasiConstants.ERRNO_IO;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ISCONN;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ISDIR;
+import static org.wastastic.wasi.WasiConstants.ERRNO_LOOP;
+import static org.wastastic.wasi.WasiConstants.ERRNO_MFILE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_MLINK;
+import static org.wastastic.wasi.WasiConstants.ERRNO_MSGSIZE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_MULTIHOP;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NAMETOOLONG;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NETDOWN;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NETRESET;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NETUNREACH;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NFILE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOBUFS;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NODEV;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOENT;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOEXEC;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOLCK;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOLINK;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOMEM;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOMSG;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOPROTOOPT;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOSPC;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOSYS;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOTCONN;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOTDIR;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOTEMPTY;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOTRECOVERABLE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOTSOCK;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOTSUP;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NOTTY;
+import static org.wastastic.wasi.WasiConstants.ERRNO_NXIO;
+import static org.wastastic.wasi.WasiConstants.ERRNO_OVERFLOW;
+import static org.wastastic.wasi.WasiConstants.ERRNO_OWNERDEAD;
+import static org.wastastic.wasi.WasiConstants.ERRNO_PERM;
+import static org.wastastic.wasi.WasiConstants.ERRNO_PIPE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_PROTO;
+import static org.wastastic.wasi.WasiConstants.ERRNO_PROTONOSUPPORT;
+import static org.wastastic.wasi.WasiConstants.ERRNO_PROTOTYPE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_RANGE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_ROFS;
+import static org.wastastic.wasi.WasiConstants.ERRNO_SPIPE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_SRCH;
+import static org.wastastic.wasi.WasiConstants.ERRNO_STALE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_SUCCESS;
+import static org.wastastic.wasi.WasiConstants.ERRNO_TIMEDOUT;
+import static org.wastastic.wasi.WasiConstants.ERRNO_TXTBSY;
+import static org.wastastic.wasi.WasiConstants.ERRNO_XDEV;
 
 final class Linux {
     private Linux() {}
@@ -67,12 +150,10 @@ final class Linux {
     static final VarHandle st_nlink = stat.varHandle(long.class, groupElement("nlink"));
     static final VarHandle st_mode = stat.varHandle(int.class, groupElement("mode"));
     static final VarHandle st_size = stat.varHandle(long.class, groupElement("size"));
-    static final VarHandle st_atim_sec = stat.varHandle(long.class, groupElement("atim"), groupElement("sec"));
-    static final VarHandle st_atim_nsec = stat.varHandle(long.class, groupElement("atim"), groupElement("nsec"));
-    static final VarHandle st_mtim_sec = stat.varHandle(long.class, groupElement("mtim"), groupElement("sec"));
-    static final VarHandle st_mtim_nsec = stat.varHandle(long.class, groupElement("mtim"), groupElement("nsec"));
-    static final VarHandle st_ctim_sec = stat.varHandle(long.class, groupElement("ctim"), groupElement("sec"));
-    static final VarHandle st_ctim_nsec = stat.varHandle(long.class, groupElement("ctim"), groupElement("nsec"));
+
+    static final MethodHandle st_atim = stat.sliceHandle(groupElement("atim"));
+    static final MethodHandle st_mtim = stat.sliceHandle(groupElement("atim"));
+    static final MethodHandle st_ctim = stat.sliceHandle(groupElement("atim"));
 
     static final int EPERM = 1;
     static final int ENOENT = 2;
@@ -163,6 +244,7 @@ final class Linux {
     static final int POSIX_FADV_NOREUSE = 5;
 
     static final int F_GETFL = 3;
+    static final int F_SETFL = 4;
 
     static final int O_CREAT = 1 << 6;
     static final int O_EXCL = 1 << 7;
@@ -200,15 +282,28 @@ final class Linux {
     static final MethodHandle posix_fallocate;
     static final MethodHandle close;
     static final MethodHandle fdatasync;
-    static final MethodHandle fcntl_void;
-    static final MethodHandle fcntl_int;
+    static final MethodHandle fcntl_GETFL;
+    static final MethodHandle fcntl_SETFL;
     static final MethodHandle fstat;
     static final MethodHandle ftruncate;
     static final MethodHandle getsockopt;
 
     static {
+        var lookup = MethodHandles.lookup();
         var linker = CLinker.getInstance();
         var lib = CLinker.systemLookup();
+
+        MethodHandle throwErrnoOnNonzero;
+        MethodHandle throwArgOnNonzero;
+        MethodHandle throwErrnoOnM1;
+        try {
+            throwErrnoOnNonzero = lookup.findStatic(Linux.class, "throwErrnoOnNonzero", methodType(void.class, int.class));
+            throwArgOnNonzero = lookup.findStatic(Linux.class, "throwArgOnNonzero", methodType(void.class, int.class));
+            throwErrnoOnM1 = lookup.findStatic(Linux.class, "throwErrnoOnM1", methodType(int.class, int.class));
+        }
+        catch (NoSuchMethodException | IllegalAccessException exception) {
+            throw new UnsupportedOperationException(exception);
+        }
 
         __errno_location = linker.downcallHandle(
             lib.lookup("__errno_location").orElseThrow(),
@@ -216,75 +311,220 @@ final class Linux {
             FunctionDescriptor.of(C_POINTER)
         );
 
-        clock_getres = linker.downcallHandle(
-            lib.lookup("clock_getres").orElseThrow(),
-            methodType(int.class, int.class, MemoryAddress.class),
-            FunctionDescriptor.of(C_INT, C_INT, C_POINTER)
+        clock_getres = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("clock_getres").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER)
+            ),
+            throwErrnoOnNonzero
         );
 
-        clock_gettime = linker.downcallHandle(
-            lib.lookup("clock_gettime").orElseThrow(),
-            methodType(int.class, int.class, MemoryAddress.class),
-            FunctionDescriptor.of(C_INT, C_INT, C_POINTER)
+        clock_gettime = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("clock_gettime").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER)
+            ),
+            throwErrnoOnNonzero
         );
 
-        posix_fadvise = linker.downcallHandle(
-            lib.lookup("posix_fadvise").orElseThrow(),
-            methodType(int.class, int.class, long.class, long.class, int.class),
-            FunctionDescriptor.of(C_INT, C_INT, off_t, off_t, C_INT)
+        posix_fadvise = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("posix_fadvise").orElseThrow(),
+                methodType(int.class, int.class, long.class, long.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, off_t, off_t, C_INT)
+            ),
+            throwArgOnNonzero
         );
 
-        posix_fallocate = linker.downcallHandle(
-            lib.lookup("posix_fallocate").orElseThrow(),
-            methodType(int.class, int.class, long.class, long.class),
-            FunctionDescriptor.of(C_INT, C_INT, off_t, off_t)
+        posix_fallocate = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("posix_fallocate").orElseThrow(),
+                methodType(int.class, int.class, long.class, long.class),
+                FunctionDescriptor.of(C_INT, C_INT, off_t, off_t)
+            ),
+            throwErrnoOnNonzero
         );
 
-        close = linker.downcallHandle(
-            lib.lookup("close").orElseThrow(),
-            methodType(int.class, int.class),
-            FunctionDescriptor.of(C_INT, C_INT)
+        close = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("close").orElseThrow(),
+                methodType(int.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT)
+            ),
+            throwErrnoOnNonzero
         );
 
-        fdatasync = linker.downcallHandle(
-            lib.lookup("fdatasync").orElseThrow(),
-            methodType(int.class, int.class),
-            FunctionDescriptor.of(C_INT, C_INT)
+        fdatasync = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("fdatasync").orElseThrow(),
+                methodType(int.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT)
+            ),
+            throwErrnoOnNonzero
         );
 
-        fcntl_void = linker.downcallHandle(
-            lib.lookup("fcntl").orElseThrow(),
-            methodType(int.class, int.class, int.class),
-            FunctionDescriptor.of(C_INT, C_INT, C_INT)
+        fcntl_GETFL = filterReturnValue(
+            insertArguments(
+                linker.downcallHandle(
+                    lib.lookup("fcntl").orElseThrow(),
+                    methodType(int.class, int.class, int.class),
+                    FunctionDescriptor.of(C_INT, C_INT, C_INT)
+                ),
+                1, F_GETFL
+            ),
+            throwErrnoOnM1
         );
 
-        fcntl_int = linker.downcallHandle(
-            lib.lookup("fcntl").orElseThrow(),
-            methodType(int.class, int.class, int.class, int.class),
-            FunctionDescriptor.of(C_INT, C_INT, C_INT, asVarArg(C_INT))
+        fcntl_SETFL = filterReturnValue(
+            insertArguments(
+                linker.downcallHandle(
+                    lib.lookup("fcntl").orElseThrow(),
+                    methodType(int.class, int.class, int.class, int.class),
+                    FunctionDescriptor.of(C_INT, C_INT, C_INT, asVarArg(C_INT))
+                ),
+                1, F_SETFL
+            ),
+            throwErrnoOnNonzero
         );
 
-        fstat = linker.downcallHandle(
-            lib.lookup("fstat").orElseThrow(),
-            methodType(int.class, int.class, MemoryAddress.class),
-            FunctionDescriptor.of(C_INT, C_INT, C_POINTER)
+        fstat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("fstat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER)
+            ),
+            throwErrnoOnNonzero
         );
 
-        ftruncate = linker.downcallHandle(
-            lib.lookup("ftruncate").orElseThrow(),
-            methodType(int.class, int.class, long.class),
-            FunctionDescriptor.of(C_INT, C_INT, off_t)
+        ftruncate = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("ftruncate").orElseThrow(),
+                methodType(int.class, int.class, long.class),
+                FunctionDescriptor.of(C_INT, C_INT, off_t)
+            ),
+            throwErrnoOnNonzero
         );
 
-        getsockopt = linker.downcallHandle(
-            lib.lookup("getsockopt").orElseThrow(),
-            methodType(int.class, int.class, int.class, int.class, MemoryAddress.class, MemoryAddress.class),
-            FunctionDescriptor.of(C_INT, C_INT, C_INT, C_INT, C_POINTER, C_POINTER)
+        getsockopt = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("getsockopt").orElseThrow(),
+                methodType(int.class, int.class, int.class, int.class, MemoryAddress.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_INT, C_INT, C_POINTER, C_POINTER)
+            ),
+            throwErrnoOnNonzero
         );
     }
 
-    static int errno() throws Throwable {
+    private static void throwErrnoOnNonzero(int returnCode) throws Throwable {
+        if (returnCode != 0) {
+            throw errno();
+        }
+    }
+
+    private static void throwArgOnNonzero(int returnCode) throws Throwable {
+        if (returnCode != 0) {
+            throw new ErrnoException(returnCode);
+        }
+    }
+
+    private static int throwErrnoOnM1(int returnValue) throws Throwable {
+        if (returnValue == -1) {
+            throw errno();
+        }
+
+        return returnValue;
+    }
+
+    private static @NotNull ErrnoException errno() throws Throwable {
         var location = (MemoryAddress) __errno_location.invoke();
-        return MemoryAccess.getInt(location.asSegment(4, ResourceScope.globalScope()));
+        var linuxCode = MemoryAccess.getInt(location.asSegment(4, ResourceScope.globalScope()));
+
+        var code = switch (linuxCode) {
+            case 0 -> ERRNO_SUCCESS;
+            case Linux.EPERM -> ERRNO_PERM;
+            case Linux.ENOENT -> ERRNO_NOENT;
+            case Linux.ESRCH -> ERRNO_SRCH;
+            case Linux.EINTR -> ERRNO_INTR;
+            case Linux.EIO -> ERRNO_IO;
+            case Linux.ENXIO -> ERRNO_NXIO;
+            case Linux.E2BIG -> ERRNO_2BIG;
+            case Linux.ENOEXEC -> ERRNO_NOEXEC;
+            case Linux.EBADF -> ERRNO_BADF;
+            case Linux.ECHILD -> ERRNO_CHILD;
+            case Linux.EAGAIN -> ERRNO_AGAIN;
+            case Linux.ENOMEM -> ERRNO_NOMEM;
+            case Linux.EACCES -> ERRNO_ACCES;
+            case Linux.EFAULT -> ERRNO_FAULT;
+            case Linux.EBUSY -> ERRNO_BUSY;
+            case Linux.EEXIST -> ERRNO_EXIST;
+            case Linux.EXDEV -> ERRNO_XDEV;
+            case Linux.ENODEV -> ERRNO_NODEV;
+            case Linux.ENOTDIR -> ERRNO_NOTDIR;
+            case Linux.EISDIR -> ERRNO_ISDIR;
+            case Linux.EINVAL -> ERRNO_INVAL;
+            case Linux.ENFILE -> ERRNO_NFILE;
+            case Linux.EMFILE -> ERRNO_MFILE;
+            case Linux.ENOTTY -> ERRNO_NOTTY;
+            case Linux.ETXTBSY -> ERRNO_TXTBSY;
+            case Linux.EFBIG -> ERRNO_FBIG;
+            case Linux.ENOSPC -> ERRNO_NOSPC;
+            case Linux.ESPIPE -> ERRNO_SPIPE;
+            case Linux.EROFS -> ERRNO_ROFS;
+            case Linux.EMLINK -> ERRNO_MLINK;
+            case Linux.EPIPE -> ERRNO_PIPE;
+            case Linux.EDOM -> ERRNO_DOM;
+            case Linux.ERANGE -> ERRNO_RANGE;
+            case Linux.EDEADLK -> ERRNO_DEADLK;
+            case Linux.ENAMETOOLONG -> ERRNO_NAMETOOLONG;
+            case Linux.ENOLCK -> ERRNO_NOLCK;
+            case Linux.ENOSYS -> ERRNO_NOSYS;
+            case Linux.ENOTEMPTY -> ERRNO_NOTEMPTY;
+            case Linux.ELOOP -> ERRNO_LOOP;
+            case Linux.ENOMSG -> ERRNO_NOMSG;
+            case Linux.EIDRM -> ERRNO_IDRM;
+            case Linux.ENOLINK -> ERRNO_NOLINK;
+            case Linux.EPROTO -> ERRNO_PROTO;
+            case Linux.EMULTIHOP -> ERRNO_MULTIHOP;
+            case Linux.EBADMSG -> ERRNO_BADMSG;
+            case Linux.EOVERFLOW -> ERRNO_OVERFLOW;
+            case Linux.EILSEQ -> ERRNO_ILSEQ;
+            case Linux.ENOTSOCK -> ERRNO_NOTSOCK;
+            case Linux.EDESTADDRREQ -> ERRNO_DESTADDRREQ;
+            case Linux.EMSGSIZE -> ERRNO_MSGSIZE;
+            case Linux.EPROTOTYPE -> ERRNO_PROTOTYPE;
+            case Linux.ENOPROTOOPT -> ERRNO_NOPROTOOPT;
+            case Linux.EPROTONOSUPPORT -> ERRNO_PROTONOSUPPORT;
+            case Linux.ENOTSUP -> ERRNO_NOTSUP;
+            case Linux.EAFNOSUPPORT -> ERRNO_AFNOSUPPORT;
+            case Linux.EADDRINUSE -> ERRNO_ADDRINUSE;
+            case Linux.EADDRNOTAVAIL -> ERRNO_ADDRNOTAVAIL;
+            case Linux.ENETDOWN -> ERRNO_NETDOWN;
+            case Linux.ENETUNREACH -> ERRNO_NETUNREACH;
+            case Linux.ENETRESET -> ERRNO_NETRESET;
+            case Linux.ECONNABORTED -> ERRNO_CONNABORTED;
+            case Linux.ECONNRESET -> ERRNO_CONNRESET;
+            case Linux.ENOBUFS -> ERRNO_NOBUFS;
+            case Linux.EISCONN -> ERRNO_ISCONN;
+            case Linux.ENOTCONN -> ERRNO_NOTCONN;
+            case Linux.ETIMEDOUT -> ERRNO_TIMEDOUT;
+            case Linux.ECONNREFUSED -> ERRNO_CONNREFUSED;
+            case Linux.EHOSTUNREACH -> ERRNO_HOSTUNREACH;
+            case Linux.EALREADY -> ERRNO_ALREADY;
+            case Linux.EINPROGRESS -> ERRNO_INPROGRESS;
+            case Linux.ESTALE -> ERRNO_STALE;
+            case Linux.EDQUOT -> ERRNO_DQUOT;
+            case Linux.ECANCELED -> ERRNO_CANCELED;
+            case Linux.EOWNERDEAD -> ERRNO_OWNERDEAD;
+            case Linux.ENOTRECOVERABLE -> ERRNO_NOTRECOVERABLE;
+            default -> ERRNO_IO;
+        };
+
+        return new ErrnoException(code);
+    }
+
+    static long timespecToNanos(@NotNull MemorySegment timespec) {
+        return addExact(multiplyExact((long) tv_sec.get(timespec), 1_000_000_000), (long) tv_nsec.get(timespec));
     }
 }
