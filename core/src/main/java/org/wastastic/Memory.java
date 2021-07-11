@@ -25,12 +25,12 @@ public final class Memory {
     static final String INTERNAL_NAME = getInternalName(Memory.class);
     static final String DESCRIPTOR = getDescriptor(Memory.class);
 
-    static final VarHandle VH_BYTE = MemoryHandles.varHandle(byte.class, 1, LITTLE_ENDIAN);
-    static final VarHandle VH_SHORT = MemoryHandles.varHandle(short.class, 1, LITTLE_ENDIAN);
-    static final VarHandle VH_INT = MemoryHandles.varHandle(int.class, 1, LITTLE_ENDIAN);
-    static final VarHandle VH_LONG = MemoryHandles.varHandle(long.class, 1, LITTLE_ENDIAN);
-    static final VarHandle VH_FLOAT = MemoryHandles.varHandle(float.class, 1, LITTLE_ENDIAN);
-    static final VarHandle VH_DOUBLE = MemoryHandles.varHandle(double.class, 1, LITTLE_ENDIAN);
+    public static final VarHandle VH_BYTE = MemoryHandles.varHandle(byte.class, 1, LITTLE_ENDIAN);
+    public static final VarHandle VH_SHORT = MemoryHandles.varHandle(short.class, 1, LITTLE_ENDIAN);
+    public static final VarHandle VH_INT = MemoryHandles.varHandle(int.class, 1, LITTLE_ENDIAN);
+    public static final VarHandle VH_LONG = MemoryHandles.varHandle(long.class, 1, LITTLE_ENDIAN);
+    public static final VarHandle VH_FLOAT = MemoryHandles.varHandle(float.class, 1, LITTLE_ENDIAN);
+    public static final VarHandle VH_DOUBLE = MemoryHandles.varHandle(double.class, 1, LITTLE_ENDIAN);
 
     private final int maxPageCount;
     private @NotNull MemorySegment segment;
@@ -48,8 +48,8 @@ public final class Memory {
         this(minPageCount, -1);
     }
 
-    public @NotNull MemorySegment slice(int start, int length) {
-        return segment.asSlice(Integer.toUnsignedLong(start), Integer.toUnsignedLong(length));
+    public @NotNull MemorySegment currentSegment() {
+        return segment;
     }
 
     public byte getByte(int address) {

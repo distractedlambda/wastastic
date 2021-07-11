@@ -1,16 +1,25 @@
 package org.wastastic.wasi;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
 import static org.wastastic.wasi.WasiConstants.ERRNO_NOTCAPABLE;
 
 final class OpenFile {
     private final int nativeFd;
+    private final byte @Nullable[] prestatDirName;
     private long baseRights;
     private long inheritingRights;
 
-    OpenFile(int nativeFd, int baseRights, int inheritingRights) {
+    OpenFile(int nativeFd, byte @Nullable[] prestatDirName, int baseRights, int inheritingRights) {
         this.nativeFd = nativeFd;
+        this.prestatDirName = prestatDirName;
         this.baseRights = baseRights;
         this.inheritingRights = inheritingRights;
+    }
+
+    public byte @Nullable[] prestatDirName() {
+        return prestatDirName;
     }
 
     int nativeFd() {

@@ -7,7 +7,6 @@ import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
-import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
 import org.wastastic.Memory;
 
@@ -15,8 +14,6 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 
-import static java.lang.Math.addExact;
-import static java.lang.Math.multiplyExact;
 import static java.lang.invoke.MethodHandles.filterReturnValue;
 import static java.lang.invoke.MethodHandles.insertArguments;
 import static java.lang.invoke.MethodType.methodType;
@@ -25,7 +22,9 @@ import static jdk.incubator.foreign.CLinker.C_LONG;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
 import static jdk.incubator.foreign.CLinker.asVarArg;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
+import static jdk.incubator.foreign.MemoryLayout.PathElement.sequenceElement;
 import static jdk.incubator.foreign.MemoryLayout.paddingLayout;
+import static jdk.incubator.foreign.MemoryLayout.sequenceLayout;
 import static org.wastastic.wasi.LayoutUtils.cStructLayout;
 import static org.wastastic.wasi.WasiConstants.ERRNO_2BIG;
 import static org.wastastic.wasi.WasiConstants.ERRNO_ACCES;
@@ -158,6 +157,16 @@ final class Linux {
     static final MethodHandle st_atim = stat.sliceHandle(groupElement("atim"));
     static final MethodHandle st_mtim = stat.sliceHandle(groupElement("atim"));
     static final MethodHandle st_ctim = stat.sliceHandle(groupElement("atim"));
+
+    static final MemoryLayout iovec = cStructLayout(
+        C_POINTER.withName("base"),
+        size_t.withName("len")
+    );
+
+    static final VarHandle iov_base = iovec.varHandle(MemoryAddress.class, groupElement("base"));
+    static final VarHandle iov_len = iovec.varHandle(long.class, groupElement("len"));
+
+    static final MethodHandle iovec_list_elem = sequenceLayout(iovec).sliceHandle(sequenceElement());
 
     static final int EPERM = 1;
     static final int ENOENT = 2;
@@ -299,6 +308,10 @@ final class Linux {
     static final MethodHandle pwrite;
     static final MethodHandle preadv;
     static final MethodHandle pwritev;
+    static final MethodHandle read;
+    static final MethodHandle readv;
+    static final MethodHandle write;
+    static final MethodHandle writev;
 
     static {
         var lookup = MethodHandles.lookup();
@@ -469,6 +482,42 @@ final class Linux {
                 lib.lookup("pwritev").orElseThrow(),
                 methodType(long.class, int.class, MemoryAddress.class, int.class, long.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT, off_t)
+            ),
+            throwErrnoOnM1
+        );
+
+        read = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("read").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, long.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t)
+            ),
+            throwErrnoOnM1
+        );
+
+        readv = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("readv").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT)
+            ),
+            throwErrnoOnM1
+        );
+
+        write = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("write").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, long.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t)
+            ),
+            throwErrnoOnM1
+        );
+
+        writev = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("writev").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT)
             ),
             throwErrnoOnM1
         );

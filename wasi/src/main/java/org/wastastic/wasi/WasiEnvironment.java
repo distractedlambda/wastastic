@@ -4,6 +4,7 @@ import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Unmodifiable;
 import org.wastastic.Memory;
@@ -14,7 +15,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
+import java.lang.invoke.SwitchPoint;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.GatheringByteChannel;
@@ -34,12 +37,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static java.lang.Math.addExact;
+import static java.lang.Math.multiplyExact;
 import static java.lang.System.arraycopy;
 import static java.lang.invoke.MethodHandles.catchException;
 import static java.lang.invoke.MethodHandles.constant;
 import static java.lang.invoke.MethodHandles.filterReturnValue;
 import static java.lang.invoke.MethodType.methodType;
+import static java.lang.ref.Reference.reachabilityFence;
 import static java.util.Objects.requireNonNull;
+import static jdk.incubator.foreign.MemoryLayout.sequenceLayout;
 import static org.wastastic.wasi.WasiConstants.ADVICE_DONTNEED;
 import static org.wastastic.wasi.WasiConstants.ADVICE_NOREUSE;
 import static org.wastastic.wasi.WasiConstants.ADVICE_NORMAL;
@@ -582,7 +589,7 @@ public final class WasiEnvironment {
         var file = lookUpFile(fd);
         file.requireBaseRights(RIGHTS_FD_FILESTAT_SET_TIMES);
         try (var frame = MemoryStack.getFrame()) {
-            var times = frame.allocate(MemoryLayout.sequenceLayout(2, Linux.timespec));
+            var times = frame.allocate(sequenceLayout(2, Linux.timespec));
             var accessTime = times.asSlice(0, Linux.timespec.byteSize());
             var modificationTime = times.asSlice(Linux.timespec.byteSize());
 
@@ -628,6 +635,29 @@ public final class WasiEnvironment {
         }
     }
 
+    private static @NotNull MemorySegment makeNativeIovecs(@NotNull MemorySegment segment, int iovsAddress, int iovsCount, @NotNull SegmentAllocator allocator) throws ErrnoException {
+        var nativeVecs = allocator.allocate(multiplyExact(Linux.iovec.byteSize(), Integer.toUnsignedLong(iovsCount)), Linux.iovec.byteAlignment());
+        var totalLen = 0L;
+
+        for (var i = 0; i != iovsCount; i++) {
+            var iovOffset = addExact(iovsAddress, multiplyExact(Integer.toUnsignedLong(i), 8));
+            var buf = (int) Memory.VH_INT.get(segment, iovOffset);
+            var len = (int) Memory.VH_INT.get(segment, addExact(iovOffset, 4));
+
+            totalLen += Integer.toUnsignedLong(len);
+            if (totalLen > 0xFFFF_FFFFL) {
+                throw new ErrnoException(ERRNO_INVAL);
+            }
+
+            var bufSlice = segment.asSlice(Integer.toUnsignedLong(buf), Integer.toUnsignedLong(len));
+            var nativeIov = nativeVecs.asSlice(Integer.toUnsignedLong(i) * Linux.iovec.byteSize(), Linux.iovec.byteSize());
+            Linux.iov_base.set(nativeIov, bufSlice.address());
+            Linux.iov_len.set(nativeIov, Integer.toUnsignedLong(len));
+        }
+
+        return nativeVecs;
+    }
+
     private void fdPread(int fd, int iovsAddress, int iovsCount, long offset, int bytesReadAddress, @NotNull ModuleInstance module) throws Throwable {
         var memory = (Memory) memoryHandle.get(module);
         var file = lookUpFile(fd);
@@ -640,181 +670,103 @@ public final class WasiEnvironment {
         else if (iovsCount == 1) {
             var buf = memory.getInt(iovsAddress);
             var bufLen = memory.getInt(iovsAddress + 4);
-            var bufSlice = memory.slice(buf, bufLen);
+            var bufSlice = memory.currentSegment().asSlice(buf, bufLen);
             bytesRead = (long) Linux.pread.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize(), offset);
         }
         else {
-
+            var segment = memory.currentSegment();
+            try (var frame = MemoryStack.getFrame()) {
+                var nativeIovs = makeNativeIovecs(segment, iovsAddress, iovsCount, frame);
+                bytesRead = (long) Linux.preadv.invokeExact(file.nativeFd(), nativeIovs.address(), iovsCount, offset);
+            } finally {
+                reachabilityFence(segment.scope());
+            }
         }
 
-        memory.setLong(bytesReadAddress, bytesRead);
+        memory.setInt(bytesReadAddress, (int) bytesRead);
     }
 
-    private int fdPrestatGet(int fd, int prestatAddress, @NotNull ModuleInstance module) {
+    private void fdPrestatGet(int fd, int prestatAddress, @NotNull ModuleInstance module) throws ErrnoException {
         var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
 
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if (!file.isPreopened) {
-            return ERRNO_BADF;
+        if (file.prestatDirName() == null) {
+            throw new ErrnoException(ERRNO_BADF);
         }
 
         memory.setByte(prestatAddress, PREOPENTYPE_DIR);
-        memory.setInt(prestatAddress + 4, file.path.toString().getBytes(StandardCharsets.UTF_8).length);
-
-        return ERRNO_SUCCESS;
+        memory.setInt(prestatAddress + 4, file.prestatDirName().length);
     }
 
-    private int fdPrestatDirName(int fd, int outAddress, int outLength, @NotNull ModuleInstance module) {
+    private void fdPrestatDirName(int fd, int outAddress, int outLength, @NotNull ModuleInstance module) throws ErrnoException {
         var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
 
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
+        if (file.prestatDirName() == null) {
+            throw new ErrnoException(ERRNO_BADF);
         }
 
-        if (!file.isPreopened) {
-            return ERRNO_BADF;
+        if (outLength != file.prestatDirName().length) {
+            throw new ErrnoException(ERRNO_INVAL);
         }
 
-        var bytes = file.path.toString().getBytes(StandardCharsets.UTF_8);
-
-        if (bytes.length != outLength) {
-            return ERRNO_INVAL;
-        }
-
-        memory.setBytes(outAddress, bytes);
-
-        return ERRNO_SUCCESS;
+        memory.setBytes(outAddress, file.prestatDirName());
     }
 
-    private int fdPwrite(int fd, int iovsAddress, int iovsCount, long offset, int bytesWrittenAddress, @NotNull ModuleInstance module) {
+    private void fdPwrite(int fd, int iovsAddress, int iovsCount, long offset, int bytesWrittenAddress, @NotNull ModuleInstance module) throws Throwable {
         var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_WRITE);
 
-        if (offset < 0) {
-            return ERRNO_INVAL;
-        }
-
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_WRITE) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (!(file.channel instanceof FileChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
+        long bytesRead;
         if (iovsCount == 0) {
-            memory.setInt(bytesWrittenAddress, 0);
-            return ERRNO_SUCCESS;
+            bytesRead = 0;
         }
-
-        var buffers = new ByteBuffer[iovsCount];
-        var totalLen = 0L;
-
-        for (var i = 0; i < iovsCount; i++) {
-            var ptr = memory.getInt(iovsAddress + 8*i);
-            var len = memory.getInt(iovsAddress + 8*i + 4);
-
-            if (len < 0) {
-                return ERRNO_INVAL;
-            }
-
-            totalLen += len;
-            if (totalLen > Integer.toUnsignedLong(-1)) {
-                return ERRNO_INVAL;
-            }
-
-            try {
-                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
-            }
-            catch (IndexOutOfBoundsException exception) {
-                return ERRNO_FAULT;
+        else if (iovsCount == 1) {
+            var buf = memory.getInt(iovsAddress);
+            var bufLen = memory.getInt(iovsAddress + 4);
+            var bufSlice = memory.currentSegment().asSlice(buf, bufLen);
+            bytesRead = (long) Linux.pwrite.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize(), offset);
+        }
+        else {
+            var segment = memory.currentSegment();
+            try (var frame = MemoryStack.getFrame()) {
+                var nativeIovs = makeNativeIovecs(segment, iovsAddress, iovsCount, frame);
+                bytesRead = (long) Linux.pwritev.invokeExact(file.nativeFd(), nativeIovs.address(), iovsCount, offset);
+            } finally {
+                reachabilityFence(segment.scope());
             }
         }
 
-        int bytesWritten;
-        try {
-            if (iovsCount == 1) {
-                bytesWritten = Integer.max(0, channel.write(buffers[0], offset));
-            }
-            else {
-                var lastPosition = channel.position();
-                channel.position(offset);
-                bytesWritten = (int) Long.max(0, channel.write(buffers));
-                channel.position(lastPosition);
-            }
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        memory.setInt(bytesWrittenAddress, bytesWritten);
-        return ERRNO_SUCCESS;
+        memory.setInt(bytesWrittenAddress, (int) bytesRead);
     }
 
-    private int fdRead(int fd, int iovsAddress, int iovsCount, int bytesReadAddress, @NotNull ModuleInstance module) {
+    private void fdRead(int fd, int iovsAddress, int iovsCount, int bytesReadAddress, @NotNull ModuleInstance module) throws Throwable {
         var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_READ);
 
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_READ) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (!(file.channel instanceof ScatteringByteChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
+        long bytesRead;
         if (iovsCount == 0) {
-            memory.setInt(bytesReadAddress, 0);
-            return ERRNO_SUCCESS;
+            bytesRead = 0;
         }
-
-        var buffers = new ByteBuffer[iovsCount];
-        var totalLen = 0L;
-
-        for (var i = 0; i < iovsCount; i++) {
-            var ptr = memory.getInt(iovsAddress + 8*i);
-            var len = memory.getInt(iovsAddress + 8*i + 4);
-
-            if (len < 0) {
-                return ERRNO_INVAL;
-            }
-
-            totalLen += len;
-            if (totalLen > Integer.toUnsignedLong(-1)) {
-                return ERRNO_INVAL;
-            }
-
-            try {
-                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
-            }
-            catch (IndexOutOfBoundsException exception) {
-                return ERRNO_FAULT;
+        else if (iovsCount == 1) {
+            var buf = memory.getInt(iovsAddress);
+            var bufLen = memory.getInt(iovsAddress + 4);
+            var bufSlice = memory.currentSegment().asSlice(buf, bufLen);
+            bytesRead = (long) Linux.read.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize());
+        }
+        else {
+            var segment = memory.currentSegment();
+            try (var frame = MemoryStack.getFrame()) {
+                var nativeIovs = makeNativeIovecs(segment, iovsAddress, iovsCount, frame);
+                bytesRead = (long) Linux.readv.invokeExact(file.nativeFd(), nativeIovs.address(), iovsCount);
+            } finally {
+                reachabilityFence(segment.scope());
             }
         }
 
-        int bytesRead;
-        try {
-            bytesRead = (int) Long.max(0, channel.read(buffers));
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        memory.setInt(bytesReadAddress, bytesRead);
-        return ERRNO_SUCCESS;
+        memory.setInt(bytesReadAddress, (int) bytesRead);
     }
 
     private int fdReaddir(int fd, int buf, int bufLen, long cookie, int sizeAddress, @NotNull ModuleInstance module) {
