@@ -7,7 +7,9 @@ import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
+import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
+import org.wastastic.Memory;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -116,6 +118,8 @@ final class Linux {
     static final MemoryLayout blksize_t = C_LONG;
     static final MemoryLayout blkcnt_t = C_LONG;
     static final MemoryLayout socklen_t = C_INT;
+    static final MemoryLayout size_t = C_LONG;
+    static final MemoryLayout ssize_t = C_LONG;
 
     static final MemoryLayout timespec = cStructLayout(
         time_t.withName("sec"),
@@ -275,6 +279,9 @@ final class Linux {
     static final int SOCK_STREAM = 1;
     static final int SOCK_DGRAM = 2;
 
+    static final long UTIME_NOW = (1 << 30) - 1;
+    static final long UTIME_OMIT = (1 << 30) - 2;
+
     static final MethodHandle __errno_location;
     static final MethodHandle clock_getres;
     static final MethodHandle clock_gettime;
@@ -287,6 +294,11 @@ final class Linux {
     static final MethodHandle fstat;
     static final MethodHandle ftruncate;
     static final MethodHandle getsockopt;
+    static final MethodHandle futimens;
+    static final MethodHandle pread;
+    static final MethodHandle pwrite;
+    static final MethodHandle preadv;
+    static final MethodHandle pwritev;
 
     static {
         var lookup = MethodHandles.lookup();
@@ -415,6 +427,51 @@ final class Linux {
             ),
             throwErrnoOnNonzero
         );
+
+        futimens = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("futimens").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        pread = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("pread").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, long.class, long.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t, off_t)
+            ),
+            throwErrnoOnM1
+        );
+
+        pwrite = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("pwrite").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, long.class, long.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t, off_t)
+            ),
+            throwErrnoOnM1
+        );
+
+        preadv = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("preadv").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, int.class, long.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT, off_t)
+            ),
+            throwErrnoOnM1
+        );
+
+        pwritev = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("pwritev").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, int.class, long.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT, off_t)
+            ),
+            throwErrnoOnM1
+        );
     }
 
     private static void throwErrnoOnNonzero(int returnCode) throws Throwable {
@@ -525,6 +582,11 @@ final class Linux {
     }
 
     static long timespecToNanos(@NotNull MemorySegment timespec) {
-        return addExact(multiplyExact((long) tv_sec.get(timespec), 1_000_000_000), (long) tv_nsec.get(timespec));
+        return (long) tv_sec.get(timespec) * 1_000_000_000 + (long) tv_nsec.get(timespec);
+    }
+
+    static void fillTimespec(@NotNull MemorySegment spec, long nanos) {
+        tv_sec.set(spec, Long.divideUnsigned(nanos, 1_000_000_000));
+        tv_nsec.set(spec, Long.remainderUnsigned(nanos, 1_000_000_000));
     }
 }

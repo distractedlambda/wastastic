@@ -1,6 +1,7 @@
 package org.wastastic.wasi;
 
 import jdk.incubator.foreign.MemoryAccess;
+import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
 import org.jetbrains.annotations.NotNull;
@@ -571,133 +572,82 @@ public final class WasiEnvironment {
         memory.setLong(filestatAddress + 56, ctim);
     }
 
-    private void fdFilestatSetSize(int fd, long size, @NotNull ModuleInstance module) {
-
+    private void fdFilestatSetSize(int fd, long size, @NotNull ModuleInstance module) throws Throwable {
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_FILESTAT_SET_SIZE);
+        Linux.ftruncate.invokeExact(file.nativeFd(), size);
     }
 
-    private int fdFilestatSetTimes(int fd, long accessTime, long modificationTime, short fstFlags, @NotNull ModuleInstance module) {
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_FILESTAT_SET_TIMES) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if ((fstFlags & FSTFLAGS_ATIM) != 0 && (fstFlags & FSTFLAGS_ATIM_NOW) != 0) {
-            return ERRNO_INVAL;
-        }
-
-        if ((fstFlags & FSTFLAGS_MTIM) != 0 && (fstFlags & FSTFLAGS_MTIM_NOW) != 0) {
-            return ERRNO_INVAL;
-        }
-
-        var attributesView = Files.getFileAttributeView(file.path, BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-
-        try {
-            var attributes = attributesView.readAttributes();
-
-            FileTime newLastAccessTime, newLastModificationTime;
-
-            var now = System.currentTimeMillis();
+    private void fdFilestatSetTimes(int fd, long newAccessTime, long newModificationTime, short fstFlags, @NotNull ModuleInstance module) throws Throwable {
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_FILESTAT_SET_TIMES);
+        try (var frame = MemoryStack.getFrame()) {
+            var times = frame.allocate(MemoryLayout.sequenceLayout(2, Linux.timespec));
+            var accessTime = times.asSlice(0, Linux.timespec.byteSize());
+            var modificationTime = times.asSlice(Linux.timespec.byteSize());
 
             if ((fstFlags & FSTFLAGS_ATIM) != 0) {
-                newLastAccessTime = FileTime.from(accessTime, TimeUnit.NANOSECONDS);
+                fstFlags -= FSTFLAGS_ATIM;
+
+                if ((fstFlags & FSTFLAGS_ATIM_NOW) != 0) {
+                    throw new ErrnoException(ERRNO_INVAL);
+                }
+
+                Linux.fillTimespec(accessTime, newAccessTime);
             }
             else if ((fstFlags & FSTFLAGS_ATIM_NOW) != 0) {
-                newLastAccessTime = FileTime.from(now, TimeUnit.MILLISECONDS);
+                fstFlags -= FSTFLAGS_ATIM_NOW;
+                Linux.tv_nsec.set(accessTime, Linux.UTIME_NOW);
             }
             else {
-                newLastAccessTime = attributes.lastAccessTime();
+                Linux.tv_nsec.set(accessTime, Linux.UTIME_OMIT);
             }
 
             if ((fstFlags & FSTFLAGS_MTIM) != 0) {
-                newLastModificationTime = FileTime.from(modificationTime, TimeUnit.NANOSECONDS);
+                fstFlags -= FSTFLAGS_MTIM;
+
+                if ((fstFlags & FSTFLAGS_MTIM_NOW) != 0) {
+                    throw new ErrnoException(ERRNO_INVAL);
+                }
+
+                Linux.fillTimespec(modificationTime, newModificationTime);
             }
             else if ((fstFlags & FSTFLAGS_MTIM_NOW) != 0) {
-                newLastModificationTime = FileTime.from(now, TimeUnit.MILLISECONDS);
+                fstFlags -= FSTFLAGS_MTIM_NOW;
+                Linux.tv_nsec.set(modificationTime, Linux.UTIME_NOW);
             }
             else {
-                newLastModificationTime = attributes.lastModifiedTime();
+                Linux.tv_nsec.set(modificationTime, Linux.UTIME_OMIT);
             }
 
-            attributesView.setTimes(newLastModificationTime, newLastAccessTime, attributes.creationTime());
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
+            if (fstFlags != 0) {
+                throw new ErrnoException(ERRNO_INVAL);
+            }
 
-        return ERRNO_SUCCESS;
+            Linux.futimens.invokeExact(file.nativeFd(), times.address());
+        }
     }
 
-    private int fdPread(int fd, int iovsAddress, int iovsCount, long offset, int bytesReadAddress, @NotNull ModuleInstance module) {
+    private void fdPread(int fd, int iovsAddress, int iovsCount, long offset, int bytesReadAddress, @NotNull ModuleInstance module) throws Throwable {
         var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_READ);
 
-        if (offset < 0) {
-            return ERRNO_INVAL;
-        }
-
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_READ) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (!(file.channel instanceof FileChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
+        long bytesRead;
         if (iovsCount == 0) {
-            memory.setInt(bytesReadAddress, 0);
-            return ERRNO_SUCCESS;
+            bytesRead = 0;
+        }
+        else if (iovsCount == 1) {
+            var buf = memory.getInt(iovsAddress);
+            var bufLen = memory.getInt(iovsAddress + 4);
+            var bufSlice = memory.slice(buf, bufLen);
+            bytesRead = (long) Linux.pread.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize(), offset);
+        }
+        else {
+
         }
 
-        var buffers = new ByteBuffer[iovsCount];
-        var totalLen = 0L;
-
-        for (var i = 0; i < iovsCount; i++) {
-            var ptr = memory.getInt(iovsAddress + 8*i);
-            var len = memory.getInt(iovsAddress + 8*i + 4);
-
-            if (len < 0) {
-                return ERRNO_INVAL;
-            }
-
-            totalLen += len;
-            if (totalLen > Integer.toUnsignedLong(-1)) {
-                return ERRNO_INVAL;
-            }
-
-            try {
-                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
-            }
-            catch (IndexOutOfBoundsException exception) {
-                return ERRNO_FAULT;
-            }
-        }
-
-        int bytesRead;
-        try {
-            if (iovsCount == 1) {
-                bytesRead = Integer.max(0, channel.read(buffers[0], offset));
-            }
-            else {
-                var lastPosition = channel.position();
-                channel.position(offset);
-                bytesRead = (int) Long.max(0, channel.read(buffers));
-                channel.position(lastPosition);
-            }
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        memory.setInt(bytesReadAddress, bytesRead);
-        return ERRNO_SUCCESS;
+        memory.setLong(bytesReadAddress, bytesRead);
     }
 
     private int fdPrestatGet(int fd, int prestatAddress, @NotNull ModuleInstance module) {

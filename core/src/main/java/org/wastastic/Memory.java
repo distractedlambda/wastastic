@@ -48,12 +48,8 @@ public final class Memory {
         this(minPageCount, -1);
     }
 
-    public @NotNull MemorySegment segment() {
-        return segment;
-    }
-
-    public long byteSize() {
-        return segment.byteSize();
+    public @NotNull MemorySegment slice(int start, int length) {
+        return segment.asSlice(Integer.toUnsignedLong(start), Integer.toUnsignedLong(length));
     }
 
     public byte getByte(int address) {
