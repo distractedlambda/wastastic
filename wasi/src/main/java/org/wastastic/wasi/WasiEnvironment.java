@@ -720,27 +720,27 @@ public final class WasiEnvironment {
         var file = lookUpFile(fd);
         file.requireBaseRights(RIGHTS_FD_WRITE);
 
-        long bytesRead;
+        long bytesWritten;
         if (iovsCount == 0) {
-            bytesRead = 0;
+            bytesWritten = 0;
         }
         else if (iovsCount == 1) {
             var buf = memory.getInt(iovsAddress);
             var bufLen = memory.getInt(iovsAddress + 4);
             var bufSlice = memory.currentSegment().asSlice(buf, bufLen);
-            bytesRead = (long) Linux.pwrite.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize(), offset);
+            bytesWritten = (long) Linux.pwrite.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize(), offset);
         }
         else {
             var segment = memory.currentSegment();
             try (var frame = MemoryStack.getFrame()) {
                 var nativeIovs = makeNativeIovecs(segment, iovsAddress, iovsCount, frame);
-                bytesRead = (long) Linux.pwritev.invokeExact(file.nativeFd(), nativeIovs.address(), iovsCount, offset);
+                bytesWritten = (long) Linux.pwritev.invokeExact(file.nativeFd(), nativeIovs.address(), iovsCount, offset);
             } finally {
                 reachabilityFence(segment.scope());
             }
         }
 
-        memory.setInt(bytesWrittenAddress, (int) bytesRead);
+        memory.setInt(bytesWrittenAddress, (int) bytesWritten);
     }
 
     private void fdRead(int fd, int iovsAddress, int iovsCount, int bytesReadAddress, @NotNull ModuleInstance module) throws Throwable {
@@ -783,17 +783,17 @@ public final class WasiEnvironment {
             dir = (MemoryAddress) Linux.opendir.invokeExact(opendirArg.address());
         }
 
-        var offset = 0;
+        var bufOffset = 0;
         try {
             if (cookie != 0) {
                 Linux.seekdir.invokeExact(dir, cookie);
             }
 
-            while (bufLen - offset >= 24) {
+            while (bufLen - bufOffset >= 24) {
                 var entryAddress = (MemoryAddress) Linux.readdir.invokeExact(dir);
 
                 if (entryAddress.equals(MemoryAddress.NULL)) {
-                    memory.setInt(sizeAddress, offset);
+                    memory.setInt(sizeAddress, bufOffset);
                     return;
                 }
 
@@ -801,9 +801,6 @@ public final class WasiEnvironment {
                 var ino = (long) Linux.d_ino.get(entry);
                 var off = (long) Linux.d_off.get(entry);
                 var linuxType = (byte) Linux.d_type.get(entry);
-
-                memory.setLong(offset, off);
-                memory.setLong(offset + 8, ino);
 
                 var type = switch (linuxType) {
                     case Linux.DT_CHR -> FILETYPE_CHARACTER_DEVICE;
@@ -816,7 +813,23 @@ public final class WasiEnvironment {
 
                 var nameAddress = entryAddress.addOffset(Linux.d_name_offset);
                 var nameLength = (long) Linux.strlen.invokeExact(nameAddress);
-                var nameSlice = nameAddress.asSegment(nameLength, ResourceScope.globalScope());
+
+                memory.setLong(buf + bufOffset, off);
+                bufOffset += 8;
+
+                memory.setLong(buf + bufOffset, ino);
+                bufOffset += 8;
+
+                var writtenNameLength = Long.min(Integer.toUnsignedLong(bufLen - bufOffset), nameLength);
+                memory.setInt(buf + bufOffset, (int) writtenNameLength);
+                bufOffset += 4;
+
+                memory.setByte(buf + bufOffset, type);
+                bufOffset += 4;
+
+                var nameSlice = nameAddress.asSegment(writtenNameLength, ResourceScope.globalScope());
+                memory.setBytes(buf + bufOffset, nameSlice);
+                bufOffset += writtenNameLength;
             }
 
             memory.setInt(sizeAddress, bufLen);
@@ -826,204 +839,65 @@ public final class WasiEnvironment {
         }
     }
 
-    private static byte detectFiletype(@NotNull BasicFileAttributes attributes) {
-        if (attributes.isSymbolicLink()) {
-            return FILETYPE_SYMBOLIC_LINK;
+    private void fdRenumber(int fdFrom, int fdTo, @NotNull ModuleInstance module) throws Throwable {
+        // FIXME: is this supposed to close the old file?
+        var fromFile = lookUpFile(fdFrom);
+        var toFile = lookUpFile(fdTo);
+        Linux.dup2.invokeExact(fromFile.nativeFd(), toFile.nativeFd());
+    }
+
+    private void fdSeek(int fd, long delta, byte whence, int newOffsetAddress, @NotNull ModuleInstance module) throws Throwable {
+        if (Byte.compareUnsigned(whence, WHENCE_END) > 0) {
+            throw new ErrnoException(ERRNO_INVAL);
         }
-        else if (attributes.isDirectory()) {
-            return FILETYPE_DIRECTORY;
+
+        var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_SEEK);
+        var newOffset = (long) Linux.lseek.invokeExact(file.nativeFd(), delta, (int) whence);
+        memory.setLong(newOffsetAddress, newOffset);
+    }
+
+    private void fdSync(int fd, @NotNull ModuleInstance module) throws Throwable {
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_SYNC);
+        Linux.fsync.invokeExact(file.nativeFd());
+    }
+
+    private void fdTell(int fd, int resultAddress, @NotNull ModuleInstance module) throws Throwable {
+        var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_TELL);
+        var offset = (long) Linux.lseek.invokeExact(file.nativeFd(), 0, Linux.SEEK_CUR);
+        memory.setLong(resultAddress, offset);
+    }
+
+    private void fdWrite(int fd, int iovsAddress, int iovsCount, int bytesWrittenAddress, @NotNull ModuleInstance module) throws Throwable {
+        var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_WRITE);
+
+        long bytesWritten;
+        if (iovsCount == 0) {
+            bytesWritten = 0;
         }
-        else if (attributes.isRegularFile()) {
-            return FILETYPE_REGULAR_FILE;
+        else if (iovsCount == 1) {
+            var buf = memory.getInt(iovsAddress);
+            var bufLen = memory.getInt(iovsAddress + 4);
+            var bufSlice = memory.currentSegment().asSlice(buf, bufLen);
+            bytesWritten = (long) Linux.write.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize());
         }
         else {
-            return FILETYPE_UNKNOWN;
-        }
-    }
-
-    private int fdRenumber(int fdFrom, int fdTo, @NotNull ModuleInstance module) {
-        OpenFile from;
-        if ((from = openFile(fdFrom)) == null) {
-            return ERRNO_BADF;
-        }
-
-        OpenFile to;
-        if ((to = openFile(fdTo)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if (to.channel != null) {
-            try {
-                to.channel.close();
-            }
-            catch (IOException exception) {
-                return ERRNO_IO;
+            var segment = memory.currentSegment();
+            try (var frame = MemoryStack.getFrame()) {
+                var nativeIovs = makeNativeIovecs(segment, iovsAddress, iovsCount, frame);
+                bytesWritten = (long) Linux.writev.invokeExact(file.nativeFd(), nativeIovs.address(), iovsCount);
+            } finally {
+                reachabilityFence(segment.scope());
             }
         }
 
-        fileDescriptorTable.set(fdFrom, null);
-        fileDescriptorTable.set(fdTo, from);
-        recycledFileDescriptors.addLast(fdFrom);
-
-        return ERRNO_SUCCESS;
-    }
-
-    private int fdSeek(int fd, long delta, byte whence, int newOffsetAddress, @NotNull ModuleInstance module) {
-        var memory = (Memory) memoryHandle.get(module);
-
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_SEEK) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (!(file.channel instanceof FileChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
-        long newPosition;
-
-        try {
-            switch (whence) {
-                case WHENCE_SET -> {
-                    newPosition = delta;
-                }
-
-                case WHENCE_CUR -> {
-                    newPosition = channel.position() + delta;
-                }
-
-                case WHENCE_END -> {
-                    newPosition = channel.size() + delta;
-                }
-
-                default -> {
-                    return ERRNO_INVAL;
-                }
-            }
-
-            channel.position(newPosition);
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        memory.setLong(newOffsetAddress, newPosition);
-
-        return ERRNO_SUCCESS;
-    }
-
-    private int fdSync(int fd, @NotNull ModuleInstance module) {
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_SYNC) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (!(file.channel instanceof FileChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
-        try {
-            channel.force(true);
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        return ERRNO_SUCCESS;
-    }
-
-    private int fdTell(int fd, int resultAddress, @NotNull ModuleInstance module) {
-        var memory = (Memory) memoryHandle.get(module);
-
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_TELL) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (!(file.channel instanceof FileChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
-        long result;
-
-        try {
-            result = channel.position();
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        memory.setLong(resultAddress, result);
-        return ERRNO_SUCCESS;
-    }
-
-    private int fdWrite(int fd, int iovsAddress, int iovsCount, int bytesWrittenAddress, @NotNull ModuleInstance module) {
-        var memory = (Memory) memoryHandle.get(module);
-
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
-        }
-
-        if ((file.baseRights & RIGHTS_FD_WRITE) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (!(file.channel instanceof GatheringByteChannel channel)) {
-            return ERRNO_NODEV;
-        }
-
-        if (iovsCount == 0) {
-            memory.setInt(bytesWrittenAddress, 0);
-            return ERRNO_SUCCESS;
-        }
-
-        var buffers = new ByteBuffer[iovsCount];
-        var totalLen = 0L;
-
-        for (var i = 0; i < iovsCount; i++) {
-            var ptr = memory.getInt(iovsAddress + 8*i);
-            var len = memory.getInt(iovsAddress + 8*i + 4);
-
-            if (len < 0) {
-                return ERRNO_INVAL;
-            }
-
-            totalLen += len;
-            if (totalLen > Integer.toUnsignedLong(-1)) {
-                return ERRNO_INVAL;
-            }
-
-            try {
-                buffers[i] = memory.segment().asSlice(ptr, len).asByteBuffer();
-            }
-            catch (IndexOutOfBoundsException exception) {
-                return ERRNO_FAULT;
-            }
-        }
-
-        int bytesWritten;
-        try {
-            bytesWritten = (int) Long.max(0, channel.write(buffers));
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        memory.setInt(bytesWrittenAddress, bytesWritten);
-        return ERRNO_SUCCESS;
+        memory.setInt(bytesWrittenAddress, (int) bytesWritten);
     }
 
     private int pathCreateDirectory(int fd, int pathPtr, int pathLen, @NotNull ModuleInstance module) {
@@ -1116,87 +990,5 @@ public final class WasiEnvironment {
         memory.setLong(outPtr + 56, attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS));
 
         return ERRNO_SUCCESS;
-    }
-
-    private static int translateErrno(int linuxValue) {
-        return switch (linuxValue) {
-            case 0 -> ERRNO_SUCCESS;
-            case Linux.EPERM -> ERRNO_PERM;
-            case Linux.ENOENT -> ERRNO_NOENT;
-            case Linux.ESRCH -> ERRNO_SRCH;
-            case Linux.EINTR -> ERRNO_INTR;
-            case Linux.EIO -> ERRNO_IO;
-            case Linux.ENXIO -> ERRNO_NXIO;
-            case Linux.E2BIG -> ERRNO_2BIG;
-            case Linux.ENOEXEC -> ERRNO_NOEXEC;
-            case Linux.EBADF -> ERRNO_BADF;
-            case Linux.ECHILD -> ERRNO_CHILD;
-            case Linux.EAGAIN -> ERRNO_AGAIN;
-            case Linux.ENOMEM -> ERRNO_NOMEM;
-            case Linux.EACCES -> ERRNO_ACCES;
-            case Linux.EFAULT -> ERRNO_FAULT;
-            case Linux.EBUSY -> ERRNO_BUSY;
-            case Linux.EEXIST -> ERRNO_EXIST;
-            case Linux.EXDEV -> ERRNO_XDEV;
-            case Linux.ENODEV -> ERRNO_NODEV;
-            case Linux.ENOTDIR -> ERRNO_NOTDIR;
-            case Linux.EISDIR -> ERRNO_ISDIR;
-            case Linux.EINVAL -> ERRNO_INVAL;
-            case Linux.ENFILE -> ERRNO_NFILE;
-            case Linux.EMFILE -> ERRNO_MFILE;
-            case Linux.ENOTTY -> ERRNO_NOTTY;
-            case Linux.ETXTBSY -> ERRNO_TXTBSY;
-            case Linux.EFBIG -> ERRNO_FBIG;
-            case Linux.ENOSPC -> ERRNO_NOSPC;
-            case Linux.ESPIPE -> ERRNO_SPIPE;
-            case Linux.EROFS -> ERRNO_ROFS;
-            case Linux.EMLINK -> ERRNO_MLINK;
-            case Linux.EPIPE -> ERRNO_PIPE;
-            case Linux.EDOM -> ERRNO_DOM;
-            case Linux.ERANGE -> ERRNO_RANGE;
-            case Linux.EDEADLK -> ERRNO_DEADLK;
-            case Linux.ENAMETOOLONG -> ERRNO_NAMETOOLONG;
-            case Linux.ENOLCK -> ERRNO_NOLCK;
-            case Linux.ENOSYS -> ERRNO_NOSYS;
-            case Linux.ENOTEMPTY -> ERRNO_NOTEMPTY;
-            case Linux.ELOOP -> ERRNO_LOOP;
-            case Linux.ENOMSG -> ERRNO_NOMSG;
-            case Linux.EIDRM -> ERRNO_IDRM;
-            case Linux.ENOLINK -> ERRNO_NOLINK;
-            case Linux.EPROTO -> ERRNO_PROTO;
-            case Linux.EMULTIHOP -> ERRNO_MULTIHOP;
-            case Linux.EBADMSG -> ERRNO_BADMSG;
-            case Linux.EOVERFLOW -> ERRNO_OVERFLOW;
-            case Linux.EILSEQ -> ERRNO_ILSEQ;
-            case Linux.ENOTSOCK -> ERRNO_NOTSOCK;
-            case Linux.EDESTADDRREQ -> ERRNO_DESTADDRREQ;
-            case Linux.EMSGSIZE -> ERRNO_MSGSIZE;
-            case Linux.EPROTOTYPE -> ERRNO_PROTOTYPE;
-            case Linux.ENOPROTOOPT -> ERRNO_NOPROTOOPT;
-            case Linux.EPROTONOSUPPORT -> ERRNO_PROTONOSUPPORT;
-            case Linux.ENOTSUP -> ERRNO_NOTSUP;
-            case Linux.EAFNOSUPPORT -> ERRNO_AFNOSUPPORT;
-            case Linux.EADDRINUSE -> ERRNO_ADDRINUSE;
-            case Linux.EADDRNOTAVAIL -> ERRNO_ADDRNOTAVAIL;
-            case Linux.ENETDOWN -> ERRNO_NETDOWN;
-            case Linux.ENETUNREACH -> ERRNO_NETUNREACH;
-            case Linux.ENETRESET -> ERRNO_NETRESET;
-            case Linux.ECONNABORTED -> ERRNO_CONNABORTED;
-            case Linux.ECONNRESET -> ERRNO_CONNRESET;
-            case Linux.ENOBUFS -> ERRNO_NOBUFS;
-            case Linux.EISCONN -> ERRNO_ISCONN;
-            case Linux.ENOTCONN -> ERRNO_NOTCONN;
-            case Linux.ETIMEDOUT -> ERRNO_TIMEDOUT;
-            case Linux.ECONNREFUSED -> ERRNO_CONNREFUSED;
-            case Linux.EHOSTUNREACH -> ERRNO_HOSTUNREACH;
-            case Linux.EALREADY -> ERRNO_ALREADY;
-            case Linux.EINPROGRESS -> ERRNO_INPROGRESS;
-            case Linux.ESTALE -> ERRNO_STALE;
-            case Linux.EDQUOT -> ERRNO_DQUOT;
-            case Linux.ECANCELED -> ERRNO_CANCELED;
-            case Linux.EOWNERDEAD -> ERRNO_OWNERDEAD;
-            case Linux.ENOTRECOVERABLE -> ERRNO_NOTRECOVERABLE;
-            default -> ERRNO_IO;
-        };
     }
 }
