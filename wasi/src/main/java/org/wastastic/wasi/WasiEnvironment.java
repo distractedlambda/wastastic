@@ -1,9 +1,11 @@
 package org.wastastic.wasi;
 
 import jdk.incubator.foreign.MemoryAccess;
+import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
 import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Unmodifiable;
@@ -769,66 +771,59 @@ public final class WasiEnvironment {
         memory.setInt(bytesReadAddress, (int) bytesRead);
     }
 
-    private int fdReaddir(int fd, int buf, int bufLen, long cookie, int sizeAddress, @NotNull ModuleInstance module) {
+    private void fdReaddir(int fd, int buf, int bufLen, long cookie, int sizeAddress, @NotNull ModuleInstance module) throws Throwable {
         var memory = (Memory) memoryHandle.get(module);
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_FD_READDIR);
 
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
+        MemoryAddress dir;
+        try (var frame = MemoryStack.getFrame()) {
+            var opendirBytes = ("/proc/self/fd/" + Integer.toUnsignedString(file.nativeFd()) + "\0").getBytes(StandardCharsets.UTF_8);
+            var opendirArg = frame.allocateArray(MemoryLayouts.JAVA_BYTE, opendirBytes);
+            dir = (MemoryAddress) Linux.opendir.invokeExact(opendirArg.address());
         }
 
-        if ((file.baseRights & RIGHTS_FD_READDIR) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        if (cookie < 0) {
-            return ERRNO_INVAL;
-        }
-
-        try (var entries = Files.list(file.path)) {
-            var paths = entries.skip(cookie).toArray(Path[]::new);
-
-            var outAddress = buf;
-            var endAddress = buf + bufLen;
-
-            for (var i = 0; i < paths.length; i++) {
-                outAddress = (outAddress + 7) & ~7;
-
-                if (Integer.compareUnsigned(endAddress - outAddress, 24) < 0) {
-                    outAddress = endAddress;
-                    break;
-                }
-
-                var path = paths[i];
-                var bytes = path.getFileName().toString().getBytes(StandardCharsets.UTF_8);
-
-                memory.setLong(outAddress, cookie + i);
-                memory.setLong(outAddress + 8, 0); // 'd_ino', not implemented
-                memory.setInt(outAddress + 16, bytes.length);
-
-                var attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                memory.setByte(outAddress + 20, detectFiletype(attributes));
-
-                outAddress += 24;
-
-                if (Integer.compareUnsigned(endAddress - outAddress, bytes.length) < 0) {
-                    memory.setBytes(outAddress, bytes, 0, endAddress - outAddress);
-                    outAddress = endAddress;
-                    break;
-                }
-                else {
-                    memory.setBytes(outAddress, bytes);
-                    outAddress += bytes.length;
-                }
+        var offset = 0;
+        try {
+            if (cookie != 0) {
+                Linux.seekdir.invokeExact(dir, cookie);
             }
 
-            memory.setInt(sizeAddress, outAddress - buf);
-        }
-        catch (IOException | UncheckedIOException ignored) {
-            return ERRNO_IO;
-        }
+            while (bufLen - offset >= 24) {
+                var entryAddress = (MemoryAddress) Linux.readdir.invokeExact(dir);
 
-        return ERRNO_SUCCESS;
+                if (entryAddress.equals(MemoryAddress.NULL)) {
+                    memory.setInt(sizeAddress, offset);
+                    return;
+                }
+
+                var entry = entryAddress.asSegment(Linux.dirent.byteSize(), ResourceScope.globalScope());
+                var ino = (long) Linux.d_ino.get(entry);
+                var off = (long) Linux.d_off.get(entry);
+                var linuxType = (byte) Linux.d_type.get(entry);
+
+                memory.setLong(offset, off);
+                memory.setLong(offset + 8, ino);
+
+                var type = switch (linuxType) {
+                    case Linux.DT_CHR -> FILETYPE_CHARACTER_DEVICE;
+                    case Linux.DT_DIR -> FILETYPE_DIRECTORY;
+                    case Linux.DT_BLK -> FILETYPE_BLOCK_DEVICE;
+                    case Linux.DT_REG -> FILETYPE_REGULAR_FILE;
+                    case Linux.DT_LNK -> FILETYPE_SYMBOLIC_LINK;
+                    default -> FILETYPE_UNKNOWN;
+                };
+
+                var nameAddress = entryAddress.addOffset(Linux.d_name_offset);
+                var nameLength = (long) Linux.strlen.invokeExact(nameAddress);
+                var nameSlice = nameAddress.asSegment(nameLength, ResourceScope.globalScope());
+            }
+
+            memory.setInt(sizeAddress, bufLen);
+        }
+        finally {
+            Linux.closedir.invokeExact(dir);
+        }
     }
 
     private static byte detectFiletype(@NotNull BasicFileAttributes attributes) {

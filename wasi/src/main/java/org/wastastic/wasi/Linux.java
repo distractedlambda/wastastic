@@ -15,11 +15,14 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 
 import static java.lang.invoke.MethodHandles.filterReturnValue;
+import static java.lang.invoke.MethodHandles.foldArguments;
 import static java.lang.invoke.MethodHandles.insertArguments;
 import static java.lang.invoke.MethodType.methodType;
+import static jdk.incubator.foreign.CLinker.C_CHAR;
 import static jdk.incubator.foreign.CLinker.C_INT;
 import static jdk.incubator.foreign.CLinker.C_LONG;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
+import static jdk.incubator.foreign.CLinker.C_SHORT;
 import static jdk.incubator.foreign.CLinker.asVarArg;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.sequenceElement;
@@ -119,6 +122,8 @@ final class Linux {
     static final MemoryLayout socklen_t = C_INT;
     static final MemoryLayout size_t = C_LONG;
     static final MemoryLayout ssize_t = C_LONG;
+    static final MemoryLayout ino64_t = C_LONG;
+    static final MemoryLayout off64_t = C_LONG;
 
     static final MemoryLayout timespec = cStructLayout(
         time_t.withName("sec"),
@@ -166,7 +171,19 @@ final class Linux {
     static final VarHandle iov_base = iovec.varHandle(MemoryAddress.class, groupElement("base"));
     static final VarHandle iov_len = iovec.varHandle(long.class, groupElement("len"));
 
-    static final MethodHandle iovec_list_elem = sequenceLayout(iovec).sliceHandle(sequenceElement());
+    static final MemoryLayout dirent = cStructLayout(
+        ino_t.withName("ino"),
+        off_t.withName("off"),
+        C_SHORT.withName("reclen"),
+        C_CHAR.withName("type"),
+        C_CHAR.withName("name")
+    );
+
+    static final VarHandle d_ino = dirent.varHandle(long.class, groupElement("ino"));
+    static final VarHandle d_off = dirent.varHandle(long.class, groupElement("off"));
+    static final VarHandle d_reclen = dirent.varHandle(short.class, groupElement("reclen"));
+    static final VarHandle d_type = dirent.varHandle(byte.class, groupElement("type"));
+    static final long d_name_offset = dirent.byteOffset(groupElement("name"));
 
     static final int EPERM = 1;
     static final int ENOENT = 2;
@@ -291,6 +308,15 @@ final class Linux {
     static final long UTIME_NOW = (1 << 30) - 1;
     static final long UTIME_OMIT = (1 << 30) - 2;
 
+    static final byte DT_UNKNOWN = 0;
+    static final byte DT_FIFO = 1;
+    static final byte DT_CHR = 2;
+    static final byte DT_DIR = 4;
+    static final byte DT_BLK = 6;
+    static final byte DT_REG = 8;
+    static final byte DT_LNK = 10;
+    static final byte DT_SOCK = 12;
+
     static final MethodHandle __errno_location;
     static final MethodHandle clock_getres;
     static final MethodHandle clock_gettime;
@@ -312,6 +338,11 @@ final class Linux {
     static final MethodHandle readv;
     static final MethodHandle write;
     static final MethodHandle writev;
+    static final MethodHandle opendir;
+    static final MethodHandle closedir;
+    static final MethodHandle readdir;
+    static final MethodHandle seekdir;
+    static final MethodHandle strlen;
 
     static {
         var lookup = MethodHandles.lookup();
@@ -321,10 +352,16 @@ final class Linux {
         MethodHandle throwErrnoOnNonzero;
         MethodHandle throwArgOnNonzero;
         MethodHandle throwErrnoOnM1;
+        MethodHandle throwErrnoOnNull;
+        MethodHandle resetErrno;
+        MethodHandle checkErrnoOnNull;
         try {
             throwErrnoOnNonzero = lookup.findStatic(Linux.class, "throwErrnoOnNonzero", methodType(void.class, int.class));
             throwArgOnNonzero = lookup.findStatic(Linux.class, "throwArgOnNonzero", methodType(void.class, int.class));
             throwErrnoOnM1 = lookup.findStatic(Linux.class, "throwErrnoOnM1", methodType(int.class, int.class));
+            throwErrnoOnNull = lookup.findStatic(Linux.class, "throwErrnoOnNull", methodType(MemoryAddress.class, MemoryAddress.class));
+            resetErrno = lookup.findStatic(Linux.class, "resetErrno", methodType(void.class));
+            checkErrnoOnNull = lookup.findStatic(Linux.class, "checkErrnoOnNull", methodType(MemoryAddress.class, MemoryAddress.class));
         }
         catch (NoSuchMethodException | IllegalAccessException exception) {
             throw new UnsupportedOperationException(exception);
@@ -521,34 +558,107 @@ final class Linux {
             ),
             throwErrnoOnM1
         );
+
+        opendir = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("opendir").orElseThrow(),
+                methodType(MemoryAddress.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_POINTER, C_POINTER)
+            ),
+            throwErrnoOnNull
+        );
+
+        closedir = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("closedir").orElseThrow(),
+                methodType(int.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_INT, C_POINTER)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        readdir = filterReturnValue(
+            foldArguments(
+                linker.downcallHandle(
+                    lib.lookup("readdir").orElseThrow(),
+                    methodType(MemoryAddress.class, MemoryAddress.class),
+                    FunctionDescriptor.of(C_POINTER, C_POINTER)
+                ),
+                resetErrno
+            ),
+            checkErrnoOnNull
+        );
+
+        seekdir = linker.downcallHandle(
+            lib.lookup("seekdir").orElseThrow(),
+            methodType(void.class, MemoryAddress.class, long.class),
+            FunctionDescriptor.ofVoid(C_POINTER, C_LONG)
+        );
+
+        strlen = linker.downcallHandle(
+            lib.lookup("strlen").orElseThrow(),
+            methodType(long.class, MemoryAddress.class),
+            FunctionDescriptor.of(size_t, C_POINTER)
+        );
     }
 
     private static void throwErrnoOnNonzero(int returnCode) throws Throwable {
         if (returnCode != 0) {
-            throw errno();
+            checkErrno();
+            throw new IllegalStateException("Error occurred, but errno not set");
         }
     }
 
     private static void throwArgOnNonzero(int returnCode) throws Throwable {
         if (returnCode != 0) {
-            throw new ErrnoException(returnCode);
+            throw new ErrnoException(translateErrno(returnCode));
         }
     }
 
     private static int throwErrnoOnM1(int returnValue) throws Throwable {
         if (returnValue == -1) {
-            throw errno();
+            checkErrno();
+            throw new IllegalStateException("Error occurred, but errno not set");
         }
 
         return returnValue;
     }
 
-    private static @NotNull ErrnoException errno() throws Throwable {
+    private static @NotNull MemoryAddress throwErrnoOnNull(@NotNull MemoryAddress address) throws Throwable {
+        if (address.equals(MemoryAddress.NULL)) {
+            checkErrno();
+            throw new IllegalStateException("Error occurred, but errno not set");
+        }
+
+        return address;
+    }
+
+    private static @NotNull MemoryAddress checkErrnoOnNull(@NotNull MemoryAddress address) throws Throwable {
+        if (address.equals(MemoryAddress.NULL)) {
+            checkErrno();
+        }
+
+        return address;
+    }
+
+    private static void resetErrno() throws Throwable {
+        var location = (MemoryAddress) __errno_location.invoke();
+        MemoryAccess.setInt(location.asSegment(4, ResourceScope.globalScope()), 0);
+    }
+
+    private static void checkErrno() throws Throwable {
         var location = (MemoryAddress) __errno_location.invoke();
         var linuxCode = MemoryAccess.getInt(location.asSegment(4, ResourceScope.globalScope()));
 
-        var code = switch (linuxCode) {
-            case 0 -> ERRNO_SUCCESS;
+        if (linuxCode == 0) {
+            return;
+        }
+
+        throw new ErrnoException(translateErrno(linuxCode));
+    }
+
+    private static int translateErrno(int linuxCode) {
+        return switch (linuxCode) {
             case Linux.EPERM -> ERRNO_PERM;
             case Linux.ENOENT -> ERRNO_NOENT;
             case Linux.ESRCH -> ERRNO_SRCH;
@@ -626,8 +736,6 @@ final class Linux {
             case Linux.ENOTRECOVERABLE -> ERRNO_NOTRECOVERABLE;
             default -> ERRNO_IO;
         };
-
-        return new ErrnoException(code);
     }
 
     static long timespecToNanos(@NotNull MemorySegment timespec) {
