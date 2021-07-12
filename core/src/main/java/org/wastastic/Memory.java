@@ -152,6 +152,12 @@ public final class Memory {
             .copyFrom(MemorySegment.ofArray(bytes));
     }
 
+    public void setBytes(int address, @NotNull MemorySegment bytes) {
+        segment
+            .asSlice(Integer.toUnsignedLong(address))
+            .copyFrom(bytes);
+    }
+
     private static long effectiveAddress(int address, int offset) {
         return Integer.toUnsignedLong(address) + Integer.toUnsignedLong(offset);
     }

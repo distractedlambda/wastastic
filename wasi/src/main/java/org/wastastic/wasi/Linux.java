@@ -317,6 +317,10 @@ final class Linux {
     static final byte DT_LNK = 10;
     static final byte DT_SOCK = 12;
 
+    static final int SEEK_SET = 0;
+    static final int SEEK_CUR = 1;
+    static final int SEEK_END = 2;
+
     static final MethodHandle __errno_location;
     static final MethodHandle clock_getres;
     static final MethodHandle clock_gettime;
@@ -343,6 +347,9 @@ final class Linux {
     static final MethodHandle readdir;
     static final MethodHandle seekdir;
     static final MethodHandle strlen;
+    static final MethodHandle dup2;
+    static final MethodHandle lseek;
+    static final MethodHandle fsync;
 
     static {
         var lookup = MethodHandles.lookup();
@@ -355,6 +362,7 @@ final class Linux {
         MethodHandle throwErrnoOnNull;
         MethodHandle resetErrno;
         MethodHandle checkErrnoOnNull;
+        MethodHandle throwErrnoOnM1L;
         try {
             throwErrnoOnNonzero = lookup.findStatic(Linux.class, "throwErrnoOnNonzero", methodType(void.class, int.class));
             throwArgOnNonzero = lookup.findStatic(Linux.class, "throwArgOnNonzero", methodType(void.class, int.class));
@@ -362,6 +370,7 @@ final class Linux {
             throwErrnoOnNull = lookup.findStatic(Linux.class, "throwErrnoOnNull", methodType(MemoryAddress.class, MemoryAddress.class));
             resetErrno = lookup.findStatic(Linux.class, "resetErrno", methodType(void.class));
             checkErrnoOnNull = lookup.findStatic(Linux.class, "checkErrnoOnNull", methodType(MemoryAddress.class, MemoryAddress.class));
+            throwErrnoOnM1L = lookup.findStatic(Linux.class, "throwErrnoOnM1", methodType(long.class, long.class));
         }
         catch (NoSuchMethodException | IllegalAccessException exception) {
             throw new UnsupportedOperationException(exception);
@@ -493,7 +502,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, long.class, long.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t, off_t)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         pwrite = filterReturnValue(
@@ -502,7 +511,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, long.class, long.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t, off_t)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         preadv = filterReturnValue(
@@ -511,7 +520,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, int.class, long.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT, off_t)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         pwritev = filterReturnValue(
@@ -520,7 +529,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, int.class, long.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT, off_t)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         read = filterReturnValue(
@@ -529,7 +538,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, long.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         readv = filterReturnValue(
@@ -538,7 +547,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, int.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         write = filterReturnValue(
@@ -547,7 +556,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, long.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, size_t)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         writev = filterReturnValue(
@@ -556,7 +565,7 @@ final class Linux {
                 methodType(long.class, int.class, MemoryAddress.class, int.class),
                 FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_INT)
             ),
-            throwErrnoOnM1
+            throwErrnoOnM1L
         );
 
         opendir = filterReturnValue(
@@ -600,6 +609,33 @@ final class Linux {
             methodType(long.class, MemoryAddress.class),
             FunctionDescriptor.of(size_t, C_POINTER)
         );
+
+        dup2 = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("dup2").orElseThrow(),
+                methodType(int.class, int.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_INT)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        lseek = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("lseek").orElseThrow(),
+                methodType(long.class, int.class, long.class, int.class),
+                FunctionDescriptor.of(off_t, C_INT, off_t, C_INT)
+            ),
+            throwErrnoOnM1L
+        );
+
+        fsync = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("fsync").orElseThrow(),
+                methodType(int.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT)
+            ),
+            throwErrnoOnNonzero
+        );
     }
 
     private static void throwErrnoOnNonzero(int returnCode) throws Throwable {
@@ -619,6 +655,15 @@ final class Linux {
         if (returnValue == -1) {
             checkErrno();
             throw new IllegalStateException("Error occurred, but errno not set");
+        }
+
+        return returnValue;
+    }
+
+    private static long throwErrnoOnM1(long returnValue) throws Throwable {
+        if (returnValue == -1) {
+            checkErrno();
+            throw new IllegalStateException("Error occurred, bur errno not set");
         }
 
         return returnValue;
