@@ -8,7 +8,6 @@ import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
-import org.wastastic.Memory;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -25,9 +24,7 @@ import static jdk.incubator.foreign.CLinker.C_POINTER;
 import static jdk.incubator.foreign.CLinker.C_SHORT;
 import static jdk.incubator.foreign.CLinker.asVarArg;
 import static jdk.incubator.foreign.MemoryLayout.PathElement.groupElement;
-import static jdk.incubator.foreign.MemoryLayout.PathElement.sequenceElement;
 import static jdk.incubator.foreign.MemoryLayout.paddingLayout;
-import static jdk.incubator.foreign.MemoryLayout.sequenceLayout;
 import static org.wastastic.wasi.LayoutUtils.cStructLayout;
 import static org.wastastic.wasi.WasiConstants.ERRNO_2BIG;
 import static org.wastastic.wasi.WasiConstants.ERRNO_ACCES;
@@ -101,7 +98,6 @@ import static org.wastastic.wasi.WasiConstants.ERRNO_ROFS;
 import static org.wastastic.wasi.WasiConstants.ERRNO_SPIPE;
 import static org.wastastic.wasi.WasiConstants.ERRNO_SRCH;
 import static org.wastastic.wasi.WasiConstants.ERRNO_STALE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_SUCCESS;
 import static org.wastastic.wasi.WasiConstants.ERRNO_TIMEDOUT;
 import static org.wastastic.wasi.WasiConstants.ERRNO_TXTBSY;
 import static org.wastastic.wasi.WasiConstants.ERRNO_XDEV;
@@ -350,6 +346,15 @@ final class Linux {
     static final MethodHandle dup2;
     static final MethodHandle lseek;
     static final MethodHandle fsync;
+    static final MethodHandle mkdirat;
+    static final MethodHandle utimensat;
+    static final MethodHandle fstatat;
+    static final MethodHandle linkat;
+    static final MethodHandle openat;
+    static final MethodHandle readlinkat;
+    static final MethodHandle unlinkat;
+    static final MethodHandle renameat;
+    static final MethodHandle symlinkat;
 
     static {
         var lookup = MethodHandles.lookup();
@@ -635,6 +640,60 @@ final class Linux {
                 FunctionDescriptor.of(C_INT, C_INT)
             ),
             throwErrnoOnNonzero
+        );
+
+        mkdirat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("mkdirat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER, mode_t)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        utimensat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("utimensat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER, C_POINTER, C_INT)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        fstatat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("fstatat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER, C_POINTER, C_INT)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        linkat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("linkat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class, int.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER, C_INT, C_POINTER, C_INT)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        openat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("openat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class, int.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER, C_INT, asVarArg(mode_t))
+            ),
+            throwErrnoOnM1
+        );
+
+        readlinkat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("readlinkat").orElseThrow(),
+                methodType(long.class, int.class, MemoryAddress.class, MemoryAddress.class, long.class),
+                FunctionDescriptor.of(ssize_t, C_INT, C_POINTER, C_POINTER, size_t)
+            ),
+            throwErrnoOnM1L
         );
     }
 
