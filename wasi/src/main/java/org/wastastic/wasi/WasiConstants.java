@@ -69,14 +69,14 @@ final class WasiConstants {
     static final int FDFLAGS_RSYNC = 1 << 3;
     static final int FDFLAGS_SYNC = 1 << 4;
 
-    static final int FILETYPE_UNKNOWN = 0;
-    static final int FILETYPE_BLOCK_DEVICE = 1;
-    static final int FILETYPE_CHARACTER_DEVICE = 2;
-    static final int FILETYPE_DIRECTORY = 3;
-    static final int FILETYPE_REGULAR_FILE = 4;
-    static final int FILETYPE_SOCKET_DGRAM = 5;
-    static final int FILETYPE_SOCKET_STREAM = 6;
-    static final int FILETYPE_SYMBOLIC_LINK = 7;
+    static final byte FILETYPE_UNKNOWN = 0;
+    static final byte FILETYPE_BLOCK_DEVICE = 1;
+    static final byte FILETYPE_CHARACTER_DEVICE = 2;
+    static final byte FILETYPE_DIRECTORY = 3;
+    static final byte FILETYPE_REGULAR_FILE = 4;
+    static final byte FILETYPE_SOCKET_DGRAM = 5;
+    static final byte FILETYPE_SOCKET_STREAM = 6;
+    static final byte FILETYPE_SYMBOLIC_LINK = 7;
 
     static final byte WHENCE_SET = 0;
     static final byte WHENCE_CUR = 1;

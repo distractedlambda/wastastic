@@ -5,7 +5,7 @@ import jdk.incubator.foreign.ResourceScope;
 import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
 
-public final class MemoryStack {
+final class MemoryStack {
     private static final ThreadLocal<MemoryStack> THREAD_LOCAL = ThreadLocal.withInitial(MemoryStack::new);
 
     private static final long SIZE = 1024 * 1024;
@@ -19,26 +19,26 @@ public final class MemoryStack {
         pointer = segment.byteSize();
     }
 
-    public static @NotNull MemoryStack get() {
+    static @NotNull MemoryStack get() {
         return THREAD_LOCAL.get();
     }
 
-    public static @NotNull Frame getFrame() {
+    static @NotNull Frame getFrame() {
         return THREAD_LOCAL.get().frame();
     }
 
-    public @NotNull Frame frame() {
+    @NotNull Frame frame() {
         return new Frame();
     }
 
-    public final class Frame implements SegmentAllocator, AutoCloseable {
+    final class Frame implements SegmentAllocator, AutoCloseable {
         private final long framePointer;
 
         private Frame() {
             framePointer = pointer;
         }
 
-        public @NotNull MemoryStack stack() {
+        @NotNull MemoryStack stack() {
             return MemoryStack.this;
         }
 
