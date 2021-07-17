@@ -4,10 +4,11 @@ import org.jetbrains.annotations.NotNull;
 
 import static java.util.Objects.requireNonNull;
 
-final class OpenFile {
+final class OpenFile implements AutoCloseable {
     private final @NotNull File file;
     private long baseRights;
     private long inheritingRights;
+    private int referenceCount = 1;
 
     OpenFile(@NotNull File file, long baseRights, long inheritingRights) {
         this.file = requireNonNull(file);
@@ -44,5 +45,15 @@ final class OpenFile {
         requireInheritingRights(newInheritingRights);
         baseRights = newBaseRights;
         inheritingRights = newInheritingRights;
+    }
+
+    void addReference() {
+        referenceCount++;
+    }
+
+    @Override public void close() throws ErrnoException {
+        if (--referenceCount == 0) {
+            file.close();
+        }
     }
 }

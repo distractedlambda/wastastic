@@ -1,9 +1,7 @@
 package org.wastastic.wasi;
 
 import jdk.incubator.foreign.MemoryAddress;
-import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.ResourceScope;
 import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Unmodifiable;
@@ -25,11 +23,8 @@ import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-import static java.lang.Math.addExact;
-import static java.lang.Math.multiplyExact;
 import static java.lang.System.arraycopy;
 import static java.lang.invoke.MethodHandles.catchException;
 import static java.lang.invoke.MethodHandles.constant;
@@ -37,9 +32,7 @@ import static java.lang.invoke.MethodHandles.dropArguments;
 import static java.lang.invoke.MethodHandles.filterReturnValue;
 import static java.lang.invoke.MethodType.methodType;
 import static java.lang.ref.Reference.reachabilityFence;
-import static java.util.Objects.checkFromIndexSize;
 import static java.util.Objects.requireNonNull;
-import static jdk.incubator.foreign.MemoryLayout.sequenceLayout;
 import static org.wastastic.wasi.WasiConstants.ADVICE_DONTNEED;
 import static org.wastastic.wasi.WasiConstants.ADVICE_NOREUSE;
 import static org.wastastic.wasi.WasiConstants.ADVICE_NORMAL;
@@ -55,12 +48,6 @@ import static org.wastastic.wasi.WasiConstants.FDFLAGS_DSYNC;
 import static org.wastastic.wasi.WasiConstants.FDFLAGS_NONBLOCK;
 import static org.wastastic.wasi.WasiConstants.FDFLAGS_RSYNC;
 import static org.wastastic.wasi.WasiConstants.FDFLAGS_SYNC;
-import static org.wastastic.wasi.WasiConstants.FILETYPE_BLOCK_DEVICE;
-import static org.wastastic.wasi.WasiConstants.FILETYPE_CHARACTER_DEVICE;
-import static org.wastastic.wasi.WasiConstants.FILETYPE_DIRECTORY;
-import static org.wastastic.wasi.WasiConstants.FILETYPE_REGULAR_FILE;
-import static org.wastastic.wasi.WasiConstants.FILETYPE_SYMBOLIC_LINK;
-import static org.wastastic.wasi.WasiConstants.FILETYPE_UNKNOWN;
 import static org.wastastic.wasi.WasiConstants.FSTFLAGS_ATIM;
 import static org.wastastic.wasi.WasiConstants.FSTFLAGS_ATIM_NOW;
 import static org.wastastic.wasi.WasiConstants.FSTFLAGS_MTIM;
@@ -84,7 +71,9 @@ import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_TELL;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_WRITE;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_CREATE_DIRECTORY;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_FILESTAT_GET;
+import static org.wastastic.wasi.WasiConstants.WHENCE_CUR;
 import static org.wastastic.wasi.WasiConstants.WHENCE_END;
+import static org.wastastic.wasi.WasiConstants.WHENCE_SET;
 
 public final class WasiEnvironment {
     private final @NotNull VarHandle memoryHandle;
@@ -125,7 +114,7 @@ public final class WasiEnvironment {
         throw new UnsupportedOperationException("TODO");
     }
 
-    public @NotNull @Unmodifiable Map<QualifiedName, Object> makeImports() {
+    public @NotNull @Unmodifiable Map<QualifiedName, MethodHandle> makeImports() {
         return Map.ofEntries(
             makeImport("args_get", ARGS_GET),
             makeImport("args_sizes_get", ARGS_SIZES_GET),
@@ -140,11 +129,13 @@ public final class WasiEnvironment {
             makeImport("fd_fdstat_get", FD_FDSTAT_GET),
             makeImport("fd_fdstat_set_flags", FD_FDSTAT_SET_FLAGS),
             makeImport("fd_fdstat_set_rights", FD_FDSTAT_SET_RIGHTS),
-            makeImport("fd_filestat_get", FD_FILESTAT_GET)
+            makeImport("fd_filestat_get", FD_FILESTAT_GET),
+            makeImport("fd_filestat_set_size", FD_FILESTAT_SET_SIZE),
+            makeImport("fd_filestat_set_times", FD_FILESTAT_SET_TIMES)
         );
     }
 
-    private @NotNull Map.Entry<QualifiedName, ?> makeImport(@NotNull String name, @NotNull MethodHandle handle) {
+    private @NotNull Map.Entry<QualifiedName, MethodHandle> makeImport(@NotNull String name, @NotNull MethodHandle handle) {
         return Map.entry(new QualifiedName(MODULE_NAME, name), handle.bindTo(this));
     }
 
@@ -162,6 +153,8 @@ public final class WasiEnvironment {
     private static final MethodHandle FD_FDSTAT_SET_FLAGS;
     private static final MethodHandle FD_FDSTAT_SET_RIGHTS;
     private static final MethodHandle FD_FILESTAT_GET;
+    private static final MethodHandle FD_FILESTAT_SET_SIZE;
+    private static final MethodHandle FD_FILESTAT_SET_TIMES;
 
     private static @NotNull MethodHandle wrapExport(@NotNull MethodHandle handle) {
         if (handle.type().parameterCount() == 0 || handle.type().lastParameterType() != ModuleInstance.class) {
@@ -191,6 +184,8 @@ public final class WasiEnvironment {
             FD_FDSTAT_SET_FLAGS = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFdstatSetFlags", methodType(void.class, int.class, short.class)));
             FD_FDSTAT_SET_RIGHTS = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFdstatSetRights", methodType(void.class, int.class, long.class, long.class)));
             FD_FILESTAT_GET = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFilestatGet", methodType(void.class, int.class, int.class, ModuleInstance.class)));
+            FD_FILESTAT_SET_SIZE = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFilestatSetSize", methodType(void.class, int.class, long.class)));
+            FD_FILESTAT_SET_TIMES = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFilestatSetTimes", methodType(void.class, int.class, long.class, long.class, short.class)));
         }
         catch (NoSuchMethodException | IllegalAccessException exception) {
             throw new UnsupportedOperationException(exception);
@@ -358,9 +353,9 @@ public final class WasiEnvironment {
 
     private void fdClose(int fd) throws ErrnoException {
         var openFile = getOpenFile(fd);
-        openFile.file().close();
         fdTable.remove(fd);
         retiredFds.addLast(fd);
+        openFile.close();
     }
 
     private void fdDatasync(int fd) throws ErrnoException {
@@ -603,65 +598,68 @@ public final class WasiEnvironment {
         }
     }
 
-    private void fdRenumber(int fdFrom, int fdTo, @NotNull ModuleInstance module) throws Throwable {
+    private void fdRenumber(int fdFrom, int fdTo) throws ErrnoException {
         // FIXME: is this supposed to close the old file?
         var fromFile = getOpenFile(fdFrom);
         var toFile = getOpenFile(fdTo);
-        Linux.dup2.invokeExact(fromFile.nativeFd(), toFile.nativeFd());
+        fromFile.addReference();
+        fdTable.put(fdTo, fromFile);
+        toFile.close();
     }
 
-    private void fdSeek(int fd, long delta, byte whence, int newOffsetAddress, @NotNull ModuleInstance module) throws Throwable {
-        if (Byte.compareUnsigned(whence, WHENCE_END) > 0) {
-            throw new ErrnoException(ERRNO_INVAL);
-        }
+    private void fdSeek(int fd, long delta, byte whence, int newOffsetAddress, @NotNull ModuleInstance module) throws ErrnoException {
+        Whence decodedWhence;
+        switch (whence) {
+            case WHENCE_SET -> {
+                decodedWhence = Whence.SET;
+            }
 
-        var memory = (Memory) memoryHandle.get(module);
-        var file = lookUpFile(fd);
-        file.requireBaseRights(RIGHTS_FD_SEEK);
-        var newOffset = (long) Linux.lseek.invokeExact(file.nativeFd(), delta, (int) whence);
-        memory.setLong(newOffsetAddress, newOffset);
-    }
+            case WHENCE_CUR -> {
+                decodedWhence = Whence.CUR;
+            }
 
-    private void fdSync(int fd, @NotNull ModuleInstance module) throws Throwable {
-        var file = lookUpFile(fd);
-        file.requireBaseRights(RIGHTS_FD_SYNC);
-        Linux.fsync.invokeExact(file.nativeFd());
-    }
+            case WHENCE_END -> {
+                decodedWhence = Whence.END;
+            }
 
-    private void fdTell(int fd, int resultAddress, @NotNull ModuleInstance module) throws Throwable {
-        var memory = (Memory) memoryHandle.get(module);
-        var file = lookUpFile(fd);
-        file.requireBaseRights(RIGHTS_FD_TELL);
-        var offset = (long) Linux.lseek.invokeExact(file.nativeFd(), 0, Linux.SEEK_CUR);
-        memory.setLong(resultAddress, offset);
-    }
-
-    private void fdWrite(int fd, int iovsAddress, int iovsCount, int bytesWrittenAddress, @NotNull ModuleInstance module) throws Throwable {
-        var memory = (Memory) memoryHandle.get(module);
-        var file = lookUpFile(fd);
-        file.requireBaseRights(RIGHTS_FD_WRITE);
-
-        long bytesWritten;
-        if (iovsCount == 0) {
-            bytesWritten = 0;
-        }
-        else if (iovsCount == 1) {
-            var buf = memory.getInt(iovsAddress);
-            var bufLen = memory.getInt(iovsAddress + 4);
-            var bufSlice = memory.currentSegment().asSlice(buf, bufLen);
-            bytesWritten = (long) Linux.write.invokeExact(file.nativeFd(), bufSlice.address(), bufSlice.byteSize());
-        }
-        else {
-            var segment = memory.currentSegment();
-            try (var frame = MemoryStack.getFrame()) {
-                var nativeIovs = makeNativeIovecs(segment, iovsAddress, iovsCount, frame);
-                bytesWritten = (long) Linux.writev.invokeExact(file.nativeFd(), nativeIovs.address(), iovsCount);
-            } finally {
-                reachabilityFence(segment.scope());
+            default -> {
+                throw new ErrnoException(Errno.INVAL);
             }
         }
 
-        memory.setInt(bytesWrittenAddress, (int) bytesWritten);
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_FD_SEEK);
+
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, newOffsetAddress, 8);
+            memory.setLong(newOffsetAddress, openFile.file().seek(delta, decodedWhence));
+        }
+    }
+
+    private void fdSync(int fd, @NotNull ModuleInstance module) throws Throwable {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_FD_SYNC);
+        openFile.file().sync();
+    }
+
+    private void fdTell(int fd, int resultAddress, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_FD_TELL);
+
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, resultAddress, 8);
+            memory.setLong(resultAddress, openFile.file().tell());
+        }
+    }
+
+    private void fdWrite(int fd, int iovsAddress, int iovsCount, int bytesWrittenAddress, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_FD_WRITE);
+
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, bytesWrittenAddress, 4);
+            memory.setInt(bytesWrittenAddress, openFile.file().write(extractIovecs(memory, iovsAddress, iovsCount)));
+        }
     }
 
     private static MemoryAddress makePathString(@NotNull Memory memory, int strPtr, int strLen, @NotNull SegmentAllocator allocator) throws ErrnoException {
