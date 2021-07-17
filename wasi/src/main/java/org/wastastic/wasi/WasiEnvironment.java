@@ -2,7 +2,6 @@ package org.wastastic.wasi;
 
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
-import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemoryLayouts;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
@@ -14,25 +13,16 @@ import org.wastastic.ModuleInstance;
 import org.wastastic.QualifiedName;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
-import java.lang.invoke.SwitchPoint;
 import java.lang.invoke.VarHandle;
-import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.channels.GatheringByteChannel;
-import java.nio.channels.ScatteringByteChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileTime;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.List;
@@ -56,83 +46,11 @@ import static org.wastastic.wasi.WasiConstants.ADVICE_RANDOM;
 import static org.wastastic.wasi.WasiConstants.ADVICE_SEQUENTIAL;
 import static org.wastastic.wasi.WasiConstants.ADVICE_WILLNEED;
 import static org.wastastic.wasi.WasiConstants.CLOCKID_THREAD_CPUTIME_ID;
-import static org.wastastic.wasi.WasiConstants.ERRNO_2BIG;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ACCES;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ADDRINUSE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ADDRNOTAVAIL;
-import static org.wastastic.wasi.WasiConstants.ERRNO_AFNOSUPPORT;
-import static org.wastastic.wasi.WasiConstants.ERRNO_AGAIN;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ALREADY;
 import static org.wastastic.wasi.WasiConstants.ERRNO_BADF;
-import static org.wastastic.wasi.WasiConstants.ERRNO_BADMSG;
-import static org.wastastic.wasi.WasiConstants.ERRNO_BUSY;
-import static org.wastastic.wasi.WasiConstants.ERRNO_CANCELED;
-import static org.wastastic.wasi.WasiConstants.ERRNO_CHILD;
-import static org.wastastic.wasi.WasiConstants.ERRNO_CONNABORTED;
-import static org.wastastic.wasi.WasiConstants.ERRNO_CONNREFUSED;
-import static org.wastastic.wasi.WasiConstants.ERRNO_CONNRESET;
-import static org.wastastic.wasi.WasiConstants.ERRNO_DEADLK;
-import static org.wastastic.wasi.WasiConstants.ERRNO_DESTADDRREQ;
-import static org.wastastic.wasi.WasiConstants.ERRNO_DOM;
-import static org.wastastic.wasi.WasiConstants.ERRNO_DQUOT;
-import static org.wastastic.wasi.WasiConstants.ERRNO_EXIST;
-import static org.wastastic.wasi.WasiConstants.ERRNO_FAULT;
-import static org.wastastic.wasi.WasiConstants.ERRNO_FBIG;
-import static org.wastastic.wasi.WasiConstants.ERRNO_HOSTUNREACH;
-import static org.wastastic.wasi.WasiConstants.ERRNO_IDRM;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ILSEQ;
-import static org.wastastic.wasi.WasiConstants.ERRNO_INPROGRESS;
-import static org.wastastic.wasi.WasiConstants.ERRNO_INTR;
 import static org.wastastic.wasi.WasiConstants.ERRNO_INVAL;
 import static org.wastastic.wasi.WasiConstants.ERRNO_IO;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ISCONN;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ISDIR;
-import static org.wastastic.wasi.WasiConstants.ERRNO_LOOP;
-import static org.wastastic.wasi.WasiConstants.ERRNO_MFILE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_MLINK;
-import static org.wastastic.wasi.WasiConstants.ERRNO_MSGSIZE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_MULTIHOP;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NAMETOOLONG;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NETDOWN;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NETRESET;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NETUNREACH;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NFILE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOBUFS;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NODEV;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOENT;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOEXEC;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOLCK;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOLINK;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOMEM;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOMSG;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOPROTOOPT;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOSPC;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOSYS;
 import static org.wastastic.wasi.WasiConstants.ERRNO_NOTCAPABLE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTCONN;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTDIR;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTEMPTY;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTRECOVERABLE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTSOCK;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTSUP;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTTY;
-import static org.wastastic.wasi.WasiConstants.ERRNO_NXIO;
-import static org.wastastic.wasi.WasiConstants.ERRNO_OVERFLOW;
-import static org.wastastic.wasi.WasiConstants.ERRNO_OWNERDEAD;
-import static org.wastastic.wasi.WasiConstants.ERRNO_PERM;
-import static org.wastastic.wasi.WasiConstants.ERRNO_PIPE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_PROTO;
-import static org.wastastic.wasi.WasiConstants.ERRNO_PROTONOSUPPORT;
-import static org.wastastic.wasi.WasiConstants.ERRNO_PROTOTYPE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_RANGE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_ROFS;
-import static org.wastastic.wasi.WasiConstants.ERRNO_SPIPE;
-import static org.wastastic.wasi.WasiConstants.ERRNO_SRCH;
-import static org.wastastic.wasi.WasiConstants.ERRNO_STALE;
 import static org.wastastic.wasi.WasiConstants.ERRNO_SUCCESS;
-import static org.wastastic.wasi.WasiConstants.ERRNO_TIMEDOUT;
-import static org.wastastic.wasi.WasiConstants.ERRNO_TXTBSY;
-import static org.wastastic.wasi.WasiConstants.ERRNO_XDEV;
 import static org.wastastic.wasi.WasiConstants.FDFLAGS_APPEND;
 import static org.wastastic.wasi.WasiConstants.FDFLAGS_DSYNC;
 import static org.wastastic.wasi.WasiConstants.FDFLAGS_NONBLOCK;
@@ -167,9 +85,7 @@ import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_TELL;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_WRITE;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_CREATE_DIRECTORY;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_FILESTAT_GET;
-import static org.wastastic.wasi.WasiConstants.WHENCE_CUR;
 import static org.wastastic.wasi.WasiConstants.WHENCE_END;
-import static org.wastastic.wasi.WasiConstants.WHENCE_SET;
 
 public final class WasiEnvironment {
     private final @NotNull VarHandle memoryHandle;
@@ -900,41 +816,34 @@ public final class WasiEnvironment {
         memory.setInt(bytesWrittenAddress, (int) bytesWritten);
     }
 
-    private int pathCreateDirectory(int fd, int pathPtr, int pathLen, @NotNull ModuleInstance module) {
+    private static MemoryAddress makePathString(@NotNull Memory memory, int strPtr, int strLen, @NotNull SegmentAllocator allocator) throws ErrnoException {
+        var segment = memory.currentSegment();
+
+        if (strLen != 0 && (byte) Memory.VH_BYTE.get(segment, strPtr) == '/') {
+            // FIXME: better error code here
+            throw new ErrnoException(ERRNO_INVAL);
+        }
+
+        var nullAddress = Integer.toUnsignedLong(strPtr) + Integer.toUnsignedLong(strLen);
+
+        if (nullAddress < segment.byteSize() && (byte) Memory.VH_BYTE.get(segment, nullAddress) == 0) {
+            return segment.address().addOffset(Integer.toUnsignedLong(strPtr));
+        }
+        else {
+            var cstr = allocator.allocate(Integer.toUnsignedLong(strLen) + 1, 1);
+            cstr.copyFrom(segment.asSlice(Integer.toUnsignedLong(strPtr), Integer.toUnsignedLong(strLen)));
+            Memory.VH_BYTE.set(cstr, Integer.toUnsignedLong(strLen), (byte) 0);
+            return cstr.address();
+        }
+    }
+
+    private void pathCreateDirectory(int fd, int pathPtr, int pathLen, @NotNull ModuleInstance module) throws ErrnoException {
         var memory = (Memory) memoryHandle.get(module);
-
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
+        var file = lookUpFile(fd);
+        file.requireBaseRights(RIGHTS_PATH_CREATE_DIRECTORY);
+        try (var frame = MemoryStack.getFrame()) {
+            var pathStr = makePathString(memory, pathPtr, pathLen, frame);
         }
-
-        if ((file.baseRights & RIGHTS_PATH_CREATE_DIRECTORY) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        Path path;
-        try {
-            path = Path.of(memory.getUtf8(pathPtr, pathLen));
-        }
-        catch (InvalidPathException ignored) {
-            return ERRNO_INVAL;
-        }
-
-        if (path.isAbsolute() || path.getRoot() != null) {
-            return ERRNO_INVAL;
-        }
-
-        try {
-            Files.createDirectory(file.path.resolve(path));
-        }
-        catch (FileAlreadyExistsException ignored) {
-            return ERRNO_EXIST;
-        }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
-
-        return ERRNO_SUCCESS;
     }
 
     private int pathFilestatGet(int fd, int lookupflags, int pathPtr, int pathLen, int outPtr, @NotNull ModuleInstance module) {

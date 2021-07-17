@@ -98,6 +98,7 @@ import static org.wastastic.wasi.WasiConstants.ERRNO_ROFS;
 import static org.wastastic.wasi.WasiConstants.ERRNO_SPIPE;
 import static org.wastastic.wasi.WasiConstants.ERRNO_SRCH;
 import static org.wastastic.wasi.WasiConstants.ERRNO_STALE;
+import static org.wastastic.wasi.WasiConstants.ERRNO_SUCCESS;
 import static org.wastastic.wasi.WasiConstants.ERRNO_TIMEDOUT;
 import static org.wastastic.wasi.WasiConstants.ERRNO_TXTBSY;
 import static org.wastastic.wasi.WasiConstants.ERRNO_XDEV;
@@ -177,7 +178,6 @@ final class Linux {
 
     static final VarHandle d_ino = dirent.varHandle(long.class, groupElement("ino"));
     static final VarHandle d_off = dirent.varHandle(long.class, groupElement("off"));
-    static final VarHandle d_reclen = dirent.varHandle(short.class, groupElement("reclen"));
     static final VarHandle d_type = dirent.varHandle(byte.class, groupElement("type"));
     static final long d_name_offset = dirent.byteOffset(groupElement("name"));
 
@@ -369,8 +369,8 @@ final class Linux {
         MethodHandle checkErrnoOnNull;
         MethodHandle throwErrnoOnM1L;
         try {
-            throwErrnoOnNonzero = lookup.findStatic(Linux.class, "throwErrnoOnNonzero", methodType(void.class, int.class));
-            throwArgOnNonzero = lookup.findStatic(Linux.class, "throwArgOnNonzero", methodType(void.class, int.class));
+            throwErrnoOnNonzero = lookup.findStatic(Linux.class, "dropAndThrowErrnoOnNonzero", methodType(void.class, int.class));
+            throwArgOnNonzero = lookup.findStatic(Linux.class, "dropAndThrowResultOnNonzero", methodType(void.class, int.class));
             throwErrnoOnM1 = lookup.findStatic(Linux.class, "throwErrnoOnM1", methodType(int.class, int.class));
             throwErrnoOnNull = lookup.findStatic(Linux.class, "throwErrnoOnNull", methodType(MemoryAddress.class, MemoryAddress.class));
             resetErrno = lookup.findStatic(Linux.class, "resetErrno", methodType(void.class));
@@ -695,18 +695,45 @@ final class Linux {
             ),
             throwErrnoOnM1L
         );
+
+        unlinkat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("unlinkat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER, C_INT)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        renameat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("renameat").orElseThrow(),
+                methodType(int.class, int.class, MemoryAddress.class, int.class, MemoryAddress.class, int.class),
+                FunctionDescriptor.of(C_INT, C_INT, C_POINTER, C_INT, C_POINTER, C_INT)
+            ),
+            throwErrnoOnNonzero
+        );
+
+        symlinkat = filterReturnValue(
+            linker.downcallHandle(
+                lib.lookup("symlinkat").orElseThrow(),
+                methodType(int.class, MemoryAddress.class, int.class, MemoryAddress.class),
+                FunctionDescriptor.of(C_INT, C_POINTER, C_INT, C_POINTER)
+            ),
+            throwErrnoOnNonzero
+        );
     }
 
-    private static void throwErrnoOnNonzero(int returnCode) throws Throwable {
+    private static void dropAndThrowErrnoOnNonzero(int returnCode) throws Throwable {
         if (returnCode != 0) {
             checkErrno();
             throw new IllegalStateException("Error occurred, but errno not set");
         }
     }
 
-    private static void throwArgOnNonzero(int returnCode) throws Throwable {
-        if (returnCode != 0) {
-            throw new ErrnoException(translateErrno(returnCode));
+    private static void dropAndThrowResultOnNonzero(int returnValue) throws Throwable {
+        if (returnValue != 0) {
+            throw new ErrnoException(translateErrno(returnValue));
         }
     }
 
@@ -745,14 +772,16 @@ final class Linux {
         return address;
     }
 
+    private static MemorySegment errnoLocation() throws Throwable {
+        return ((MemoryAddress) __errno_location.invokeExact()).asSegment(4, ResourceScope.globalScope());
+    }
+
     private static void resetErrno() throws Throwable {
-        var location = (MemoryAddress) __errno_location.invoke();
-        MemoryAccess.setInt(location.asSegment(4, ResourceScope.globalScope()), 0);
+        MemoryAccess.setInt(errnoLocation(), ERRNO_SUCCESS);
     }
 
     private static void checkErrno() throws Throwable {
-        var location = (MemoryAddress) __errno_location.invoke();
-        var linuxCode = MemoryAccess.getInt(location.asSegment(4, ResourceScope.globalScope()));
+        var linuxCode = MemoryAccess.getInt(errnoLocation());
 
         if (linuxCode == 0) {
             return;
