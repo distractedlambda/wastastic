@@ -1,29 +1,22 @@
 package org.wastastic.wasi;
 
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import static org.wastastic.wasi.WasiConstants.ERRNO_NOTCAPABLE;
+import static java.util.Objects.requireNonNull;
 
 final class OpenFile {
-    private final int nativeFd;
-    private final byte @Nullable[] prestatDirName;
+    private final @NotNull File file;
     private long baseRights;
     private long inheritingRights;
 
-    OpenFile(int nativeFd, byte @Nullable[] prestatDirName, int baseRights, int inheritingRights) {
-        this.nativeFd = nativeFd;
-        this.prestatDirName = prestatDirName;
+    OpenFile(@NotNull File file, long baseRights, long inheritingRights) {
+        this.file = requireNonNull(file);
         this.baseRights = baseRights;
         this.inheritingRights = inheritingRights;
     }
 
-    public byte @Nullable[] prestatDirName() {
-        return prestatDirName;
-    }
-
-    int nativeFd() {
-        return nativeFd;
+    @NotNull File file() {
+        return file;
     }
 
     long baseRights() {
@@ -36,13 +29,13 @@ final class OpenFile {
 
     void requireBaseRights(long rights) throws ErrnoException {
         if ((baseRights & rights) != rights) {
-            throw new ErrnoException(ERRNO_NOTCAPABLE);
+            throw new ErrnoException(Errno.NOTCAPABLE);
         }
     }
 
     void requireInheritingRights(long rights) throws ErrnoException {
         if ((inheritingRights & rights) != rights) {
-            throw new ErrnoException(ERRNO_NOTCAPABLE);
+            throw new ErrnoException(Errno.NOTCAPABLE);
         }
     }
 

@@ -2,21 +2,22 @@ package org.wastastic;
 
 import jdk.incubator.foreign.MemoryHandles;
 import jdk.incubator.foreign.MemorySegment;
+import jdk.incubator.foreign.ResourceScope;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 
 import static java.lang.Integer.compareUnsigned;
 import static java.lang.invoke.MethodType.methodType;
+import static java.lang.ref.Reference.reachabilityFence;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
+import static java.util.Objects.requireNonNull;
 import static jdk.incubator.foreign.ResourceScope.newImplicitScope;
 import static org.objectweb.asm.Type.getDescriptor;
 import static org.objectweb.asm.Type.getInternalName;
+import static org.wastastic.Names.dataSegmentName;
 import static org.wastastic.Names.methodDescriptor;
 
 public final class Memory {
@@ -25,12 +26,12 @@ public final class Memory {
     static final String INTERNAL_NAME = getInternalName(Memory.class);
     static final String DESCRIPTOR = getDescriptor(Memory.class);
 
-    public static final VarHandle VH_BYTE = MemoryHandles.varHandle(byte.class, 1, LITTLE_ENDIAN);
-    public static final VarHandle VH_SHORT = MemoryHandles.varHandle(short.class, 1, LITTLE_ENDIAN);
-    public static final VarHandle VH_INT = MemoryHandles.varHandle(int.class, 1, LITTLE_ENDIAN);
-    public static final VarHandle VH_LONG = MemoryHandles.varHandle(long.class, 1, LITTLE_ENDIAN);
-    public static final VarHandle VH_FLOAT = MemoryHandles.varHandle(float.class, 1, LITTLE_ENDIAN);
-    public static final VarHandle VH_DOUBLE = MemoryHandles.varHandle(double.class, 1, LITTLE_ENDIAN);
+    static final VarHandle VH_BYTE = MemoryHandles.varHandle(byte.class, 1, LITTLE_ENDIAN);
+    static final VarHandle VH_SHORT = MemoryHandles.varHandle(short.class, 1, LITTLE_ENDIAN);
+    static final VarHandle VH_INT = MemoryHandles.varHandle(int.class, 1, LITTLE_ENDIAN);
+    static final VarHandle VH_LONG = MemoryHandles.varHandle(long.class, 1, LITTLE_ENDIAN);
+    static final VarHandle VH_FLOAT = MemoryHandles.varHandle(float.class, 1, LITTLE_ENDIAN);
+    static final VarHandle VH_DOUBLE = MemoryHandles.varHandle(double.class, 1, LITTLE_ENDIAN);
 
     private final int maxPageCount;
     private @NotNull MemorySegment segment;
@@ -40,7 +41,7 @@ public final class Memory {
             throw new IllegalArgumentException();
         }
 
-        this.segment = MemorySegment.allocateNative(minPageCount * PAGE_SIZE, 8, newImplicitScope());
+        this.segment = MemorySegment.allocateNative(Integer.toUnsignedLong(minPageCount) * PAGE_SIZE, 8, newImplicitScope());
         this.maxPageCount = maxPageCount;
     }
 
@@ -48,114 +49,67 @@ public final class Memory {
         this(minPageCount, -1);
     }
 
-    public @NotNull MemorySegment currentSegment() {
-        return segment;
+    public static final class Pinned implements AutoCloseable {
+        private final @NotNull MemorySegment segment;
+        private final @NotNull ResourceScope.Handle handle;
+
+        private Pinned(@NotNull MemorySegment segment) {
+            this.segment = requireNonNull(segment);
+            this.handle = segment.scope().acquire();
+        }
+
+        public @NotNull MemorySegment segment() {
+            return segment;
+        }
+
+        public @NotNull MemorySegment segment(int offset) {
+            return segment.asSlice(Integer.toUnsignedLong(offset));
+        }
+
+        public @NotNull MemorySegment segment(int offset, int length) {
+            return segment.asSlice(Integer.toUnsignedLong(offset), Integer.toUnsignedLong(length));
+        }
+
+        @Override public void close() {
+            handle.scope().release(handle);
+        }
+
+        public byte getByte(int address) {
+            return (byte) VH_BYTE.get(segment, Integer.toUnsignedLong(address));
+        }
+
+        public short getShort(int address) {
+            return (short) VH_SHORT.get(segment, Integer.toUnsignedLong(address));
+        }
+
+        public int getInt(int address) {
+            return (int) VH_INT.get(segment, Integer.toUnsignedLong(address));
+        }
+
+        public long getLong(int address) {
+            return (long) VH_LONG.get(segment, Integer.toUnsignedLong(address));
+        }
+
+        public void setByte(int address, byte value) {
+            VH_BYTE.set(segment, Integer.toUnsignedLong(address), value);
+        }
+
+        public void setShort(int address, short value) {
+            VH_SHORT.set(segment, Integer.toUnsignedLong(address), value);
+        }
+
+        public void setInt(int address, int value) {
+            VH_INT.set(segment, Integer.toUnsignedLong(address), value);
+        }
+
+        public void setLong(int address, long value) {
+            VH_LONG.set(segment, Integer.toUnsignedLong(address), value);
+        }
     }
 
-    public byte getByte(int address) {
-        return (byte) VH_BYTE.get(segment, Integer.toUnsignedLong(address));
-    }
-
-    public short getShort(int address) {
-        return (short) VH_SHORT.get(segment, Integer.toUnsignedLong(address));
-    }
-
-    public int getInt(int address) {
-        return (int) VH_INT.get(segment, Integer.toUnsignedLong(address));
-    }
-
-    public long getLong(int address) {
-        return (long) VH_LONG.get(segment, Integer.toUnsignedLong(address));
-    }
-
-    public float getFloat(int address) {
-        return (float) VH_FLOAT.get(segment, Integer.toUnsignedLong(address));
-    }
-
-    public double getDouble(int address) {
-        return (double) VH_DOUBLE.get(segment, Integer.toUnsignedLong(address));
-    }
-
-    public byte @NotNull[] getBytes(int address, byte @NotNull[] destination, int start, int length) {
-        MemorySegment
-            .ofArray(destination)
-            .asSlice(start)
-            .copyFrom(segment.asSlice(Integer.toUnsignedLong(address), length));
-
-        return destination;
-    }
-
-    public byte @NotNull[] getBytes(int address, byte @NotNull[] destination, int start) {
-        MemorySegment
-            .ofArray(destination)
-            .asSlice(start)
-            .copyFrom(segment.asSlice(Integer.toUnsignedLong(address), destination.length - start));
-
-        return destination;
-    }
-
-    public byte @NotNull[] getBytes(int address, byte @NotNull[] destination) {
-        MemorySegment
-            .ofArray(destination)
-            .copyFrom(segment.asSlice(Integer.toUnsignedLong(address), destination.length));
-
-        return destination;
-    }
-
-    public byte @NotNull[] getBytes(int address, int length) {
-        return getBytes(address, new byte[length]);
-    }
-
-    public @NotNull String getUtf8(int address, int length) {
-        return new String(getBytes(address, length), StandardCharsets.UTF_8);
-    }
-
-    public void setByte(int address, byte value) {
-        VH_BYTE.set(segment, Integer.toUnsignedLong(address), value);
-    }
-
-    public void setShort(int address, short value) {
-        VH_SHORT.set(segment, Integer.toUnsignedLong(address), value);
-    }
-
-    public void setInt(int address, int value) {
-        VH_INT.set(segment, Integer.toUnsignedLong(address), value);
-    }
-
-    public void setLong(int address, long value) {
-        VH_LONG.set(segment, Integer.toUnsignedLong(address), value);
-    }
-
-    public void setFloat(int address, float value) {
-        VH_FLOAT.set(segment, Integer.toUnsignedLong(address), value);
-    }
-
-    public void setDouble(int address, double value) {
-        VH_DOUBLE.set(segment, Integer.toUnsignedLong(address), value);
-    }
-
-    public void setBytes(int address, byte @NotNull[] bytes, int start, int length) {
-        segment
-            .asSlice(Integer.toUnsignedLong(address))
-            .copyFrom(MemorySegment.ofArray(bytes).asSlice(start, length));
-    }
-
-    public void setBytes(int address, byte @NotNull[] bytes, int start) {
-        segment
-            .asSlice(Integer.toUnsignedLong(address))
-            .copyFrom(MemorySegment.ofArray(bytes).asSlice(start));
-    }
-
-    public void setBytes(int address, byte @NotNull[] bytes) {
-        segment
-            .asSlice(Integer.toUnsignedLong(address))
-            .copyFrom(MemorySegment.ofArray(bytes));
-    }
-
-    public void setBytes(int address, @NotNull MemorySegment bytes) {
-        segment
-            .asSlice(Integer.toUnsignedLong(address))
-            .copyFrom(bytes);
+    public @NotNull Memory.Pinned pin() {
+        // FIXME: actually prevent relocation
+        return new Pinned(segment);
     }
 
     private static long effectiveAddress(int address, int offset) {
