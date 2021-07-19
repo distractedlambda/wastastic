@@ -131,7 +131,20 @@ public final class WasiEnvironment {
             makeImport("fd_fdstat_set_rights", FD_FDSTAT_SET_RIGHTS),
             makeImport("fd_filestat_get", FD_FILESTAT_GET),
             makeImport("fd_filestat_set_size", FD_FILESTAT_SET_SIZE),
-            makeImport("fd_filestat_set_times", FD_FILESTAT_SET_TIMES)
+            makeImport("fd_filestat_set_times", FD_FILESTAT_SET_TIMES),
+            makeImport("fd_pread", FD_PREAD),
+            makeImport("fd_prestat_get", FD_PRESTAT_GET),
+            makeImport("fd_prestat_dir_name", FD_PRESTAT_DIR_NAME),
+            makeImport("fd_pwrite", FD_PWRITE),
+            makeImport("fd_read", FD_READ),
+            makeImport("fd_readdir", FD_READDIR),
+            makeImport("fd_renumber", FD_RENUMBER),
+            makeImport("fd_seek", FD_SEEK),
+            makeImport("fd_sync", FD_SYNC),
+            makeImport("fd_tell", FD_TELL),
+            makeImport("fd_write", FD_WRITE),
+            makeImport("path_create_directory", PATH_CREATE_DIRECTORY),
+            makeImport("path_filestat_get", PATH_FILESTAT_GET)
         );
     }
 
@@ -155,6 +168,19 @@ public final class WasiEnvironment {
     private static final MethodHandle FD_FILESTAT_GET;
     private static final MethodHandle FD_FILESTAT_SET_SIZE;
     private static final MethodHandle FD_FILESTAT_SET_TIMES;
+    private static final MethodHandle FD_PREAD;
+    private static final MethodHandle FD_PRESTAT_GET;
+    private static final MethodHandle FD_PRESTAT_DIR_NAME;
+    private static final MethodHandle FD_PWRITE;
+    private static final MethodHandle FD_READ;
+    private static final MethodHandle FD_READDIR;
+    private static final MethodHandle FD_RENUMBER;
+    private static final MethodHandle FD_SEEK;
+    private static final MethodHandle FD_SYNC;
+    private static final MethodHandle FD_TELL;
+    private static final MethodHandle FD_WRITE;
+    private static final MethodHandle PATH_CREATE_DIRECTORY;
+    private static final MethodHandle PATH_FILESTAT_GET;
 
     private static @NotNull MethodHandle wrapExport(@NotNull MethodHandle handle) {
         if (handle.type().parameterCount() == 0 || handle.type().lastParameterType() != ModuleInstance.class) {
@@ -186,6 +212,19 @@ public final class WasiEnvironment {
             FD_FILESTAT_GET = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFilestatGet", methodType(void.class, int.class, int.class, ModuleInstance.class)));
             FD_FILESTAT_SET_SIZE = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFilestatSetSize", methodType(void.class, int.class, long.class)));
             FD_FILESTAT_SET_TIMES = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdFilestatSetTimes", methodType(void.class, int.class, long.class, long.class, short.class)));
+            FD_PREAD = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdPread", methodType(void.class, int.class, int.class, int.class, long.class, int.class, ModuleInstance.class)));
+            FD_PRESTAT_GET = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdPrestatGet", methodType(void.class, int.class, int.class, ModuleInstance.class)));
+            FD_PRESTAT_DIR_NAME = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdPrestatDirName", methodType(void.class, int.class, int.class, int.class, ModuleInstance.class)));
+            FD_PWRITE = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdPwrite", methodType(void.class, int.class, int.class, int.class, long.class, int.class, ModuleInstance.class)));
+            FD_READ = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdRead", methodType(void.class, int.class, int.class, int.class, int.class, ModuleInstance.class)));
+            FD_READDIR = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdReaddir", methodType(void.class, int.class, int.class, int.class, long.class, int.class, ModuleInstance.class)));
+            FD_RENUMBER = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdRenumber", methodType(void.class, int.class, int.class)));
+            FD_SEEK = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdSeek", methodType(void.class, int.class, long.class, byte.class, int.class, ModuleInstance.class)));
+            FD_SYNC = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdSync", methodType(void.class, int.class)));
+            FD_TELL = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdTell", methodType(void.class, int.class, int.class, ModuleInstance.class)));
+            FD_WRITE = wrapExport(lookup.findVirtual(WasiEnvironment.class, "fdWrite", methodType(void.class, int.class, int.class, int.class, int.class, ModuleInstance.class)));
+            PATH_CREATE_DIRECTORY = wrapExport(lookup.findVirtual(WasiEnvironment.class, "pathCreateDirectory", methodType(void.class, int.class, int.class, int.class, ModuleInstance.class)));
+            PATH_FILESTAT_GET = wrapExport(lookup.findVirtual(WasiEnvironment.class, "pathFilestatGet", methodType(void.class, int.class, int.class, int.class, int.class, int.class, ModuleInstance.class)));
         }
         catch (NoSuchMethodException | IllegalAccessException exception) {
             throw new UnsupportedOperationException(exception);
@@ -416,19 +455,21 @@ public final class WasiEnvironment {
     private void fdFilestatGet(int fd, int filestatOut, @NotNull ModuleInstance module) throws ErrnoException {
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_FILESTAT_GET);
-        var stat = openFile.file().filestat();
-
         try (var memory = pinMemory(module)) {
             checkBounds(memory, filestatOut, 64);
-            memory.setLong(filestatOut, stat.deviceId());
-            memory.setLong(filestatOut + 8, stat.inode());
-            memory.setByte(filestatOut + 16, (byte) stat.filetype().ordinal());
-            memory.setLong(filestatOut + 24, stat.linkCount());
-            memory.setLong(filestatOut + 32, stat.size());
-            memory.setLong(filestatOut + 40, stat.accessTimeNanos());
-            memory.setLong(filestatOut + 48, stat.modificationTimeNanos());
-            memory.setLong(filestatOut + 56, stat.statusChangeTimeNanos());
+            writeFilestat(memory, openFile.file().filestat(), filestatOut);
         }
+    }
+
+    private static void writeFilestat(@NotNull Memory.Pinned memory, @NotNull Filestat stat, int filestatOut) {
+        memory.setLong(filestatOut, stat.deviceId());
+        memory.setLong(filestatOut + 8, stat.inode());
+        memory.setByte(filestatOut + 16, (byte) stat.filetype().ordinal());
+        memory.setLong(filestatOut + 24, stat.linkCount());
+        memory.setLong(filestatOut + 32, stat.size());
+        memory.setLong(filestatOut + 40, stat.accessTimeNanos());
+        memory.setLong(filestatOut + 48, stat.modificationTimeNanos());
+        memory.setLong(filestatOut + 56, stat.statusChangeTimeNanos());
     }
 
     private void fdFilestatSetSize(int fd, long size) throws ErrnoException {
@@ -636,7 +677,7 @@ public final class WasiEnvironment {
         }
     }
 
-    private void fdSync(int fd, @NotNull ModuleInstance module) throws Throwable {
+    private void fdSync(int fd) throws ErrnoException {
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_SYNC);
         openFile.file().sync();
@@ -662,88 +703,39 @@ public final class WasiEnvironment {
         }
     }
 
-    private static MemoryAddress makePathString(@NotNull Memory memory, int strPtr, int strLen, @NotNull SegmentAllocator allocator) throws ErrnoException {
-        var segment = memory.currentSegment();
-
-        if (strLen != 0 && (byte) Memory.VH_BYTE.get(segment, strPtr) == '/') {
-            // FIXME: better error code here
-            throw new ErrnoException(ERRNO_INVAL);
-        }
-
-        var nullAddress = Integer.toUnsignedLong(strPtr) + Integer.toUnsignedLong(strLen);
-
-        if (nullAddress < segment.byteSize() && (byte) Memory.VH_BYTE.get(segment, nullAddress) == 0) {
-            return segment.address().addOffset(Integer.toUnsignedLong(strPtr));
-        }
-        else {
-            var cstr = allocator.allocate(Integer.toUnsignedLong(strLen) + 1, 1);
-            cstr.copyFrom(segment.asSlice(Integer.toUnsignedLong(strPtr), Integer.toUnsignedLong(strLen)));
-            Memory.VH_BYTE.set(cstr, Integer.toUnsignedLong(strLen), (byte) 0);
-            return cstr.address();
-        }
-    }
-
     private void pathCreateDirectory(int fd, int pathPtr, int pathLen, @NotNull ModuleInstance module) throws ErrnoException {
-        var memory = (Memory) memoryHandle.get(module);
-        var file = lookUpFile(fd);
-        file.requireBaseRights(RIGHTS_PATH_CREATE_DIRECTORY);
-        try (var frame = MemoryStack.getFrame()) {
-            var pathStr = makePathString(memory, pathPtr, pathLen, frame);
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_CREATE_DIRECTORY);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, pathPtr, pathLen);
+            openFile.file().createDirectory(memory.segment(pathPtr, pathLen));
         }
     }
 
-    private int pathFilestatGet(int fd, int lookupflags, int pathPtr, int pathLen, int outPtr, @NotNull ModuleInstance module) {
-        var memory = (Memory) memoryHandle.get(module);
-
-        OpenFile file;
-        if ((file = openFile(fd)) == null) {
-            return ERRNO_BADF;
+    private static boolean extractSymlinkFollow(int lookupFlags) throws ErrnoException {
+        if ((lookupFlags & LOOKUPFLAGS_SYMLINK_FOLLOW) != 0) {
+            return true;
         }
-
-        if ((file.baseRights & RIGHTS_PATH_FILESTAT_GET) == 0) {
-            return ERRNO_NOTCAPABLE;
-        }
-
-        Path path;
-        try {
-            path = Path.of(memory.getUtf8(pathPtr, pathLen));
-        }
-        catch (InvalidPathException ignored) {
-            return ERRNO_INVAL;
-        }
-
-        if (path.isAbsolute() || path.getRoot() != null) {
-            return ERRNO_INVAL;
-        }
-
-        LinkOption[] linkOptions;
-        if (lookupflags == LOOKUPFLAGS_SYMLINK_FOLLOW) {
-            linkOptions = new LinkOption[]{LinkOption.NOFOLLOW_LINKS};
-        }
-        else if (lookupflags != 0) {
-            return ERRNO_INVAL;
+        else if (lookupFlags != 0) {
+            throw new ErrnoException(Errno.INVAL);
         }
         else {
-            linkOptions = new LinkOption[0];
+            return false;
         }
+    }
 
-        BasicFileAttributes attributes;
-        try {
-            attributes = Files.readAttributes(path, BasicFileAttributes.class, linkOptions);
+    private void pathFilestatGet(int fd, int lookupflags, int pathPtr, int pathLen, int filestatOut, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_FILESTAT_GET);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, filestatOut, 64);
+            checkBounds(memory, pathPtr, pathLen);
+            var stat = openFile.file().filestat(extractSymlinkFollow(lookupflags), memory.segment(pathPtr, pathLen));
+            writeFilestat(memory, stat, filestatOut);
         }
-        catch (IOException ignored) {
-            return ERRNO_IO;
-        }
+    }
 
-        memory.setLong(outPtr, 0); // 'dev', unimplemented
-        memory.setLong(outPtr + 8, 0); // 'ino', unimplemented
-        memory.setByte(outPtr + 16, detectFiletype(attributes));
-        memory.setLong(outPtr + 24, 0); // 'nlink', unimplemented
-        memory.setLong(outPtr + 32, attributes.size());
-        memory.setLong(outPtr + 40, attributes.lastAccessTime().to(TimeUnit.NANOSECONDS));
-        memory.setLong(outPtr + 48, attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS));
-        memory.setLong(outPtr + 56, attributes.lastModifiedTime().to(TimeUnit.NANOSECONDS));
-
-        return ERRNO_SUCCESS;
+    private void schedYield() {
+        Thread.yield();
     }
 }
