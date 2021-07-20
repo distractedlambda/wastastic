@@ -113,6 +113,7 @@ final class WasiConstants {
     static final long RIGHTS_PATH_UNLINK_FILE = 1 << 26;
     static final long RIGHTS_POLL_FD_READWRITE = 1 << 27;
     static final long RIGHTS_SOCK_SHUTDOWN = 1 << 28;
+    static final long ILLEGAL_RIGHTS = -(1 << 29);
 
     static final int ADVICE_NORMAL = 0;
     static final int ADVICE_SEQUENTIAL = 1;

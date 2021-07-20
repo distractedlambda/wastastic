@@ -34,11 +34,6 @@ public final class Main {
             var charsPtr = (int) allocFn.invokeExact(inputBytes.length, instance);
             var dstPtr = (int) allocFn.invokeExact(4, instance);
 
-            memory.setBytes(charsPtr, inputBytes);
-            var successful = (int) parseF32Fn.invokeExact(charsPtr, inputBytes.length, dstPtr, instance);
-
-            System.out.println(memory.getFloat(dstPtr));
-
             freeFn.invokeExact(charsPtr, inputBytes.length, instance);
             freeFn.invokeExact(dstPtr, 4, instance);
         }

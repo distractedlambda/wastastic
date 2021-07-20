@@ -7,17 +7,19 @@ import org.jetbrains.annotations.Nullable;
 import java.util.List;
 
 public interface File extends AutoCloseable {
-    void advise(long offset, long length, @NotNull Advice advice) throws ErrnoException;
+    default void advise(long offset, long length, @NotNull Advice advice) throws ErrnoException {}
 
-    void allocate(long offset, long length) throws ErrnoException;
+    default void allocate(long offset, long length) throws ErrnoException {}
 
-    @Override void close() throws ErrnoException;
+    @Override default void close() throws ErrnoException {}
 
-    void datasync() throws ErrnoException;
+    default void datasync() throws ErrnoException {}
 
-    @NotNull Fdstat fdstat() throws ErrnoException;
+    default @NotNull Fdstat fdstat() throws ErrnoException {
+        throw new ErrnoException(Errno.NOTSUP);
+    }
 
-    void setFlags(boolean append, boolean dsync, boolean nonblock, boolean rsync, boolean sync) throws ErrnoException;
+    default void setFlags(boolean append, boolean dsync, boolean nonblock, boolean rsync, boolean sync) throws ErrnoException {}
 
     @NotNull Filestat filestat() throws ErrnoException;
 
@@ -51,7 +53,7 @@ public interface File extends AutoCloseable {
 
     void link(boolean followSymlinks, @NotNull MemorySegment oldPath, @NotNull File newRoot, @NotNull MemorySegment newPath) throws ErrnoException;
 
-    @NotNull File open(boolean followSymlinks, @NotNull MemorySegment path, boolean create, boolean directory, boolean exclusive, boolean truncate, boolean append, boolean dsync, boolean nonblock, boolean rsync, boolean sync, boolean read, boolean write) throws ErrnoException;
+    @NotNull File open(boolean followSymlinks, @NotNull MemorySegment path, boolean create, boolean directory, boolean exclusive, boolean truncate, boolean append, boolean dsync, boolean nonblock, boolean rsync, boolean sync, @NotNull Rights baseRights, @NotNull Rights inheritingRights) throws ErrnoException;
 
     byte @NotNull[] readLink(@NotNull MemorySegment path) throws ErrnoException;
 
