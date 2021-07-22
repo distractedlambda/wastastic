@@ -11,13 +11,11 @@ import java.lang.invoke.VarHandle;
 
 import static java.lang.Integer.compareUnsigned;
 import static java.lang.invoke.MethodType.methodType;
-import static java.lang.ref.Reference.reachabilityFence;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static java.util.Objects.requireNonNull;
 import static jdk.incubator.foreign.ResourceScope.newImplicitScope;
 import static org.objectweb.asm.Type.getDescriptor;
 import static org.objectweb.asm.Type.getInternalName;
-import static org.wastastic.Names.dataSegmentName;
 import static org.wastastic.Names.methodDescriptor;
 
 public final class Memory {

@@ -1,29 +1,20 @@
 package org.wastastic.wasi;
 
-import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemorySegment;
-import jdk.incubator.foreign.SegmentAllocator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Unmodifiable;
 import org.wastastic.Memory;
 import org.wastastic.ModuleInstance;
 import org.wastastic.QualifiedName;
 
-import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static java.lang.System.arraycopy;
 import static java.lang.invoke.MethodHandles.catchException;
@@ -31,7 +22,6 @@ import static java.lang.invoke.MethodHandles.constant;
 import static java.lang.invoke.MethodHandles.dropArguments;
 import static java.lang.invoke.MethodHandles.filterReturnValue;
 import static java.lang.invoke.MethodType.methodType;
-import static java.lang.ref.Reference.reachabilityFence;
 import static java.util.Objects.requireNonNull;
 import static org.wastastic.wasi.WasiConstants.ADVICE_DONTNEED;
 import static org.wastastic.wasi.WasiConstants.ADVICE_NOREUSE;
@@ -381,13 +371,13 @@ public final class WasiEnvironment {
 
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_ADVISE);
-        openFile.file().advise(offset, length, decodedAdvice);
+        openFile.file().fdAdvise(offset, length, decodedAdvice);
     }
 
     private void fdAllocate(int fd, long offset, long length) throws ErrnoException {
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_ALLOCATE);
-        openFile.file().allocate(offset, length);
+        openFile.file().fdAllocate(offset, length);
     }
 
     private void fdClose(int fd) throws ErrnoException {
@@ -400,12 +390,12 @@ public final class WasiEnvironment {
     private void fdDatasync(int fd) throws ErrnoException {
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_DATASYNC);
-        openFile.file().datasync();
+        openFile.file().fdDatasync();
     }
 
     private void fdFdstatGet(int fd, int statOut, @NotNull ModuleInstance module) throws ErrnoException {
         var openFile = getOpenFile(fd);
-        var stat = openFile.file().fdstat();
+        var stat = openFile.file().fdFdstatGet();
 
         short flags = 0;
 
@@ -445,7 +435,7 @@ public final class WasiEnvironment {
 
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_FDSTAT_SET_FLAGS);
-        openFile.file().setFlags((newFlags & FDFLAGS_APPEND) != 0, (newFlags & FDFLAGS_DSYNC) != 0, (newFlags & FDFLAGS_NONBLOCK) != 0, (newFlags & FDFLAGS_RSYNC) != 0, (newFlags & FDFLAGS_SYNC) != 0);
+        openFile.file().fdFdstatSetFlags((newFlags & FDFLAGS_APPEND) != 0, (newFlags & FDFLAGS_DSYNC) != 0, (newFlags & FDFLAGS_NONBLOCK) != 0, (newFlags & FDFLAGS_RSYNC) != 0, (newFlags & FDFLAGS_SYNC) != 0);
     }
 
     private void fdFdstatSetRights(int fd, long newBaseRights, long newInheritingRights) throws ErrnoException {
@@ -457,7 +447,7 @@ public final class WasiEnvironment {
         openFile.requireBaseRights(RIGHTS_FD_FILESTAT_GET);
         try (var memory = pinMemory(module)) {
             checkBounds(memory, filestatOut, 64);
-            writeFilestat(memory, openFile.file().filestat(), filestatOut);
+            writeFilestat(memory, openFile.file().fdFilestatGet(), filestatOut);
         }
     }
 
@@ -475,7 +465,7 @@ public final class WasiEnvironment {
     private void fdFilestatSetSize(int fd, long size) throws ErrnoException {
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_FILESTAT_SET_SIZE);
-        openFile.file().setSize(size);
+        openFile.file().fdFilestatSetSize(size);
     }
 
     private void fdFilestatSetTimes(int fd, long newAccessTime, long newModificationTime, short fstFlags) throws ErrnoException {
@@ -515,7 +505,7 @@ public final class WasiEnvironment {
 
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_FILESTAT_SET_TIMES);
-        openFile.file().setTimes(accessTimeOverride, modificationTimeOverride);
+        openFile.file().fdFilestatSetTimes(accessTimeOverride, modificationTimeOverride);
     }
 
     private static @NotNull List<@NotNull MemorySegment> extractIovecs(@NotNull Memory.Pinned memory, int iovsAddress, int iovsCount) throws ErrnoException {
@@ -550,14 +540,14 @@ public final class WasiEnvironment {
 
         try (var memory = pinMemory(module)) {
             checkBounds(memory, bytesReadAddress, 4);
-            memory.setInt(bytesReadAddress, openFile.file().pread(extractIovecs(memory, iovsAddress, iovsCount), offset));
+            memory.setInt(bytesReadAddress, openFile.file().fdPread(extractIovecs(memory, iovsAddress, iovsCount), offset));
         }
     }
 
     private void fdPrestatGet(int fd, int prestatOut, @NotNull ModuleInstance module) throws ErrnoException {
         var openFile = getOpenFile(fd);
 
-        var name = openFile.file().preopenedDirectoryName();
+        var name = openFile.file().fdPrestatDirName();
         if (name == null) {
             throw new ErrnoException(Errno.BADF);
         }
@@ -572,7 +562,7 @@ public final class WasiEnvironment {
     private void fdPrestatDirName(int fd, int buffer, int bufferLength, @NotNull ModuleInstance module) throws ErrnoException {
         var openFile = getOpenFile(fd);
 
-        var name = openFile.file().preopenedDirectoryName();
+        var name = openFile.file().fdPrestatDirName();
         if (name == null) {
             throw new ErrnoException(Errno.BADF);
         }
@@ -593,7 +583,7 @@ public final class WasiEnvironment {
 
         try (var memory = pinMemory(module)) {
             checkBounds(memory, bytesWrittenAddress, 4);
-            memory.setInt(bytesWrittenAddress, openFile.file().pwrite(extractIovecs(memory, iovsAddress, iovsCount), offset));
+            memory.setInt(bytesWrittenAddress, openFile.file().fdPwrite(extractIovecs(memory, iovsAddress, iovsCount), offset));
         }
     }
 
@@ -603,7 +593,7 @@ public final class WasiEnvironment {
 
         try (var memory = pinMemory(module)) {
             checkBounds(memory, bytesReadAddress, 4);
-            memory.setInt(bytesReadAddress, openFile.file().read(extractIovecs(memory, iovsAddress, iovsCount)));
+            memory.setInt(bytesReadAddress, openFile.file().fdRead(extractIovecs(memory, iovsAddress, iovsCount)));
         }
     }
 
@@ -615,7 +605,7 @@ public final class WasiEnvironment {
             checkBounds(memory, buf, bufLen);
             checkBounds(memory, sizeAddress, 4);
 
-            var entries = openFile.file().readDir(cookie);
+            var entries = openFile.file().fdReaddir(cookie);
             var bufOffset = 0;
 
             for (var entry : entries) {
@@ -673,14 +663,14 @@ public final class WasiEnvironment {
 
         try (var memory = pinMemory(module)) {
             checkBounds(memory, newOffsetAddress, 8);
-            memory.setLong(newOffsetAddress, openFile.file().seek(delta, decodedWhence));
+            memory.setLong(newOffsetAddress, openFile.file().fdSeek(delta, decodedWhence));
         }
     }
 
     private void fdSync(int fd) throws ErrnoException {
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_SYNC);
-        openFile.file().sync();
+        openFile.file().fdSync();
     }
 
     private void fdTell(int fd, int resultAddress, @NotNull ModuleInstance module) throws ErrnoException {
@@ -689,7 +679,7 @@ public final class WasiEnvironment {
 
         try (var memory = pinMemory(module)) {
             checkBounds(memory, resultAddress, 8);
-            memory.setLong(resultAddress, openFile.file().tell());
+            memory.setLong(resultAddress, openFile.file().fdTell());
         }
     }
 
@@ -699,7 +689,7 @@ public final class WasiEnvironment {
 
         try (var memory = pinMemory(module)) {
             checkBounds(memory, bytesWrittenAddress, 4);
-            memory.setInt(bytesWrittenAddress, openFile.file().write(extractIovecs(memory, iovsAddress, iovsCount)));
+            memory.setInt(bytesWrittenAddress, openFile.file().fdWrite(extractIovecs(memory, iovsAddress, iovsCount)));
         }
     }
 
@@ -708,7 +698,7 @@ public final class WasiEnvironment {
         openFile.requireBaseRights(RIGHTS_PATH_CREATE_DIRECTORY);
         try (var memory = pinMemory(module)) {
             checkBounds(memory, pathPtr, pathLen);
-            openFile.file().createDirectory(memory.segment(pathPtr, pathLen));
+            openFile.file().pathCreateDirectory(memory.segment(pathPtr, pathLen));
         }
     }
 
@@ -730,7 +720,7 @@ public final class WasiEnvironment {
         try (var memory = pinMemory(module)) {
             checkBounds(memory, filestatOut, 64);
             checkBounds(memory, pathPtr, pathLen);
-            var stat = openFile.file().filestat(extractSymlinkFollow(lookupflags), memory.segment(pathPtr, pathLen));
+            var stat = openFile.file().pathFilestatGet(extractSymlinkFollow(lookupflags), memory.segment(pathPtr, pathLen));
             writeFilestat(memory, stat, filestatOut);
         }
     }

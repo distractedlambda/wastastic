@@ -2,8 +2,6 @@ package org.wastastic.wasi;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.security.Key;
-import java.util.Objects;
 import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;

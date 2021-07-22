@@ -53,7 +53,7 @@ final class OpenFile implements AutoCloseable {
 
     @Override public void close() throws ErrnoException {
         if (--referenceCount == 0) {
-            file.close();
+            file.fdClose();
         }
     }
 }
