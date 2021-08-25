@@ -15,6 +15,7 @@ import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.lang.System.arraycopy;
 import static java.lang.invoke.MethodHandles.catchException;
@@ -33,18 +34,11 @@ import static org.wastastic.wasi.WasiConstants.CLOCKID_MONOTONIC;
 import static org.wastastic.wasi.WasiConstants.CLOCKID_PROCESS_CPUTIME_ID;
 import static org.wastastic.wasi.WasiConstants.CLOCKID_REALTIME;
 import static org.wastastic.wasi.WasiConstants.CLOCKID_THREAD_CPUTIME_ID;
-import static org.wastastic.wasi.WasiConstants.FDFLAGS_APPEND;
-import static org.wastastic.wasi.WasiConstants.FDFLAGS_DSYNC;
-import static org.wastastic.wasi.WasiConstants.FDFLAGS_NONBLOCK;
-import static org.wastastic.wasi.WasiConstants.FDFLAGS_RSYNC;
-import static org.wastastic.wasi.WasiConstants.FDFLAGS_SYNC;
 import static org.wastastic.wasi.WasiConstants.FSTFLAGS_ATIM;
 import static org.wastastic.wasi.WasiConstants.FSTFLAGS_ATIM_NOW;
 import static org.wastastic.wasi.WasiConstants.FSTFLAGS_MTIM;
 import static org.wastastic.wasi.WasiConstants.FSTFLAGS_MTIM_NOW;
-import static org.wastastic.wasi.WasiConstants.ILLEGAL_FDFLAGS;
 import static org.wastastic.wasi.WasiConstants.ILLEGAL_FSTFLAGS;
-import static org.wastastic.wasi.WasiConstants.LOOKUPFLAGS_SYMLINK_FOLLOW;
 import static org.wastastic.wasi.WasiConstants.PREOPENTYPE_DIR;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_ADVISE;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_ALLOCATE;
@@ -61,6 +55,16 @@ import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_TELL;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_FD_WRITE;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_CREATE_DIRECTORY;
 import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_FILESTAT_GET;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_FILESTAT_SET_TIMES;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_LINK_SOURCE;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_LINK_TARGET;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_OPEN;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_READLINK;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_REMOVE_DIRECTORY;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_RENAME_SOURCE;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_RENAME_TARGET;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_SYMLINK;
+import static org.wastastic.wasi.WasiConstants.RIGHTS_PATH_UNLINK_FILE;
 import static org.wastastic.wasi.WasiConstants.WHENCE_CUR;
 import static org.wastastic.wasi.WasiConstants.WHENCE_END;
 import static org.wastastic.wasi.WasiConstants.WHENCE_SET;
@@ -396,46 +400,19 @@ public final class WasiEnvironment {
     private void fdFdstatGet(int fd, int statOut, @NotNull ModuleInstance module) throws ErrnoException {
         var openFile = getOpenFile(fd);
         var stat = openFile.file().fdFdstatGet();
-
-        short flags = 0;
-
-        if (stat.append()) {
-            flags |= FDFLAGS_APPEND;
-        }
-
-        if (stat.dsync()) {
-            flags |= FDFLAGS_DSYNC;
-        }
-
-        if (stat.nonblock()) {
-            flags |= FDFLAGS_NONBLOCK;
-        }
-
-        if (stat.rsync()) {
-            flags |= FDFLAGS_RSYNC;
-        }
-
-        if (stat.sync()) {
-            flags |= FDFLAGS_SYNC;
-        }
-
         try (var memory = pinMemory(module)) {
             checkBounds(memory, statOut, 24);
             memory.setByte(statOut, (byte) stat.filetype().ordinal());
-            memory.setShort(statOut + 2, flags);
+            memory.setShort(statOut + 2, stat.flags().bits());
             memory.setLong(statOut + 8, openFile.baseRights());
             memory.setLong(statOut + 16, openFile.inheritingRights());
         }
     }
 
     private void fdFdstatSetFlags(int fd, short newFlags) throws ErrnoException {
-        if ((newFlags & ILLEGAL_FDFLAGS) != 0) {
-            throw new ErrnoException(Errno.INVAL);
-        }
-
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_FD_FDSTAT_SET_FLAGS);
-        openFile.file().fdFdstatSetFlags((newFlags & FDFLAGS_APPEND) != 0, (newFlags & FDFLAGS_DSYNC) != 0, (newFlags & FDFLAGS_NONBLOCK) != 0, (newFlags & FDFLAGS_RSYNC) != 0, (newFlags & FDFLAGS_SYNC) != 0);
+        openFile.file().fdFdstatSetFlags(new FdFlags(newFlags));
     }
 
     private void fdFdstatSetRights(int fd, long newBaseRights, long newInheritingRights) throws ErrnoException {
@@ -702,30 +679,170 @@ public final class WasiEnvironment {
         }
     }
 
-    private static boolean extractSymlinkFollow(int lookupFlags) throws ErrnoException {
-        if ((lookupFlags & LOOKUPFLAGS_SYMLINK_FOLLOW) != 0) {
-            return true;
-        }
-        else if (lookupFlags != 0) {
-            throw new ErrnoException(Errno.INVAL);
-        }
-        else {
-            return false;
-        }
-    }
-
     private void pathFilestatGet(int fd, int lookupflags, int pathPtr, int pathLen, int filestatOut, @NotNull ModuleInstance module) throws ErrnoException {
         var openFile = getOpenFile(fd);
         openFile.requireBaseRights(RIGHTS_PATH_FILESTAT_GET);
         try (var memory = pinMemory(module)) {
             checkBounds(memory, filestatOut, 64);
             checkBounds(memory, pathPtr, pathLen);
-            var stat = openFile.file().pathFilestatGet(extractSymlinkFollow(lookupflags), memory.segment(pathPtr, pathLen));
+            var stat = openFile.file().pathFilestatGet(new LookupFlags(lookupflags), memory.segment(pathPtr, pathLen));
             writeFilestat(memory, stat, filestatOut);
         }
     }
 
+    private void pathFilestatSetTimes(int fd, int lookupFlags, int pathPtr, int pathLen, int newAccessTime, int newModificationTime, int fstFlags, @NotNull ModuleInstance module) throws ErrnoException {
+        if ((fstFlags & ILLEGAL_FSTFLAGS) != 0) {
+            throw new ErrnoException(Errno.INVAL);
+        }
+
+        TimeOverride accessTimeOverride, modificationTimeOverride;
+
+        if ((fstFlags & FSTFLAGS_ATIM_NOW) != 0) {
+            if ((fstFlags & FSTFLAGS_ATIM) != 0) {
+                throw new ErrnoException(Errno.INVAL);
+            }
+
+            accessTimeOverride = TimeOverride.now();
+        }
+        else if ((fstFlags & FSTFLAGS_ATIM) != 0) {
+            accessTimeOverride = TimeOverride.nanos(newAccessTime);
+        }
+        else {
+            accessTimeOverride = TimeOverride.disabled();
+        }
+
+        if ((fstFlags & FSTFLAGS_MTIM_NOW) != 0) {
+            if ((fstFlags & FSTFLAGS_MTIM) != 0) {
+                throw new ErrnoException(Errno.INVAL);
+            }
+
+            modificationTimeOverride = TimeOverride.now();
+        }
+        else if ((fstFlags & FSTFLAGS_MTIM) != 0) {
+            modificationTimeOverride = TimeOverride.nanos(newModificationTime);
+        }
+        else {
+            modificationTimeOverride = TimeOverride.disabled();
+        }
+
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_FILESTAT_SET_TIMES);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, pathPtr, pathLen);
+            openFile.file().pathFilestatSetTimes(new LookupFlags(lookupFlags), memory.segment(pathPtr, pathLen), accessTimeOverride, modificationTimeOverride);
+        }
+    }
+
+    private void pathLink(int oldFd, int lookupflags, int oldPathPtr, int oldPathLen, int newFd, int newPathPtr, int newPathLen, @NotNull ModuleInstance module) throws ErrnoException {
+        var oldOpenFile = getOpenFile(oldFd);
+        oldOpenFile.requireBaseRights(RIGHTS_PATH_LINK_SOURCE);
+
+        var newOpenFile = getOpenFile(newFd);
+        newOpenFile.requireBaseRights(RIGHTS_PATH_LINK_TARGET);
+
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, oldPathPtr, oldPathLen);
+            checkBounds(memory, newPathPtr, newPathLen);
+            oldOpenFile.file().pathLink(new LookupFlags(lookupflags), memory.segment(oldPathPtr, oldPathLen), newOpenFile.file(), memory.segment(newPathPtr, newPathLen));
+        }
+    }
+
+    private void pathOpen(int fd, int dirflags, int pathPtr, int pathLen, short oflags, long baseRights, long inheritingRights, byte fdflags, int fdOut, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_OPEN);
+        openFile.requireInheritingRights(baseRights);
+        openFile.requireInheritingRights(inheritingRights);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, pathPtr, pathLen);
+            checkBounds(memory, fdOut, 4);
+            var newFile = openFile.file().pathOpen(new LookupFlags(dirflags), memory.segment(pathPtr, pathLen), new OFlags(oflags), new Rights(baseRights), new Rights(inheritingRights), new FdFlags(fdflags));
+            var newFd = Optional.ofNullable(retiredFds.pollLast()).orElse(fdTable.size() + retiredFds.size());
+            fdTable.put(newFd, new OpenFile(newFile, baseRights, inheritingRights));
+            memory.setInt(fdOut, newFd);
+        }
+    }
+
+    private void pathReadlink(int fd, int pathPtr, int pathLen, int bufPtr, int bufLen, int writtenSize, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_READLINK);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, pathPtr, pathLen);
+            checkBounds(memory, bufPtr, bufLen);
+            checkBounds(memory, writtenSize, 4);
+            var written = openFile.file().pathReadlink(memory.segment(pathPtr, pathLen), memory.segment(bufPtr, bufLen));
+            memory.setInt(writtenSize, written);
+        }
+    }
+
+    private void pathRemoveDirectory(int fd, int pathPtr, int pathLen, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_REMOVE_DIRECTORY);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, pathPtr, pathLen);
+            openFile.file().pathRemoveDirectory(memory.segment(pathPtr, pathLen));
+        }
+    }
+
+    private void pathRename(int fd, int oldPathPtr, int oldPathLen, int newFd, int newPathPtr, int newPathLen, @NotNull ModuleInstance module) throws ErrnoException {
+        var oldOpenFile = getOpenFile(fd);
+        var newOpenFile = getOpenFile(newFd);
+        oldOpenFile.requireBaseRights(RIGHTS_PATH_RENAME_SOURCE);
+        newOpenFile.requireBaseRights(RIGHTS_PATH_RENAME_TARGET);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, oldPathPtr, oldPathLen);
+            checkBounds(memory, newPathPtr, newPathLen);
+            oldOpenFile.file().pathRename(memory.segment(oldPathPtr, oldPathLen), newOpenFile.file(), memory.segment(newPathPtr, newPathLen));
+        }
+    }
+
+    private void pathSymlink(int oldPathPtr, int oldPathLen, int fd, int newPathPtr, int newPathLen, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_SYMLINK);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, oldPathPtr, oldPathLen);
+            checkBounds(memory, newPathPtr, newPathLen);
+            openFile.file().pathSymlink(memory.segment(oldPathPtr, oldPathLen), memory.segment(newPathPtr, newPathLen));
+        }
+    }
+
+    private void pathUnlinkFile(int fd, int pathPtr, int pathLen, @NotNull ModuleInstance module) throws ErrnoException {
+        var openFile = getOpenFile(fd);
+        openFile.requireBaseRights(RIGHTS_PATH_UNLINK_FILE);
+        try (var memory = pinMemory(module)) {
+            checkBounds(memory, pathPtr, pathLen);
+            openFile.file().pathUnlinkFile(memory.segment(pathPtr, pathLen));
+        }
+    }
+
+    private void pollOneoff(int subscriptions, int events, int subscriptionCount, int numEventsOut) throws ErrnoException {
+        throw new ErrnoException(Errno.NOTSUP);
+    }
+
+    private void procExit(int code) {
+        throw new ProcExitException(code);
+    }
+
+    private void procRaise(int signal) throws ErrnoException {
+        throw new ErrnoException(Errno.NOTSUP);
+    }
+
     private void schedYield() {
         Thread.yield();
+    }
+
+    private void randomGet(int buf, int bufLen) throws ErrnoException {
+        throw new ErrnoException(Errno.NOTSUP);
+    }
+
+    private void sockRecv(int fd, int iovs, int iovsLen, int riflags, int resultOut) throws ErrnoException {
+        throw new ErrnoException(Errno.NOTSUP);
+    }
+
+    private void sockSend(int fd, int iovs, int iovsLen, int siflags, int sizeOut) throws ErrnoException {
+        throw new ErrnoException(Errno.NOTSUP);
+    }
+
+    private void sockShutdown(int fd, int how) throws ErrnoException {
+        throw new ErrnoException(Errno.NOTSUP);
     }
 }

@@ -4,8 +4,9 @@ import org.jetbrains.annotations.NotNull;
 
 import static java.util.Objects.requireNonNull;
 
-public record Fdstat(@NotNull Filetype filetype, boolean append, boolean dsync, boolean nonblock, boolean rsync, boolean sync) {
+public record Fdstat(@NotNull Filetype filetype, @NotNull FdFlags flags) {
     public Fdstat {
         requireNonNull(filetype);
+        requireNonNull(flags);
     }
 }

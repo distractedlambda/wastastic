@@ -51,25 +51,27 @@ final class WasiConstants {
     static final int EVENTTYPE_FD_READ = 1 << 1;
     static final int EVENTTYPE_FD_WRITE = 1 << 2;
 
-    static final int OFLAGS_CREAT = 1;
-    static final int OFLAGS_DIRECTORY = 1 << 1;
-    static final int OFLAGS_EXCL = 1 << 2;
-    static final int OFLAGS_TRUNC = 1 << 3;
+    static final short OFLAGS_CREAT = 1;
+    static final short OFLAGS_DIRECTORY = 1 << 1;
+    static final short OFLAGS_EXCL = 1 << 2;
+    static final short OFLAGS_TRUNC = 1 << 3;
+    static final short ILLEGAL_OFLAGS = -(OFLAGS_TRUNC << 1);
 
     static final int LOOKUPFLAGS_SYMLINK_FOLLOW = 1;
+    static final int ILLEGAL_LOOKUPFLAGS = -(LOOKUPFLAGS_SYMLINK_FOLLOW << 1);
 
     static final int FSTFLAGS_ATIM = 1;
     static final int FSTFLAGS_ATIM_NOW = 1 << 1;
     static final int FSTFLAGS_MTIM = 1 << 2;
     static final int FSTFLAGS_MTIM_NOW = 1 << 3;
-    static final int ILLEGAL_FSTFLAGS = ~0b1111;
+    static final int ILLEGAL_FSTFLAGS = -(FSTFLAGS_MTIM_NOW << 1);
 
     static final int FDFLAGS_APPEND = 1;
     static final int FDFLAGS_DSYNC = 1 << 1;
     static final int FDFLAGS_NONBLOCK = 1 << 2;
     static final int FDFLAGS_RSYNC = 1 << 3;
     static final int FDFLAGS_SYNC = 1 << 4;
-    static final int ILLEGAL_FDFLAGS = ~0b11111;
+    static final int ILLEGAL_FDFLAGS = -(FDFLAGS_SYNC << 1);
 
     static final byte FILETYPE_UNKNOWN = 0;
     static final byte FILETYPE_BLOCK_DEVICE = 1;
@@ -113,7 +115,7 @@ final class WasiConstants {
     static final long RIGHTS_PATH_UNLINK_FILE = 1 << 26;
     static final long RIGHTS_POLL_FD_READWRITE = 1 << 27;
     static final long RIGHTS_SOCK_SHUTDOWN = 1 << 28;
-    static final long ILLEGAL_RIGHTS = -(1 << 29);
+    static final long ILLEGAL_RIGHTS = -(RIGHTS_SOCK_SHUTDOWN << 1);
 
     static final int ADVICE_NORMAL = 0;
     static final int ADVICE_SEQUENTIAL = 1;
@@ -126,6 +128,4 @@ final class WasiConstants {
     static final int CLOCKID_MONOTONIC = 1;
     static final int CLOCKID_PROCESS_CPUTIME_ID = 2;
     static final int CLOCKID_THREAD_CPUTIME_ID = 3;
-
-
 }

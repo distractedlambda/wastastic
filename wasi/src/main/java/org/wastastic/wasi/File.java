@@ -3,6 +3,7 @@ package org.wastastic.wasi;
 import jdk.incubator.foreign.MemorySegment;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.wastastic.Memory;
 
 import java.util.List;
 
@@ -17,7 +18,7 @@ public interface File {
 
     @NotNull Fdstat fdFdstatGet() throws ErrnoException;
 
-    void fdFdstatSetFlags(boolean append, boolean dsync, boolean nonblock, boolean rsync, boolean sync) throws ErrnoException;
+    void fdFdstatSetFlags(@NotNull FdFlags flags) throws ErrnoException;
 
     @NotNull Filestat fdFilestatGet() throws ErrnoException;
 
@@ -45,21 +46,21 @@ public interface File {
 
     void pathCreateDirectory(@NotNull MemorySegment path) throws ErrnoException;
 
-    @NotNull Filestat pathFilestatGet(boolean followSymlinks, @NotNull MemorySegment path) throws ErrnoException;
+    @NotNull Filestat pathFilestatGet(@NotNull LookupFlags flags, @NotNull MemorySegment path) throws ErrnoException;
 
-    void pathFilestatSetTimes(boolean followSymlinks, @NotNull MemorySegment path, @NotNull TimeOverride accessTime, @NotNull TimeOverride modificationTime) throws ErrnoException;
+    void pathFilestatSetTimes(@NotNull LookupFlags flags, @NotNull MemorySegment path, @NotNull TimeOverride accessTime, @NotNull TimeOverride modificationTime) throws ErrnoException;
 
-    void pathLink(boolean followSymlinks, @NotNull MemorySegment oldPath, @NotNull File newRoot, @NotNull MemorySegment newPath) throws ErrnoException;
+    void pathLink(@NotNull LookupFlags flags, @NotNull MemorySegment oldPath, @NotNull File newRoot, @NotNull MemorySegment newPath) throws ErrnoException;
 
-    @NotNull File pathOpen(boolean followSymlinks, @NotNull MemorySegment path, boolean create, boolean directory, boolean exclusive, boolean truncate, boolean append, boolean dsync, boolean nonblock, boolean rsync, boolean sync, @NotNull Rights baseRights, @NotNull Rights inheritingRights) throws ErrnoException;
+    @NotNull File pathOpen(@NotNull LookupFlags flags, @NotNull MemorySegment path, @NotNull OFlags oflags, @NotNull Rights baseRights, @NotNull Rights inheritingRights, @NotNull FdFlags fdflags) throws ErrnoException;
 
-    byte @NotNull[] pathReadlink(@NotNull MemorySegment path) throws ErrnoException;
+    int pathReadlink(@NotNull MemorySegment path, @NotNull MemorySegment destination) throws ErrnoException;
 
     void pathRemoveDirectory(@NotNull MemorySegment path) throws ErrnoException;
 
     void pathRename(@NotNull MemorySegment oldPath, @NotNull File newRoot, @NotNull MemorySegment newPath) throws ErrnoException;
 
-    void pathSymlink(@NotNull MemorySegment oldPath, @NotNull File newRoot, @NotNull MemorySegment newPath) throws ErrnoException;
+    void pathSymlink(@NotNull MemorySegment oldPath, @NotNull MemorySegment newPath) throws ErrnoException;
 
     void pathUnlinkFile(@NotNull MemorySegment path) throws ErrnoException;
 }
